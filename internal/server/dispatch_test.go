@@ -1,0 +1,356 @@
+package server
+
+import (
+	"errors"
+	"testing"
+
+	"github.com/Pimeng/gooophira-mp/internal/config"
+	"github.com/Pimeng/gooophira-mp/internal/protocol"
+)
+
+// mockPhira 是测试用的 Phira API 桩。
+type mockPhira struct {
+	charts  map[int]config.Chart
+	records map[int]config.RecordData
+}
+
+func (m *mockPhira) FetchUserInfo(token string) (PhiraUserInfo, error) { return PhiraUserInfo{}, nil }
+func (m *mockPhira) FetchChart(id int) (config.Chart, error) {
+	if c, ok := m.charts[id]; ok {
+		return c, nil
+	}
+	return config.Chart{}, errors.New("chart-fetch-failed")
+}
+func (m *mockPhira) FetchRecord(id int) (config.RecordData, error) {
+	if r, ok := m.records[id]; ok {
+		return r, nil
+	}
+	return config.RecordData{}, errors.New("record-fetch-failed")
+}
+
+func (h *testHarness) room(id protocol.RoomID) *Room { return h.state.Rooms[id] }
+
+// mustDispatch 派发一条命令并断言其结果为 Ok，返回响应命令。
+func (h *Hub) mustDispatch(t *testing.T, user *User, cmd protocol.ClientCommand) protocol.ServerCommand {
+	t.Helper()
+	resp, ok := h.ProcessClientCommand(user, cmd)
+	if !ok {
+		t.Fatalf("expected a response for %T", cmd)
+	}
+	switch c := resp.(type) {
+	case protocol.SrvCreateRoom:
+		assertOK(t, "CreateRoom", c.Result.Ok, c.Result.Error)
+	case protocol.SrvJoinRoom:
+		assertOK(t, "JoinRoom", c.Result.Ok, c.Result.Error)
+	case protocol.SrvSelectChart:
+		assertOK(t, "SelectChart", c.Result.Ok, c.Result.Error)
+	case protocol.SrvRequestStart:
+		assertOK(t, "RequestStart", c.Result.Ok, c.Result.Error)
+	case protocol.SrvReady:
+		assertOK(t, "Ready", c.Result.Ok, c.Result.Error)
+	case protocol.SrvPlayed:
+		assertOK(t, "Played", c.Result.Ok, c.Result.Error)
+	case protocol.SrvLeaveRoom:
+		assertOK(t, "LeaveRoom", c.Result.Ok, c.Result.Error)
+	default:
+		t.Fatalf("unexpected response type %T", resp)
+	}
+	return resp
+}
+
+func assertOK(t *testing.T, name string, ok bool, errMsg string) {
+	t.Helper()
+	if !ok {
+		t.Fatalf("%s failed: %s", name, errMsg)
+	}
+}
+
+func TestDispatch_FullGameFlow(t *testing.T) {
+	h := newHarness(200)
+	phira := &mockPhira{
+		charts: map[int]config.Chart{1: {ID: 1, Name: "chart1"}},
+		records: map[int]config.RecordData{
+			10: {ID: 10, Player: 1, Score: 900000, Accuracy: 0.95, Std: 0.02},
+			20: {ID: 20, Player: 2, Score: 980000, Accuracy: 0.99, Std: 0.01},
+		},
+	}
+	hub := NewHub(h.state, phira)
+	alice := h.addUser(1, "alice")
+	bob := h.addUser(2, "bob")
+
+	// 建房
+	hub.mustDispatch(t, alice, protocol.CmdCreateRoom{ID: "room1"})
+	room := h.room("room1")
+	if room == nil || room.HostID != 1 {
+		t.Fatalf("room not created properly: %+v", room)
+	}
+	if alice.Room != room {
+		t.Fatal("alice.Room should point to new room")
+	}
+
+	// bob 加入
+	hub.mustDispatch(t, bob, protocol.CmdJoinRoom{ID: "room1", Monitor: false})
+	if room.UserCount() != 2 {
+		t.Fatalf("room should have 2 users, got %d", room.UserCount())
+	}
+
+	// 选谱
+	hub.mustDispatch(t, alice, protocol.CmdSelectChart{ID: 1})
+	if room.Chart == nil || room.Chart.ID != 1 {
+		t.Fatalf("chart should be set to 1, got %+v", room.Chart)
+	}
+
+	// 请求开始 → WaitForReady（host 自动就绪）
+	hub.mustDispatch(t, alice, protocol.CmdRequestStart{})
+	st, ok := room.State.(StateWaitForReady)
+	if !ok {
+		t.Fatalf("state should be WaitForReady, got %T", room.State)
+	}
+	if _, ready := st.Started[1]; !ready {
+		t.Error("host should be auto-ready after RequestStart")
+	}
+
+	// bob 就绪 → 全员就绪 → Playing
+	hub.mustDispatch(t, bob, protocol.CmdReady{})
+	if _, ok := room.State.(StatePlaying); !ok {
+		t.Fatalf("state should be Playing after all ready, got %T", room.State)
+	}
+
+	// 双方交成绩 → 结算 → SelectChart
+	hub.mustDispatch(t, alice, protocol.CmdPlayed{ID: 10})
+	if _, ok := room.State.(StatePlaying); !ok {
+		t.Fatal("should still be Playing after only alice played")
+	}
+	hub.mustDispatch(t, bob, protocol.CmdPlayed{ID: 20})
+	if _, ok := room.State.(StateSelectChart); !ok {
+		t.Fatalf("state should return to SelectChart after both played, got %T", room.State)
+	}
+}
+
+func TestDispatch_AuthRepeated(t *testing.T) {
+	h := newHarness()
+	hub := NewHub(h.state, &mockPhira{})
+	alice := h.addUser(1, "alice")
+	resp, ok := hub.ProcessClientCommand(alice, protocol.CmdAuthenticate{Token: "x"})
+	if !ok {
+		t.Fatal("auth should return a response")
+	}
+	auth, isAuth := resp.(protocol.SrvAuthenticate)
+	if !isAuth || auth.Result.Ok {
+		t.Fatalf("repeated authenticate should error, got %+v", resp)
+	}
+}
+
+func TestDispatch_PingNoResponse(t *testing.T) {
+	h := newHarness()
+	hub := NewHub(h.state, &mockPhira{})
+	alice := h.addUser(1, "alice")
+	if _, ok := hub.ProcessClientCommand(alice, protocol.CmdPing{}); ok {
+		t.Error("Ping should not produce a response (handled at session layer)")
+	}
+}
+
+func TestDispatch_CreateRoom_AlreadyInRoom(t *testing.T) {
+	h := newHarness()
+	hub := NewHub(h.state, &mockPhira{})
+	alice := h.addUser(1, "alice")
+	hub.mustDispatch(t, alice, protocol.CmdCreateRoom{ID: "room1"})
+	// 再次建房应失败（已在房间）
+	resp, _ := hub.ProcessClientCommand(alice, protocol.CmdCreateRoom{ID: "room2"})
+	if resp.(protocol.SrvCreateRoom).Result.Ok {
+		t.Error("creating a second room while in one should fail")
+	}
+}
+
+func TestDispatch_JoinRoom_NotFound(t *testing.T) {
+	h := newHarness()
+	hub := NewHub(h.state, &mockPhira{})
+	bob := h.addUser(2, "bob")
+	resp, _ := hub.ProcessClientCommand(bob, protocol.CmdJoinRoom{ID: "nope", Monitor: false})
+	if resp.(protocol.SrvJoinRoom).Result.Ok {
+		t.Error("joining a non-existent room should fail")
+	}
+}
+
+func TestDispatch_Played_WrongPlayer(t *testing.T) {
+	h := newHarness()
+	phira := &mockPhira{
+		charts:  map[int]config.Chart{1: {ID: 1, Name: "c"}},
+		records: map[int]config.RecordData{10: {ID: 10, Player: 999, Score: 1}}, // player 不是 alice
+	}
+	hub := NewHub(h.state, phira)
+	alice := h.addUser(1, "alice")
+	hub.mustDispatch(t, alice, protocol.CmdCreateRoom{ID: "room1"})
+	hub.mustDispatch(t, alice, protocol.CmdSelectChart{ID: 1})
+	hub.mustDispatch(t, alice, protocol.CmdRequestStart{})
+	// 单人房，RequestStart 后立即进入 Playing
+	if _, ok := h.room("room1").State.(StatePlaying); !ok {
+		t.Fatalf("single-player room should enter Playing, got %T", h.room("room1").State)
+	}
+	resp, _ := hub.ProcessClientCommand(alice, protocol.CmdPlayed{ID: 10})
+	if resp.(protocol.SrvPlayed).Result.Ok {
+		t.Error("played with mismatched player id should fail (record-invalid)")
+	}
+}
+
+func TestDispatch_ChatBroadcast(t *testing.T) {
+	h := newHarness()
+	hub := NewHub(h.state, &mockPhira{})
+	alice := h.addUser(1, "alice")
+	hub.mustDispatch(t, alice, protocol.CmdCreateRoom{ID: "room1"})
+	before := len(sentTo(alice))
+	resp, _ := hub.ProcessClientCommand(alice, protocol.CmdChat{Message: "hello"})
+	if c := resp.(protocol.SrvChat); !c.Result.Ok {
+		t.Fatalf("chat should succeed: %s", c.Result.Error)
+	}
+	// alice 应收到自己的聊天广播（SrvMessage{MsgChat}）
+	found := false
+	for _, cmd := range sentTo(alice)[before:] {
+		if sm, ok := cmd.(protocol.SrvMessage); ok {
+			if chat, ok := sm.Message.(protocol.MsgChat); ok && chat.Content == "hello" && chat.User == 1 {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("chat should be broadcast to room participants")
+	}
+}
+
+func TestDispatch_LockAndCycle(t *testing.T) {
+	h := newHarness()
+	hub := NewHub(h.state, &mockPhira{})
+	alice := h.addUser(1, "alice")
+	hub.mustDispatch(t, alice, protocol.CmdCreateRoom{ID: "room1"})
+	room := h.room("room1")
+
+	if resp, _ := hub.ProcessClientCommand(alice, protocol.CmdLockRoom{Lock: true}); !resp.(protocol.SrvLockRoom).Result.Ok {
+		t.Error("host lock should succeed")
+	}
+	if !room.Locked {
+		t.Error("room should be locked")
+	}
+	if resp, _ := hub.ProcessClientCommand(alice, protocol.CmdCycleRoom{Cycle: true}); !resp.(protocol.SrvCycleRoom).Result.Ok {
+		t.Error("host cycle should succeed")
+	}
+	if !room.Cycle {
+		t.Error("room should be in cycle mode")
+	}
+}
+
+// TestDispatch_AbortThenSettle 对应 TS「游戏中玩家 Abort 后，房主交成绩即结算，
+// 不再等待已中止的玩家」。
+func TestDispatch_AbortThenSettle(t *testing.T) {
+	h := newHarness()
+	phira := &mockPhira{
+		charts:  map[int]config.Chart{1: {ID: 1, Name: "c"}},
+		records: map[int]config.RecordData{10: {ID: 10, Player: 1, Score: 1}},
+	}
+	hub := NewHub(h.state, phira)
+	host := h.addUser(1, "host")
+	player := h.addUser(2, "player")
+
+	hub.mustDispatch(t, host, protocol.CmdCreateRoom{ID: "room1"})
+	hub.mustDispatch(t, player, protocol.CmdJoinRoom{ID: "room1", Monitor: false})
+	hub.mustDispatch(t, host, protocol.CmdSelectChart{ID: 1})
+	hub.mustDispatch(t, host, protocol.CmdRequestStart{})
+	hub.mustDispatch(t, player, protocol.CmdReady{})
+	room := h.room("room1")
+	if _, ok := room.State.(StatePlaying); !ok {
+		t.Fatalf("should be Playing, got %T", room.State)
+	}
+
+	// player 中止
+	if resp, _ := hub.ProcessClientCommand(player, protocol.CmdAbort{}); !resp.(protocol.SrvAbort).Result.Ok {
+		t.Fatal("abort should succeed")
+	}
+	if _, ok := room.State.(StatePlaying); !ok {
+		t.Fatal("should still be Playing after only player aborted (host unfinished)")
+	}
+	// host 交成绩 → 全员完成（host 成绩 + player 中止）→ 结算回 SelectChart
+	hub.mustDispatch(t, host, protocol.CmdPlayed{ID: 10})
+	if _, ok := room.State.(StateSelectChart); !ok {
+		t.Fatalf("should settle to SelectChart (not waiting for aborted player), got %T", room.State)
+	}
+}
+
+// TestDispatch_MonitorMustReady 对应 TS「观战者也需 Ready，否则状态机不推进」。
+func TestDispatch_MonitorMustReady(t *testing.T) {
+	h := newHarness(300) // 300 在 monitors 白名单
+	phira := &mockPhira{charts: map[int]config.Chart{1: {ID: 1, Name: "c"}}}
+	hub := NewHub(h.state, phira)
+	host := h.addUser(1, "host")
+	player := h.addUser(2, "player")
+	monitor := h.addUser(300, "mon")
+
+	hub.mustDispatch(t, host, protocol.CmdCreateRoom{ID: "room1"})
+	hub.mustDispatch(t, player, protocol.CmdJoinRoom{ID: "room1", Monitor: false})
+	hub.mustDispatch(t, monitor, protocol.CmdJoinRoom{ID: "room1", Monitor: true})
+	hub.mustDispatch(t, host, protocol.CmdSelectChart{ID: 1})
+	hub.mustDispatch(t, host, protocol.CmdRequestStart{})
+
+	room := h.room("room1")
+	hub.mustDispatch(t, player, protocol.CmdReady{})
+	if _, ok := room.State.(StateWaitForReady); !ok {
+		t.Fatal("should still wait: monitor has not readied yet")
+	}
+	hub.mustDispatch(t, monitor, protocol.CmdReady{})
+	if _, ok := room.State.(StatePlaying); !ok {
+		t.Fatalf("should enter Playing once monitor also readied, got %T", room.State)
+	}
+}
+
+// TestDispatch_NonHostCannotSelectOrStart 对应 TS「非房主越权操作被拒」。
+func TestDispatch_NonHostCannotSelectOrStart(t *testing.T) {
+	h := newHarness()
+	phira := &mockPhira{charts: map[int]config.Chart{111: {ID: 111, Name: "c"}}}
+	hub := NewHub(h.state, phira)
+	host := h.addUser(1, "host")
+	player := h.addUser(2, "player")
+	hub.mustDispatch(t, host, protocol.CmdCreateRoom{ID: "room1"})
+	hub.mustDispatch(t, player, protocol.CmdJoinRoom{ID: "room1", Monitor: false})
+
+	if resp, _ := hub.ProcessClientCommand(player, protocol.CmdSelectChart{ID: 999}); resp.(protocol.SrvSelectChart).Result.Ok {
+		t.Error("non-host SelectChart should be rejected")
+	}
+	if resp, _ := hub.ProcessClientCommand(player, protocol.CmdRequestStart{}); resp.(protocol.SrvRequestStart).Result.Ok {
+		t.Error("non-host RequestStart should be rejected")
+	}
+	if h.room("room1").Chart != nil {
+		t.Error("chart should remain unset after rejected non-host select")
+	}
+}
+
+// TestDispatch_FramesDroppedWhenNotPlaying 对应 TS「非游玩状态丢弃触控/判定帧，不分发」。
+func TestDispatch_FramesDroppedWhenNotPlaying(t *testing.T) {
+	h := newHarness(300)
+	hub := NewHub(h.state, &mockPhira{})
+	host := h.addUser(1, "host")
+	mon := h.addUser(300, "mon")
+	hub.mustDispatch(t, host, protocol.CmdCreateRoom{ID: "room1"})
+	hub.mustDispatch(t, mon, protocol.CmdJoinRoom{ID: "room1", Monitor: true})
+
+	before := len(sentTo(mon))
+	// SelectChart 态下注入触控/判定帧：应被丢弃，不广播给观战者，且无响应。
+	frames := []protocol.TouchFrame{{Time: 10, Points: []protocol.TouchPoint{{ID: 1, Pos: protocol.CompactPos{X: 0, Y: 1}}}}}
+	if _, ok := hub.ProcessClientCommand(host, protocol.CmdTouches{Frames: frames}); ok {
+		t.Error("Touches in non-Playing state should produce no response")
+	}
+	if _, ok := hub.ProcessClientCommand(host, protocol.CmdJudges{Judges: []protocol.JudgeEvent{{Time: 10}}}); ok {
+		t.Error("Judges in non-Playing state should produce no response")
+	}
+	if len(sentTo(mon)) != before {
+		t.Error("monitor should not receive any frame while room is not Playing")
+	}
+}
+
+func TestDispatch_LeaveRoomDisbands(t *testing.T) {
+	h := newHarness()
+	hub := NewHub(h.state, &mockPhira{})
+	alice := h.addUser(1, "alice")
+	hub.mustDispatch(t, alice, protocol.CmdCreateRoom{ID: "room1"})
+	hub.mustDispatch(t, alice, protocol.CmdLeaveRoom{})
+	if h.room("room1") != nil {
+		t.Error("room should be disbanded when last user leaves")
+	}
+}
