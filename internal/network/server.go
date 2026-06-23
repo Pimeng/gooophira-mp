@@ -82,7 +82,9 @@ func (s *Server) admit(conn net.Conn) bool {
 		return false
 	}
 	ip := hostOf(conn.RemoteAddr())
-	if !s.connLimiter.allow(ip, time.Now()) {
+	// 回环连接（本机压测 / 同机反代 / 本地 GUI）豁免连接限速：回环不可能是远程连接洪水，
+	// 对其限速无任何安全收益，反而会在本机高频建连时把自己封掉，连坐同样走回环的真实客户端。
+	if !isLoopbackHost(ip) && !s.connLimiter.allow(ip, time.Now()) {
 		atomic.AddInt32(&s.activeConns, -1)
 		s.debug("rate-limited connection from " + ip)
 		_ = conn.Close()
@@ -130,4 +132,10 @@ func hostOf(addr net.Addr) string {
 		return addr.String()
 	}
 	return host
+}
+
+// isLoopbackHost 判断主机字符串是否为回环地址（127.0.0.0/8、::1）。非合法 IP 返回 false。
+func isLoopbackHost(ip string) bool {
+	p := net.ParseIP(ip)
+	return p != nil && p.IsLoopback()
 }
