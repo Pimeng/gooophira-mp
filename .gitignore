@@ -1,0 +1,12 @@
+# 运行时生成目录/文件（任意层级）
+logs/
+record/
+admin_data.json
+
+# 编译产物
+/server
+/server.exe
+*.exe
+
+# IDE
+/.idea/
