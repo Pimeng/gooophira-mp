@@ -140,6 +140,18 @@ log-http-listen = HTTP прослушивает на { $addr }
 log-server-name = Имя сервера { $name }
 log-server-stopped = Сервер остановлен
 
+log-locale-overrides-loaded = Загружены локализационные переопределения для { $count } язык(ов)
+log-config-loaded = Конфигурация загружена из { $path }
+log-config-not-found = Файл конфигурации не найден, используются переменные окружения и значения по умолчанию
+log-redis-fallback = Не удалось подключиться к Redis, откат к локальному кэшу: { $error }
+log-redis-enabled = Кэш Redis включён (общий для нескольких экземпляров)
+log-admin-data-load-failed = Не удалось загрузить данные администрирования: { $error }
+log-listen-failed = Не удалось прослушивать { $addr }: { $error }
+log-http-start-failed = Не удалось запустить HTTP-сервис: { $error }
+log-config-reload-skipped = Перезагрузка конфигурации пропущена: { $error }
+log-config-reloaded = Конфигурация перезагружена: { $items }
+log-config-reload-restart = Следующие изменения конфигурации вступят в силу после перезапуска: { $items }
+
 log-heartbeat-timeout-disconnect = Тайм-аут пульса. Отключение (id={ $id })
 log-auth-ok = Аутентификация успешна. id={ $id }, user=«{ $user }»{ $monitorSuffix }, proto=«{ $version }»
 log-auth-failed = Ошибка аутентификации. id={ $id }, reason={ $reason }
