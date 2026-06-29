@@ -140,6 +140,18 @@ log-http-listen = HTTP가 { $addr }에서 수신 대기 중
 log-server-name = 서버 이름 { $name }
 log-server-stopped = 서버가 중지되었습니다
 
+log-locale-overrides-loaded = { $count }개 언어의 로케일 재정의를 불러왔습니다
+log-config-loaded = { $path } 에서 설정을 불러왔습니다
+log-config-not-found = 설정 파일을 찾을 수 없어 환경 변수와 기본값을 사용합니다
+log-redis-fallback = Redis 연결에 실패하여 로컬 캐시로 대체합니다: { $error }
+log-redis-enabled = Redis 캐시가 활성화되었습니다(여러 인스턴스 공유)
+log-admin-data-load-failed = 관리 데이터를 불러오지 못했습니다: { $error }
+log-listen-failed = { $addr } 수신 대기에 실패했습니다: { $error }
+log-http-start-failed = HTTP 서비스 시작에 실패했습니다: { $error }
+log-config-reload-skipped = 설정 다시 불러오기를 건너뛰었습니다: { $error }
+log-config-reloaded = 설정을 다시 불러왔습니다: { $items }
+log-config-reload-restart = 다음 설정 변경은 재시작 후 적용됩니다: { $items }
+
 log-heartbeat-timeout-disconnect = 하트비트 시간 초과. 연결을 끊습니다 (id={ $id })
 log-auth-ok = 인증 성공. id={ $id }, user="{ $user }"{ $monitorSuffix }, proto="{ $version }"
 log-auth-failed = 인증 실패. id={ $id }, reason={ $reason }

@@ -39,37 +39,59 @@ const (
 
 func main() {
 	configPath := flag.String("config", "server_config.yml", "配置文件路径（YAML）")
+	flag.StringVar(configPath, "c", "server_config.yml", "配置文件路径（YAML）（-config 的别名）")
+	hostFlag := flag.String("host", "0.0.0.0", "监听地址（覆盖配置中的 HOST）")
+	portFlag := flag.Int("port", defaultPort, "TCP 监听端口（覆盖配置中的 PORT）")
+	flag.IntVar(portFlag, "p", defaultPort, "TCP 监听端口（-port 的别名）")
+	httpPortFlag := flag.Int("http-port", defaultHTTPPort, "HTTP 服务端口（覆盖配置中的 HTTP_PORT）")
+	httpServiceFlag := flag.Bool("http-service", false, "启动 HTTP 查询/管理服务（覆盖配置中的 HTTP_SERVICE）")
 	guiFlag := flag.Bool("gui", false, "启动时打开服务端 GUI 控制台窗口（覆盖配置中的 GUI）")
 	flag.Parse()
 
-	// 配置优先级：环境变量 > 配置文件 > 内置默认值。
+	// 配置优先级：命令行参数 > 环境变量 > 配置文件 > 内置默认值。
 	cfg, fromFile, err := config.LoadMerged(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load config %s: %v\n", *configPath, err)
 		os.Exit(1)
 	}
-	if *guiFlag {
-		cfg.GUI = guiFlag // 启动参数 --gui 强制开启 GUI（含隐含的 HTTP 服务）
-	}
+	// 命令行参数覆盖：仅在用户显式传入时生效（flag.Visit 只遍历被设置过的标志），
+	// 避免标志的默认值无差别覆盖配置文件/环境变量。
+	flag.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "host":
+			cfg.Host = hostFlag
+		case "port", "p":
+			cfg.Port = portFlag
+		case "http-port":
+			cfg.HTTPPort = httpPortFlag
+		case "http-service":
+			cfg.HTTPService = httpServiceFlag
+		case "gui":
+			cfg.GUI = guiFlag
+		}
+	})
 
 	logger := logging.New(cfg.EffectiveLogLevel(), "logs")
 	defer logger.Close()
 
+	// 本地化语言在配置加载后即可确定（与 state.ServerLang 同源），供启动期日志使用。
+	lang := l10n.NewLanguage(cfg.EffectiveLang())
+
 	// 运行时本地化覆盖：locales/<lang>.ftl 存在则覆盖对应内置文案（须在服务前加载）。
 	if n := l10n.LoadOverrides("locales"); n > 0 {
-		logger.Info(fmt.Sprintf("loaded locale overrides for %d language(s)", n))
+		logger.Info(l10n.TL(lang, "log-locale-overrides-loaded", map[string]string{"count": strconv.Itoa(n)}))
 	}
 	if fromFile {
-		logger.Info("loaded config from " + *configPath)
+		logger.Info(l10n.TL(lang, "log-config-loaded", map[string]string{"path": *configPath}))
 	} else {
-		logger.Info("config file not found, using environment variables and defaults")
+		logger.Info(l10n.TL(lang, "log-config-not-found", nil))
 	}
 
 	// Redis 缓存（启用时谱面/记录/token 缓存转为多实例共享）。startup-only：仅启动时初始化。
 	if err := cache.InitRedis(cfg.Redis); err != nil {
-		logger.Warn(fmt.Sprintf("Redis 连接失败，回退本地缓存: %v", err))
+		logger.Warn(l10n.TL(lang, "log-redis-fallback", map[string]string{"error": err.Error()}))
 	} else if cache.RedisEnabled() {
-		logger.Mark("Redis 缓存已启用（多实例共享）")
+		logger.Mark(l10n.TL(lang, "log-redis-enabled", nil))
 	}
 	defer cache.CloseRedis()
 
@@ -80,7 +102,7 @@ func main() {
 	// 日志旁路到 GUI 控制台缓冲（供 /admin/console/logs 回填与 WS 推送）。
 	logger.SetOnLog(state.ConsoleHub.Push)
 	if err := state.LoadAdminData(); err != nil {
-		logger.Warn(fmt.Sprintf("failed to load admin data: %v", err))
+		logger.Warn(l10n.TL(lang, "log-admin-data-load-failed", map[string]string{"error": err.Error()}))
 	}
 	state.StartCleanup() // 周期内存清理（过期元数据/离线配置/过期 token）
 	defer state.StopCleanup()
@@ -160,10 +182,9 @@ func main() {
 	// JoinHostPort 正确处理 IPv6（如 HOST: "::" → "[::]:port"）。
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 
-	lang := state.ServerLang
 	srv, err := network.Listen(addr, state, hub)
 	if err != nil {
-		logger.Error(fmt.Sprintf("failed to listen on %s: %v", addr, err))
+		logger.Error(l10n.TL(lang, "log-listen-failed", map[string]string{"addr": addr, "error": err.Error()}))
 		os.Exit(1)
 	}
 	logger.Info(l10n.TL(lang, "log-server-name", map[string]string{"name": state.ServerName}))
@@ -185,7 +206,7 @@ func main() {
 		httpSvc = httpapi.New(state, hub)
 		httpAddr, herr := httpSvc.Start(net.JoinHostPort(host, strconv.Itoa(httpPort)))
 		if herr != nil {
-			logger.Error(fmt.Sprintf("failed to start HTTP service: %v", herr))
+			logger.Error(l10n.TL(lang, "log-http-start-failed", map[string]string{"error": herr.Error()}))
 		} else {
 			logger.Info(l10n.TL(lang, "log-http-listen", map[string]string{"addr": httpAddr.String()}))
 			if cfg.EffectiveGUI() {
@@ -198,15 +219,15 @@ func main() {
 	watcher := config.NewFileWatcher(*configPath, 2*time.Second, func() {
 		next, _, lerr := config.LoadMerged(*configPath)
 		if lerr != nil {
-			logger.Warn("config reload skipped: " + lerr.Error())
+			logger.Warn(l10n.TL(lang, "log-config-reload-skipped", map[string]string{"error": lerr.Error()}))
 			return
 		}
 		changed, restart := state.ReloadConfig(next)
 		if len(changed) > 0 {
-			logger.Mark("config reloaded: " + strings.Join(changed, ", "))
+			logger.Mark(l10n.TL(lang, "log-config-reloaded", map[string]string{"items": strings.Join(changed, ", ")}))
 		}
 		if len(restart) > 0 {
-			logger.Warn("config changes require restart to take effect: " + strings.Join(restart, ", "))
+			logger.Warn(l10n.TL(lang, "log-config-reload-restart", map[string]string{"items": strings.Join(restart, ", ")}))
 		}
 	})
 	watcher.Start()
