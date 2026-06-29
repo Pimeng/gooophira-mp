@@ -46,6 +46,7 @@ replay-recorder-name = 回放錄製器
 
 chat-welcome = 「{ $userName }」你好！歡迎來到 { $serverName } 伺服器！
 chat-welcome-version = 伺服器目前版本： { $version }
+chat-welcome-stats = 目前線上 { $online } 人，{ $rooms } 個房間
 chat-hitokoto = { $quote } —— { $from }
 chat-hitokoto-from-unknown = 佚名
 chat-roomlist-title = 目前可用的房間如下：

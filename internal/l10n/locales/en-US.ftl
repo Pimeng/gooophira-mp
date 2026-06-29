@@ -46,6 +46,7 @@ replay-recorder-name = Replay Recorder
 
 chat-welcome = Hello "{ $userName }"! Welcome to { $serverName }!
 chat-welcome-version = Server is running version { $version }
+chat-welcome-stats = { $online } online, { $rooms } room(s)
 chat-hitokoto = { $quote } — { $from }
 chat-hitokoto-from-unknown = Unknown
 chat-roomlist-title = Available rooms:

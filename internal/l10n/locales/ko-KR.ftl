@@ -46,6 +46,7 @@ replay-recorder-name = 리플레이 레코더
 
 chat-welcome = "{ $userName }"님, 안녕하세요! { $serverName }에 오신 것을 환영합니다!
 chat-welcome-version = 서버 버전: { $version }
+chat-welcome-stats = 현재 { $online }명 접속 중, { $rooms }개 방
 chat-hitokoto = { $quote } —— { $from }
 chat-hitokoto-from-unknown = 작자 미상
 chat-roomlist-title = 사용 가능한 방:
