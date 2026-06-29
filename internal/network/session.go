@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -473,15 +474,34 @@ func fetchHitokoto(url string) *server.Hitokoto {
 	var data struct {
 		Hitokoto string `json:"hitokoto"`
 		From     string `json:"from"`
+		FromWho  string `json:"from_who"`
 	}
-	if json.NewDecoder(resp.Body).Decode(&data) != nil || data.Hitokoto == "" {
+	if json.NewDecoder(resp.Body).Decode(&data) != nil {
 		return nil
 	}
-	return &server.Hitokoto{Quote: data.Hitokoto, From: data.From}
+	quote := strings.TrimSpace(data.Hitokoto)
+	if quote == "" {
+		return nil
+	}
+	// 部分一言源把换行写成字面量 "\n"（反斜杠+n 两字符），JSON 解码不会还原；这里转成真实换行。
+	quote = strings.ReplaceAll(quote, "\\r\\n", "\n")
+	quote = strings.ReplaceAll(quote, "\\n", "\n")
+	// 出处优先用 from_who（一言官方 API 的具体出处常在此字段），为空再回退 from（对齐原版）。
+	from := strings.TrimSpace(data.FromWho)
+	if from == "" {
+		from = strings.TrimSpace(data.From)
+	}
+	return &server.Hitokoto{Quote: quote, From: from}
 }
 
 func (s *Session) failAuth(reasonKey string) {
-	s.TrySend(protocol.SrvAuthenticate{Result: protocol.Errr[protocol.AuthInfo](reasonKey)})
+	// reasonKey 可能是翻译键（auth-invalid-token / server-maintenance）或原始错误串（如 API 超时）；
+	// TL 对非键原样返回，故可统一本地化。对齐原版：发本地化原因给客户端并记 WARN 日志。
+	reason := l10n.TL(s.state.ServerLang, reasonKey, nil)
+	if lg := s.state.Logger; lg != nil {
+		lg.Warn(l10n.TL(s.state.ServerLang, "log-auth-failed", map[string]string{"id": s.id, "reason": reason}))
+	}
+	s.TrySend(protocol.SrvAuthenticate{Result: protocol.Errr[protocol.AuthInfo](reason)})
 	s.Close()
 }
 
