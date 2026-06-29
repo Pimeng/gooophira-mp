@@ -69,16 +69,6 @@ jobs:
     if: needs.check-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { goos: linux, goarch: amd64, name: linux-x64 }
-          - { goos: linux, goarch: arm64, name: linux-arm64 }
-          - { goos: windows, goarch: amd64, name: windows-x64, ext: .exe }
-          - { goos: darwin, goarch: arm64, name: macos-arm64 }
-          - { goos: darwin, goarch: amd64, name: macos-x64 }
-          - { goos: freebsd, goarch: amd64, name: freebsd-x64 }
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -88,26 +78,41 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: 交叉编译并打包
+      - name: 交叉编译各平台并打包
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: '0' # 纯 Go（仅依赖 yaml.v3），静态交叉编译
         run: |
-          BIN="phira-mp${{ matrix.ext }}"
-          # 版本号经 go:embed 内嵌，无需 ldflags 注入；-s -w/-trimpath 仅瘦身与去除本地路径。
-          go build -trimpath -ldflags "-s -w" -o "$BIN" ./cmd/server
+          # 纯 Go 项目无需各系统单独起 runner，单机交叉编译全部目标即可。
+          # 每行：GOOS GOARCH 产物名后缀。
+          targets="
+          linux   amd64 linux-x64
+          linux   arm64 linux-arm64
+          windows amd64 windows-x64
+          darwin  arm64 macos-arm64
+          darwin  amd64 macos-x64
+          freebsd amd64 freebsd-x64
+          "
           mkdir -p dist
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            cp "$BIN" "dist/phira-mp-${{ matrix.name }}.exe"
-          else
-            tar -czf "dist/phira-mp-${{ matrix.name }}.tar.gz" "$BIN"
-          fi
+          echo "$targets" | while read -r goos goarch name; do
+            [ -z "$goos" ] && continue
+            ext=""; [ "$goos" = "windows" ] && ext=".exe"
+            BIN="phira-mp$ext"
+            echo "▶ 编译 $goos/$goarch → $name"
+            # 版本号经 go:embed 内嵌，无需 ldflags 注入；-s -w/-trimpath 仅瘦身与去除本地路径。
+            GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags "-s -w" -o "$BIN" ./cmd/server
+            if [ "$goos" = "windows" ]; then
+              mv "$BIN" "dist/phira-mp-$name.exe"
+            else
+              tar -czf "dist/phira-mp-$name.tar.gz" "$BIN"
+              rm -f "$BIN"
+            fi
+          done
+          ls -lh dist
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: phira-mp-${{ matrix.name }}
+          name: phira-mp-binaries
           path: dist/*
           if-no-files-found: error
 
