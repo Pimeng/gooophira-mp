@@ -1,0 +1,45 @@
+name: 同步到 CNB
+
+# 把整个仓库（全部分支与标签、完整历史）镜像同步到 CNB.cool。
+# 与 tphira-mp 只同步 release 附件不同，这里直接做整仓镜像。
+# 鉴权使用仓库 Secret CNB_SYNC_TOKEN（Git 用户名固定为 cnb）。
+on:
+  push:
+    branches: ['**']
+    tags: ['**']
+  workflow_dispatch: {}
+
+# 串行执行，避免多次推送相互竞争；不取消进行中的同步，防止半路中断。
+concurrency:
+  group: sync-cnb
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 镜像克隆 GitHub 源仓库
+        run: |
+          git clone --mirror \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" \
+            repo.git
+
+      - name: 镜像推送到 CNB
+        env:
+          CNB_SYNC_TOKEN: ${{ secrets.CNB_SYNC_TOKEN }}
+          CNB_REPO: Pimeng233/gooophira-mp
+        run: |
+          if [ -z "$CNB_SYNC_TOKEN" ]; then
+            echo "::error::缺少 CNB_SYNC_TOKEN Secret，无法同步到 CNB"
+            exit 1
+          fi
+          cd repo.git
+          # 仅同步分支与标签（排除 GitHub 的 refs/pull/*）；--prune 删除 CNB 上已不存在的引用，
+          # 使 CNB 与 GitHub 保持严格镜像一致。Token 经 env 注入，GitHub 会自动在日志中打码。
+          git push --prune \
+            "https://cnb:${CNB_SYNC_TOKEN}@cnb.cool/${CNB_REPO}.git" \
+            "+refs/heads/*:refs/heads/*" "+refs/tags/*:refs/tags/*"
+          echo "✅ 已镜像同步到 https://cnb.cool/${CNB_REPO}"
