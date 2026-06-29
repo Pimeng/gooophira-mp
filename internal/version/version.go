@@ -2,7 +2,7 @@
 //
 // 优先级：PHIRA_MP_VERSION 环境变量 > ldflags 注入 > 内嵌 VERSION 文件 > 构建信息 > "dev"。
 //
-// 普通 `go build` 即得到 VERSION 文件里的版本（当前 0.0.1）。release 构建可用 ldflags 覆盖，
+// 普通 `go build` 即得到 VERSION 文件里的版本（当前 0.0.3）。release 构建可用 ldflags 覆盖，
 // 例如注入 git 描述：
 //
 //	go build -ldflags "-X github.com/Pimeng/gooophira-mp/internal/version.injected=$(git describe --tags --always)" ./cmd/server

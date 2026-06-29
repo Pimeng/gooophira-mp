@@ -1,6 +1,9 @@
 package server
 
 import (
+	"fmt"
+	"strconv"
+
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
 )
@@ -89,6 +92,7 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			if err != nil {
 				return err
 			}
+			room.logRoomInfo(h.MakeRoomLifecycle(room), "log-user-chat", map[string]string{"user": user.Name})
 			content := c.Message
 			if !h.State.Config.EffectiveChatEnabled() {
 				content = h.localize(user, "chat-disabled-by-server")
@@ -111,6 +115,12 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 		if len(c.Frames) > 0 {
 			user.GameTime = float64(c.Frames[len(c.Frames)-1].Time)
 		}
+		// DEBUG 帧日志：先短路判断等级，避免热路径上无谓的格式化与分配。
+		if lg := h.State.Logger; lg != nil && lg.DebugEnabled() {
+			lg.Debug(l10n.TL(h.State.ServerLang, "log-user-touches", map[string]string{
+				"user": user.Name, "room": string(room.ID), "count": strconv.Itoa(len(c.Frames)),
+			}))
+		}
 		if room.MonitorCount() > 0 {
 			h.forwardTouches(room, user.ID, c.Frames)
 		}
@@ -126,6 +136,12 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 		}
 		if _, can := playingStateFor(room, user.ID); !can {
 			return nil, false
+		}
+		// DEBUG 帧日志：先短路判断等级，避免热路径上无谓的格式化与分配。
+		if lg := h.State.Logger; lg != nil && lg.DebugEnabled() {
+			lg.Debug(l10n.TL(h.State.ServerLang, "log-user-judges", map[string]string{
+				"user": user.Name, "room": string(room.ID), "count": strconv.Itoa(len(c.Judges)),
+			}))
 		}
 		if room.MonitorCount() > 0 {
 			h.forwardJudges(room, user.ID, c.Judges)
@@ -151,8 +167,14 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			if err != nil {
 				return err
 			}
-			shouldDrop := room.OnUserLeave(h.MakeRoomLifecycle(room), user)
+			lc := h.MakeRoomLifecycle(room)
+			// 对齐原版：离开房间输出 MARK 级日志（在 OnUserLeave 前取观战后缀）。
+			room.logRoomMark(lc, "log-room-left", map[string]string{
+				"user": user.Name, "suffix": h.monitorSuffix(user.Monitor),
+			})
+			shouldDrop := room.OnUserLeave(lc, user)
 			if shouldDrop {
+				room.logRoomInfo(lc, "log-room-recycled", nil)
 				delete(h.State.Rooms, room.ID)
 			} else {
 				room.RefreshLive(h.State.ReplayEnabled)
@@ -170,6 +192,9 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 				return err
 			}
 			room.Locked = c.Lock
+			room.logRoomMark(h.MakeRoomLifecycle(room), "log-room-lock", map[string]string{
+				"user": user.Name, "lock": strconv.FormatBool(c.Lock),
+			})
 			h.BroadcastRoomMessage(room, protocol.MsgLockRoom{Lock: c.Lock})
 			return nil
 		})}, true
@@ -184,6 +209,9 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 				return err
 			}
 			room.Cycle = c.Cycle
+			room.logRoomMark(h.MakeRoomLifecycle(room), "log-room-cycle", map[string]string{
+				"user": user.Name, "cycle": strconv.FormatBool(c.Cycle),
+			})
 			h.BroadcastRoomMessage(room, protocol.MsgCycleRoom{Cycle: c.Cycle})
 			return nil
 		})}, true
@@ -202,8 +230,14 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 				return err
 			}
 			room.Chart = &chart
-			h.BroadcastRoomMessage(room, protocol.MsgSelectChart{User: int32(user.ID), Name: chart.Name, ID: int32(chart.ID)})
 			lc := h.MakeRoomLifecycle(room)
+			// 对齐原版：选谱时输出 MARK 级控制台日志。
+			room.logRoomMark(lc, "log-room-select-chart", map[string]string{
+				"user":   user.Name,
+				"userId": fmt.Sprintf("%d", user.ID),
+				"chart":  chart.Name,
+			})
+			h.BroadcastRoomMessage(room, protocol.MsgSelectChart{User: int32(user.ID), Name: chart.Name, ID: int32(chart.ID)})
 			room.OnStateChange(lc)
 			room.NotifyWebSocket(lc)
 			return nil
@@ -219,9 +253,10 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 				return err
 			}
 			room.ResetGameTime(func(id int) *User { return h.State.Users[id] })
+			lc := h.MakeRoomLifecycle(room)
+			room.logRoomMark(lc, "log-room-request-start", map[string]string{"user": user.Name})
 			h.BroadcastRoomMessage(room, protocol.MsgGameStart{User: int32(user.ID)})
 			room.State = StateWaitForReady{Started: map[int]struct{}{user.ID: {}}}
-			lc := h.MakeRoomLifecycle(room)
 			room.OnStateChange(lc)
 			room.NotifyWebSocket(lc)
 			h.CheckRoomAllReady(room)
@@ -245,6 +280,7 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 				return errAlreadyReady
 			}
 			st.Started[user.ID] = struct{}{}
+			room.logRoomInfo(h.MakeRoomLifecycle(room), "log-room-ready", map[string]string{"user": user.Name})
 			h.BroadcastRoomMessage(room, protocol.MsgReady{User: int32(user.ID)})
 			room.NotifyWebSocket(h.MakeRoomLifecycle(room))
 			h.CheckRoomAllReady(room)
@@ -270,11 +306,13 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			delete(st.Started, user.ID)
 			lc := h.MakeRoomLifecycle(room)
 			if room.HostID == user.ID {
+				room.logRoomMark(lc, "log-room-cancel-game", map[string]string{"user": user.Name})
 				h.BroadcastRoomMessage(room, protocol.MsgCancelGame{User: int32(user.ID)})
 				room.State = StateSelectChart{}
 				room.OnStateChange(lc)
 				room.NotifyWebSocket(lc)
 			} else {
+				room.logRoomInfo(lc, "log-room-cancel-ready", map[string]string{"user": user.Name})
 				h.BroadcastRoomMessage(room, protocol.MsgCancelReady{User: int32(user.ID)})
 				room.NotifyWebSocket(lc)
 			}
@@ -298,6 +336,9 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			if room.Chart != nil && record.Chart != nil && *record.Chart != room.Chart.ID {
 				return errRecordChartMismatch
 			}
+			room.logRoomMark(h.MakeRoomLifecycle(room), "log-room-played", map[string]string{
+				"user": user.Name, "score": strconv.Itoa(record.Score), "acc": fmt.Sprintf("%v", record.Accuracy),
+			})
 			h.BroadcastRoomMessage(room, protocol.MsgPlayed{
 				User: int32(user.ID), Score: int32(record.Score),
 				Accuracy: float32(record.Accuracy), FullCombo: record.FullCombo,
@@ -338,6 +379,7 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 				return errGameAborted
 			}
 			st.Aborted[user.ID] = struct{}{}
+			room.logRoomMark(h.MakeRoomLifecycle(room), "log-room-abort", map[string]string{"user": user.Name})
 			h.BroadcastRoomMessage(room, protocol.MsgAbort{User: int32(user.ID)})
 			room.NotifyWebSocket(h.MakeRoomLifecycle(room))
 			h.CheckRoomAllReady(room)
