@@ -26,6 +26,8 @@ type Logger interface {
 	Mark(msg string)
 	Warn(msg string)
 	Error(msg string)
+	// DebugEnabled 报告 DEBUG 级别是否启用（供帧热路径短路日志格式化）。
+	DebugEnabled() bool
 }
 
 // WsBroadcaster 是房间/管理面板实时推送接口（WebSocket 服务实现）。

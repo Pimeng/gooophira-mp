@@ -194,6 +194,9 @@ func (l *Logger) log(level Level, msg string) {
 	l.writeFile(line) // 文件始终写无色行
 }
 
+// DebugEnabled 报告 DEBUG 级别是否启用（供热路径短路，避免无谓的格式化与分配）。
+func (l *Logger) DebugEnabled() bool { return Level(l.min.Load()) <= LevelDebug }
+
 // Debug 记录调试级日志。
 func (l *Logger) Debug(msg string) { l.log(LevelDebug, msg) }
 
