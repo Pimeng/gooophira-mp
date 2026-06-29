@@ -1,8 +1,8 @@
 name: 版本号变更时自动发布
 
-# Go 项目的版本号唯一来源是 internal/version/VERSION（参见 internal/version/version.go）。
-# push 到 main 且该文件版本相对「上一个提交」升高时，创建 GitHub Release，并直接调用
-# sync-cnb-release.yml 把该 Release 镜像到 CNB。
+# Go 项目的版本号唯一来源是 internal/version/VERSION（参见 internal/version/version.go，
+# 通过 go:embed 内嵌进二进制）。push 到 main 且该文件版本相对「上一个提交」升高时：
+#   交叉编译各平台二进制 → 创建 GitHub Release 并上传产物 → 镜像该 Release 到 CNB。
 on:
   push:
     branches: [main]
@@ -14,14 +14,12 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   check-version:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    permissions:
-      contents: write # 需要创建 tag / Release
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
       version: ${{ steps.check.outputs.version }}
@@ -48,7 +46,6 @@ jobs:
           [ -z "$previous" ] && previous="0.0.0" # 首个提交无父提交
           echo "上一提交版本：$previous → 当前版本：$current"
 
-          # 版本比较用 sort -V（version sort）：两者较大者等于当前且不相等 → 视为升高。
           if [ "$current" = "$previous" ]; then
             should_release=false
           elif [ "$(printf '%s\n%s\n' "$previous" "$current" | sort -V | tail -n1)" = "$current" ]; then
@@ -58,7 +55,6 @@ jobs:
           fi
           echo "should_release=$should_release" >> "$GITHUB_OUTPUT"
 
-          # 版本号带 '-'（如 0.1.0-rc.1）视为预发布。
           case "$current" in *-*) prerelease=true ;; *) prerelease=false ;; esac
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
 
@@ -68,26 +64,91 @@ jobs:
             echo "ℹ️ 版本未升高（$previous → $current），跳过发布"
           fi
 
-      - name: 创建 GitHub Release
-        if: steps.check.outputs.should_release == 'true'
+  build:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64, name: linux-x64 }
+          - { goos: linux, goarch: arm64, name: linux-arm64 }
+          - { goos: windows, goarch: amd64, name: windows-x64, ext: .exe }
+          - { goos: darwin, goarch: arm64, name: macos-arm64 }
+          - { goos: darwin, goarch: amd64, name: macos-x64 }
+          - { goos: freebsd, goarch: amd64, name: freebsd-x64 }
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: 交叉编译并打包
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0' # 纯 Go（仅依赖 yaml.v3），静态交叉编译
+        run: |
+          BIN="phira-mp${{ matrix.ext }}"
+          # 版本号经 go:embed 内嵌，无需 ldflags 注入；-s -w/-trimpath 仅瘦身与去除本地路径。
+          go build -trimpath -ldflags "-s -w" -o "$BIN" ./cmd/server
+          mkdir -p dist
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            cp "$BIN" "dist/phira-mp-${{ matrix.name }}.exe"
+          else
+            tar -czf "dist/phira-mp-${{ matrix.name }}.tar.gz" "$BIN"
+          fi
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: phira-mp-${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: [check-version, build]
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # 创建 tag / Release
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 下载全部构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true # 所有平台产物汇到 artifacts/ 一层
+
+      - name: 创建 GitHub Release 并上传产物
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v${{ steps.check.outputs.version }}
-          PRERELEASE: ${{ steps.check.outputs.prerelease }}
+          TAG: v${{ needs.check-version.outputs.version }}
+          PRERELEASE: ${{ needs.check-version.outputs.prerelease }}
         run: |
+          # 随二进制一并附上示例配置，便于部署。
+          FILES=(artifacts/* server_config.example.yml)
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $TAG 已存在，跳过创建"
-            exit 0
+            echo "Release $TAG 已存在，覆盖上传产物"
+            gh release upload "$TAG" "${FILES[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            ARGS=(--title "$TAG" --generate-notes --target "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY")
+            [ "$PRERELEASE" = "true" ] && ARGS+=(--prerelease)
+            gh release create "$TAG" "${FILES[@]}" "${ARGS[@]}"
           fi
-          # tag 打在本次 bump 的提交上，保证发版点准确。
-          ARGS=(--title "$TAG" --generate-notes --target "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY")
-          [ "$PRERELEASE" = "true" ] && ARGS+=(--prerelease)
-          gh release create "$TAG" "${ARGS[@]}"
-          echo "✅ 已创建 GitHub Release $TAG"
+          echo "✅ 已发布 GitHub Release $TAG（tag 打在本次 bump 提交上）"
 
-  # 复用 release 镜像流水线把刚创建的 Release 同步到 CNB。
+  # 复用 release 镜像流水线，把刚发布的 Release（含构建产物）同步到 CNB。
   sync-cnb:
-    needs: check-version
+    needs: [check-version, release]
     if: needs.check-version.outputs.should_release == 'true'
     uses: ./.github/workflows/sync-cnb-release.yml
     with:
