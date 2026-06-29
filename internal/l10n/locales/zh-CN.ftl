@@ -140,6 +140,18 @@ log-http-listen = HTTP 服务运行在 { $addr }
 log-server-name = 服务器名称 { $name }
 log-server-stopped = 服务端已停止
 
+log-locale-overrides-loaded = 已加载 { $count } 种语言的本地化覆盖
+log-config-loaded = 已从 { $path } 加载配置
+log-config-not-found = 未找到配置文件，使用环境变量与默认值
+log-redis-fallback = Redis 连接失败，回退本地缓存：{ $error }
+log-redis-enabled = Redis 缓存已启用（多实例共享）
+log-admin-data-load-failed = 加载管理数据失败：{ $error }
+log-listen-failed = 监听 { $addr } 失败：{ $error }
+log-http-start-failed = 启动 HTTP 服务失败：{ $error }
+log-config-reload-skipped = 配置重载已跳过：{ $error }
+log-config-reloaded = 配置已重载：{ $items }
+log-config-reload-restart = 以下配置变更需重启后生效：{ $items }
+
 log-heartbeat-timeout-disconnect = 心跳超时，准备断开连接（连接ID：{ $id }）
 log-auth-ok = 连接ID：{ $id }，“ { $user } ” { $monitorSuffix } 认证成功，协议版本：“{ $version }”
 log-auth-failed = 连接ID：{ $id } 认证失败：{ $reason }

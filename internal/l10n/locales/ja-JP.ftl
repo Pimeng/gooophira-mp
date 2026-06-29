@@ -140,6 +140,18 @@ log-http-listen = HTTP は { $addr } で待機中
 log-server-name = サーバー名 { $name }
 log-server-stopped = サーバーが停止しました
 
+log-locale-overrides-loaded = { $count } 言語のロケールオーバーライドを読み込みました
+log-config-loaded = { $path } から設定を読み込みました
+log-config-not-found = 設定ファイルが見つかりません。環境変数とデフォルト値を使用します
+log-redis-fallback = Redis 接続に失敗しました。ローカルキャッシュにフォールバックします：{ $error }
+log-redis-enabled = Redis キャッシュを有効化しました（複数インスタンスで共有）
+log-admin-data-load-failed = 管理データの読み込みに失敗しました：{ $error }
+log-listen-failed = { $addr } のリッスンに失敗しました：{ $error }
+log-http-start-failed = HTTP サービスの起動に失敗しました：{ $error }
+log-config-reload-skipped = 設定の再読み込みをスキップしました：{ $error }
+log-config-reloaded = 設定を再読み込みしました：{ $items }
+log-config-reload-restart = 次の設定変更は再起動後に有効になります：{ $items }
+
 log-heartbeat-timeout-disconnect = ハートビートタイムアウト。切断します（id={ $id }）
 log-auth-ok = 認証成功。id={ $id }、user=「{ $user }」{ $monitorSuffix }、proto=「{ $version }」
 log-auth-failed = 認証失敗。id={ $id }、reason={ $reason }

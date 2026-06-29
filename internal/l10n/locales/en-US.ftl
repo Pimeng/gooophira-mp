@@ -140,6 +140,18 @@ log-http-listen = HTTP listening on { $addr }
 log-server-name = Server name { $name }
 log-server-stopped = Server stopped
 
+log-locale-overrides-loaded = Loaded locale overrides for { $count } language(s)
+log-config-loaded = Loaded config from { $path }
+log-config-not-found = Config file not found, using environment variables and defaults
+log-redis-fallback = Redis connection failed, falling back to local cache: { $error }
+log-redis-enabled = Redis cache enabled (shared across instances)
+log-admin-data-load-failed = Failed to load admin data: { $error }
+log-listen-failed = Failed to listen on { $addr }: { $error }
+log-http-start-failed = Failed to start HTTP service: { $error }
+log-config-reload-skipped = Config reload skipped: { $error }
+log-config-reloaded = Config reloaded: { $items }
+log-config-reload-restart = Config changes require restart to take effect: { $items }
+
 log-heartbeat-timeout-disconnect = Heartbeat timeout. Disconnecting (id={ $id })
 log-auth-ok = Auth OK. id={ $id }, user="{ $user }"{ $monitorSuffix }, proto="{ $version }"
 log-auth-failed = Auth failed. id={ $id }, reason={ $reason }

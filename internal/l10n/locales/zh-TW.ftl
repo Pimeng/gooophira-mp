@@ -140,6 +140,18 @@ log-http-listen = HTTP 服務執行於 { $addr }
 log-server-name = 伺服器名稱 { $name }
 log-server-stopped = 伺服端已停止
 
+log-locale-overrides-loaded = 已載入 { $count } 種語言的本地化覆寫
+log-config-loaded = 已從 { $path } 載入設定
+log-config-not-found = 找不到設定檔，使用環境變數與預設值
+log-redis-fallback = Redis 連線失敗，回退本機快取：{ $error }
+log-redis-enabled = Redis 快取已啟用（多執行個體共用）
+log-admin-data-load-failed = 載入管理資料失敗：{ $error }
+log-listen-failed = 監聽 { $addr } 失敗：{ $error }
+log-http-start-failed = 啟動 HTTP 服務失敗：{ $error }
+log-config-reload-skipped = 設定重載已略過：{ $error }
+log-config-reloaded = 設定已重載：{ $items }
+log-config-reload-restart = 以下設定變更需重新啟動後生效：{ $items }
+
 log-heartbeat-timeout-disconnect = 心跳逾時，準備中斷連線（連線ID：{ $id }）
 log-auth-ok = 連線ID：{ $id }，「 { $user } 」 { $monitorSuffix } 認證成功，協定版本：「{ $version }」
 log-auth-failed = 連線ID：{ $id } 認證失敗：{ $reason }
