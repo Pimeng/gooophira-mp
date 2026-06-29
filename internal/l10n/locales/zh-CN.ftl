@@ -141,6 +141,7 @@ log-server-name = 服务器名称 { $name }
 log-server-stopped = 服务端已停止
 
 log-locale-overrides-loaded = 已加载 { $count } 种语言的本地化覆盖
+log-config-created = 未找到配置文件，已生成默认配置 { $path }
 log-config-loaded = 已从 { $path } 加载配置
 log-config-not-found = 未找到配置文件，使用环境变量与默认值
 log-redis-fallback = Redis 连接失败，回退本地缓存：{ $error }

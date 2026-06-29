@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
@@ -29,13 +30,9 @@ type RoomLifecycle struct {
 	WSService           WsBroadcaster
 }
 
-func containsInt(s []int, v int) bool { return slices.Contains(s, v) }
-
 func removeInt(s []int, v int) []int {
-	for i, x := range s {
-		if x == v {
-			return slices.Delete(s, i, i+1)
-		}
+	if i := slices.Index(s, v); i >= 0 {
+		return slices.Delete(s, i, i+1)
 	}
 	return s
 }
@@ -43,7 +40,7 @@ func removeInt(s []int, v int) []int {
 // AddUser 把用户加入房间（玩家或观战者）。玩家超过 MaxUsers 时返回 false。
 func (r *Room) AddUser(user *User, monitor bool) bool {
 	if monitor {
-		if !containsInt(r.monitors, user.ID) {
+		if !slices.Contains(r.monitors, user.ID) {
 			r.monitors = append(r.monitors, user.ID)
 		}
 		return true
@@ -51,7 +48,7 @@ func (r *Room) AddUser(user *User, monitor bool) bool {
 	if len(r.users) >= r.MaxUsers {
 		return false
 	}
-	if !containsInt(r.users, user.ID) {
+	if !slices.Contains(r.users, user.ID) {
 		r.users = append(r.users, user.ID)
 	}
 	return true
@@ -147,26 +144,19 @@ func (r *Room) formatMessageForLog(msg protocol.Message, lc *RoomLifecycle) stri
 			"user":  r.nameOf(lc, int(m.User)),
 			"score": fmt.Sprintf("%d", m.Score),
 			"acc":   fmt.Sprintf("%.2f", m.Accuracy*100),
-			"fc":    boolStr(m.FullCombo),
+			"fc":    strconv.FormatBool(m.FullCombo),
 		})
 	case protocol.MsgGameEnd:
 		return tl("log-msg-game-end", nil)
 	case protocol.MsgAbort:
 		return tl("log-msg-abort", map[string]string{"user": r.nameOf(lc, int(m.User))})
 	case protocol.MsgLockRoom:
-		return tl("log-msg-lock-room", map[string]string{"lock": boolStr(m.Lock)})
+		return tl("log-msg-lock-room", map[string]string{"lock": strconv.FormatBool(m.Lock)})
 	case protocol.MsgCycleRoom:
-		return tl("log-msg-cycle-room", map[string]string{"cycle": boolStr(m.Cycle)})
+		return tl("log-msg-cycle-room", map[string]string{"cycle": strconv.FormatBool(m.Cycle)})
 	default:
 		return ""
 	}
-}
-
-func boolStr(b bool) string {
-	if b {
-		return "true"
-	}
-	return "false"
 }
 
 // ResetGameTime 把房内所有玩家的 gameTime 重置为 -Inf（新一局开始时）。
@@ -342,7 +332,7 @@ func (r *Room) notifyDanglingReconnect(lc *RoomLifecycle, st *StatePlaying) {
 		seconds := 0
 		if u.DangleDeadline != nil {
 			remain := (*u.DangleDeadline - time.Now().UnixMilli())
-			seconds = int(math.Max(1, math.Ceil(float64(remain)/1000)))
+			seconds = max(1, int(math.Ceil(float64(remain)/1000)))
 		}
 		r.Send(lc, protocol.MsgChat{User: 0, Content: l10n.TL(lc.Lang, "chat-waiting-reconnect",
 			map[string]string{"user": u.Name, "seconds": fmt.Sprintf("%d", seconds)})})

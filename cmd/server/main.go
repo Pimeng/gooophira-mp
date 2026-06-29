@@ -40,13 +40,22 @@ const (
 func main() {
 	configPath := flag.String("config", "server_config.yml", "配置文件路径（YAML）")
 	flag.StringVar(configPath, "c", "server_config.yml", "配置文件路径（YAML）（-config 的别名）")
-	hostFlag := flag.String("host", "0.0.0.0", "监听地址（覆盖配置中的 HOST）")
-	portFlag := flag.Int("port", defaultPort, "TCP 监听端口（覆盖配置中的 PORT）")
-	flag.IntVar(portFlag, "p", defaultPort, "TCP 监听端口（-port 的别名）")
-	httpPortFlag := flag.Int("http-port", defaultHTTPPort, "HTTP 服务端口（覆盖配置中的 HTTP_PORT）")
-	httpServiceFlag := flag.Bool("http-service", false, "启动 HTTP 查询/管理服务（覆盖配置中的 HTTP_SERVICE）")
-	guiFlag := flag.Bool("gui", false, "启动时打开服务端 GUI 控制台窗口（覆盖配置中的 GUI）")
+	// 校验类参数用字符串接收（默认空 = 未传），便于非法时按启动期语言本地化报错——
+	// 对齐 TS main 的 requireParse。实际取值在 applyCLIOverrides 经 flag.Visit + f.Value 读取。
+	portFlag := flag.String("port", "", "TCP 监听端口（覆盖配置中的 PORT）")
+	flag.StringVar(portFlag, "p", "", "TCP 监听端口（-port 的别名）")
+	flag.String("host", "", "监听地址（覆盖配置中的 HOST）")
+	flag.String("http-service", "", "启用 HTTP 查询/管理服务 true/false（覆盖配置中的 HTTP_SERVICE）")
+	flag.String("http-port", "", "HTTP 服务端口（覆盖配置中的 HTTP_PORT）")
+	flag.String("room-max-users", "", "房间最大用户数（覆盖配置中的 ROOM_MAX_USERS）")
+	flag.String("server-name", "", "服务器名称（覆盖配置中的 SERVER_NAME）")
+	flag.String("monitors", "", "观战权限用户 ID 列表，逗号分隔（覆盖配置中的 MONITORS）")
+	flag.Bool("gui", false, "启动时打开服务端 GUI 控制台窗口（覆盖配置中的 GUI）")
 	flag.Parse()
+
+	// 首次运行未找到配置文件时自动生成默认配置（本地示例 > 内置模板），当次即加载生效——
+	// 对齐 TS autoCreateConfig。失败不致命，继续用内存默认值。
+	configCreated, _ := config.EnsureDefaultFile(*configPath)
 
 	// 配置优先级：命令行参数 > 环境变量 > 配置文件 > 内置默认值。
 	cfg, fromFile, err := config.LoadMerged(*configPath)
@@ -54,34 +63,24 @@ func main() {
 		fmt.Fprintf(os.Stderr, "failed to load config %s: %v\n", *configPath, err)
 		os.Exit(1)
 	}
-	// 命令行参数覆盖：仅在用户显式传入时生效（flag.Visit 只遍历被设置过的标志），
-	// 避免标志的默认值无差别覆盖配置文件/环境变量。
-	flag.Visit(func(f *flag.Flag) {
-		switch f.Name {
-		case "host":
-			cfg.Host = hostFlag
-		case "port", "p":
-			cfg.Port = portFlag
-		case "http-port":
-			cfg.HTTPPort = httpPortFlag
-		case "http-service":
-			cfg.HTTPService = httpServiceFlag
-		case "gui":
-			cfg.GUI = guiFlag
-		}
-	})
+
+	// 启动期语言在配置加载后即可确定（与 state.ServerLang 同源：PHIRA_MP_LANG > LANG >
+	// 配置 LANG），供 CLI 参数校验报错与启动期日志本地化。
+	lang := l10n.NewLanguage(cfg.EffectiveLang())
+
+	// 命令行参数覆盖（优先级最高）：仅处理显式传入的标志，校验失败按 lang 本地化后退出。
+	applyCLIOverrides(cfg, lang)
 
 	logger := logging.New(cfg.EffectiveLogLevel(), "logs")
 	defer logger.Close()
-
-	// 本地化语言在配置加载后即可确定（与 state.ServerLang 同源），供启动期日志使用。
-	lang := l10n.NewLanguage(cfg.EffectiveLang())
 
 	// 运行时本地化覆盖：locales/<lang>.ftl 存在则覆盖对应内置文案（须在服务前加载）。
 	if n := l10n.LoadOverrides("locales"); n > 0 {
 		logger.Info(l10n.TL(lang, "log-locale-overrides-loaded", map[string]string{"count": strconv.Itoa(n)}))
 	}
-	if fromFile {
+	if configCreated {
+		logger.Info(l10n.TL(lang, "log-config-created", map[string]string{"path": *configPath}))
+	} else if fromFile {
 		logger.Info(l10n.TL(lang, "log-config-loaded", map[string]string{"path": *configPath}))
 	} else {
 		logger.Info(l10n.TL(lang, "log-config-not-found", nil))
@@ -257,6 +256,70 @@ func main() {
 	monitorBuf.Stop()             // 刷写残留观战帧
 	recorder.CloseAll()           // 刷写进行中的录制
 	_ = state.FlushAdminDataNow() // 落盘封禁数据
+}
+
+// applyCLIOverrides 把显式传入的命令行参数覆盖到 cfg（优先级高于环境变量与配置文件）。
+// 仅遍历 flag.Visit（被设置过的标志）；数值/布尔/列表类参数复用 config 的解析规则，
+// 非法时按 lang 本地化错误并退出（对齐 TS main 的 requireParse + cli-invalid-* 文案）。
+func applyCLIOverrides(cfg *config.ServerConfig, lang *l10n.Language) {
+	fail := func(key string) {
+		fmt.Fprintln(os.Stderr, l10n.TL(lang, key, nil))
+		os.Exit(1)
+	}
+	flag.Visit(func(f *flag.Flag) {
+		raw := f.Value.String()
+		switch f.Name {
+		case "host":
+			// host/server-name 沿用 TS 语义：空白视同未传，不报错、不覆盖。
+			if s, ok := config.ParseString(raw); ok {
+				cfg.Host = &s
+			}
+		case "server-name":
+			if s, ok := config.ParseString(raw); ok {
+				cfg.ServerName = &s
+			}
+		case "port", "p":
+			v, ok := config.ParsePort(raw)
+			if !ok {
+				fail("cli-invalid-port")
+				return
+			}
+			cfg.Port = &v
+		case "http-port":
+			v, ok := config.ParsePort(raw)
+			if !ok {
+				fail("cli-invalid-http-port")
+				return
+			}
+			cfg.HTTPPort = &v
+		case "http-service":
+			v, ok := config.ParseBool(raw)
+			if !ok {
+				fail("cli-invalid-http-service")
+				return
+			}
+			cfg.HTTPService = &v
+		case "room-max-users":
+			v, ok := config.ParseRoomMaxUsers(raw)
+			if !ok {
+				fail("cli-invalid-room-max-users")
+				return
+			}
+			cfg.RoomMaxUsers = &v
+		case "monitors":
+			v, ok := config.ParseIntegerList(raw)
+			if !ok {
+				fail("cli-invalid-monitors")
+				return
+			}
+			cfg.Monitors = v
+		case "gui":
+			// 布尔标志：出现即覆盖（-gui 为 true，-gui=false 显式关闭）。
+			if v, ok := config.ParseBool(raw); ok {
+				cfg.GUI = &v
+			}
+		}
+	})
 }
 
 func strOr(p *string, def string) string {

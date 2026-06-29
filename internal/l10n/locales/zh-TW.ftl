@@ -141,6 +141,7 @@ log-server-name = 伺服器名稱 { $name }
 log-server-stopped = 伺服端已停止
 
 log-locale-overrides-loaded = 已載入 { $count } 種語言的本地化覆寫
+log-config-created = 找不到設定檔，已產生預設設定 { $path }
 log-config-loaded = 已從 { $path } 載入設定
 log-config-not-found = 找不到設定檔，使用環境變數與預設值
 log-redis-fallback = Redis 連線失敗，回退本機快取：{ $error }
