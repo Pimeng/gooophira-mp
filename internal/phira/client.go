@@ -23,9 +23,9 @@ const DefaultEndpoint = "https://phira.5wyxi.com"
 const fetchTimeout = 10 * time.Second
 
 // 进程级共享缓存（对齐 TS phiraApiClient 的 tokenCache / recordCache）。
-// token 缓存不落盘（短 TTL、含凭证）；record 缓存落盘（记录不可变，重启后仍有效）。
+// token 缓存不落盘（含凭证，仅驻内存）；record 缓存落盘（记录不可变，重启后仍有效）。
 var (
-	tokenCache  = cache.NewString[server.PhiraUserInfo](cache.Options{Name: "token_cache.json", TTL: 30 * time.Second, MaxMem: 500, Persist: false})
+	tokenCache  = cache.NewString[server.PhiraUserInfo](cache.Options{Name: "token_cache.json", TTL: 3 * time.Hour, MaxMem: 500, Persist: false})
 	recordCache = cache.NewInt[config.RecordData](cache.Options{Name: "record_cache.json", TTL: time.Hour, MaxMem: 500, Persist: true})
 )
 
@@ -60,7 +60,7 @@ func (c *Client) get(path string, header map[string]string) (*http.Response, err
 	return c.HTTP.Do(req)
 }
 
-// FetchUserInfo 调用 /me 认证并返回用户信息。结果按 token 缓存 30s，重连时跳过 HTTP；
+// FetchUserInfo 调用 /me 认证并返回用户信息。成功结果按 token 缓存 3 小时，重连时跳过 HTTP；
 // 并发的相同 token 请求经 GetOrSet 合并为一次调用。
 func (c *Client) FetchUserInfo(token string) (server.PhiraUserInfo, error) {
 	return tokenCache.GetOrSet(token, func() (server.PhiraUserInfo, error) {
