@@ -76,10 +76,13 @@ header{display:flex;align-items:center;justify-content:space-between;gap:14px;
 #logout:hover{color:var(--err);border-color:var(--err)}
 
 main{display:flex;gap:10px;flex:1;min-height:0}
-aside{width:320px;display:flex;flex-direction:column;gap:10px;min-height:0;flex-shrink:0}
+aside{width:320px;display:flex;flex-direction:column;gap:10px;min-height:0;flex-shrink:0;overflow-y:auto}
 .panel{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;flex-direction:column;min-height:0;transition:background-color .2s,border-color .2s}
 .panel>h2{font-size:10px;color:var(--muted);letter-spacing:.22em;text-transform:uppercase;margin-bottom:10px}
 .grow{flex:1}
+/* 侧栏垂直空间不足时：各面板不被压缩，侧栏整体滚动；房间/玩家列表保留可用高度下限，避免被挤成一条 */
+aside>.panel{flex-shrink:0}
+.panel.grow{min-height:220px}
 
 /* ===== 图表 ===== */
 canvas{width:100%;height:64px;display:block;background:var(--panel2);border:1px solid var(--border);border-radius:5px}
@@ -118,12 +121,22 @@ canvas{width:100%;height:64px;display:block;background:var(--panel2);border:1px 
 .chip.offline{opacity:.45;text-decoration:line-through}
 .player-row{display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--border);
   border-radius:5px;padding:6px 9px;font-size:11px}
-.player-row .pname{color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.player-row .pid{color:var(--muted);font-size:10px}
+.player-row .pname{color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .player-row .proom{margin-left:auto;color:var(--info);font-size:10px}
 .player-row .proom.lobby{color:var(--muted)}
 .player-row .prole{color:var(--muted);font-size:10px;flex-shrink:0}
 .player-row .pban{color:var(--err);font-size:10px;flex-shrink:0}
+
+/* ===== 玩家/谱面跳转链接 + 浮动 ID 提示 ===== */
+a.lnk{color:inherit;text-decoration:none;cursor:pointer}
+@media (hover:hover){a.lnk:hover{text-decoration:underline;text-decoration-color:var(--acc);text-underline-offset:2px}}
+/* 用 fixed 定位的单例浮动提示，避免被 .room/.list 等 overflow 容器裁剪；触摸端不显示 */
+.floattip{position:fixed;transform:translate(-50%,-100%);background:var(--panel);color:var(--text);
+  border:1px solid var(--border2);border-radius:4px;padding:3px 8px;font-size:10px;line-height:1.4;white-space:nowrap;
+  pointer-events:none;opacity:0;transition:opacity .12s;z-index:100;box-shadow:0 4px 14px rgba(0,0,0,.28);
+  font-variant-numeric:tabular-nums}
+.floattip.show{opacity:1}
+@media (hover:none){.floattip{display:none}}
 
 /* ===== 控制台 ===== */
 .console{flex:1;min-width:0;position:relative}
@@ -680,6 +693,34 @@ $('cmdInput').addEventListener('keydown',function(e){
 /* ===== 房间 / 玩家 ===== */
 var ST_TEXT={select_chart:'选谱中',waiting_for_ready:'准备中',playing:'游戏中'};
 var ST_CLS={select_chart:'st-select',waiting_for_ready:'st-ready',playing:'st-playing'};
+
+// phira.moe 跳转链接：玩家 → /user/:id，谱面 → /chart/:id。ID 不再直接显示，改为 hover 浮动提示。
+function lnkUser(name,id,cls,extra){
+  cls=cls?cls+' lnk':'lnk';
+  return '<a class="'+cls+'" href="https://phira.moe/user/'+(+id)+'" target="_blank" rel="noopener noreferrer" data-tip="ID '+(+id)+'">'+esc(name)+(extra||'')+'</a>';
+}
+function lnkChart(name,id){
+  return '<a class="lnk" href="https://phira.moe/chart/'+(+id)+'" target="_blank" rel="noopener noreferrer" data-tip="ID '+(+id)+'">'+esc(name)+'</a>';
+}
+
+// 浮动 ID 提示（桌面端 hover 显示在元素上方；fixed 定位避免被 overflow 容器裁剪）。
+(function(){
+  var tip=null;
+  function show(t){
+    var txt=t.getAttribute('data-tip');if(!txt)return;
+    if(!tip){tip=document.createElement('div');tip.className='floattip';document.body.appendChild(tip);}
+    tip.textContent=txt;
+    var r=t.getBoundingClientRect();
+    tip.style.left=(r.left+r.width/2)+'px';
+    tip.style.top=(r.top-6)+'px';
+    tip.classList.add('show');
+  }
+  function hide(){if(tip)tip.classList.remove('show');}
+  document.addEventListener('mouseover',function(e){var t=e.target.closest&&e.target.closest('[data-tip]');if(t)show(t);});
+  document.addEventListener('mouseout',function(e){var t=e.target.closest&&e.target.closest('[data-tip]');if(t)hide();});
+  document.addEventListener('mousedown',hide); // 点击跳转/开始滚动前先隐藏
+})();
+
 function renderRooms(){
   var el=$('roomList');
   if(!rooms.length){el.innerHTML='<div class="empty">暂无房间</div>';return;}
@@ -698,11 +739,11 @@ function renderRooms(){
         if(u.aborted)extra=' ×';
         else if(u.finished)extra=' ✓';
       }
-      users+='<span class="'+cls+'" title="ID '+u.id+'">'+esc(u.name)+extra+'</span>';
+      users+=lnkUser(u.name,u.id,cls,extra);
     });
     var mons='';
     (r.monitors||[]).forEach(function(m){
-      mons+='<span class="chip'+(m.connected?'':' offline')+'" title="ID '+m.id+'">'+esc(m.name)+'</span>';
+      mons+=lnkUser(m.name,m.id,'chip'+(m.connected?'':' offline'));
     });
     html+='<div class="room'+(openRooms[r.roomid]?' open':'')+'" data-rid="'+esc(r.roomid)+'">'
       +'<div class="room-head" tabindex="0" role="button" aria-expanded="'+(openRooms[r.roomid]?'true':'false')+'">'
@@ -713,8 +754,8 @@ function renderRooms(){
       +'<span class="chev" aria-hidden="true">&rsaquo;</span>'
       +'</div>'
       +'<div class="room-body">'
-      +'<div class="row"><span class="k">房主：</span>'+esc(r.host?r.host.name:'-')+'</div>'
-      +(r.chart?'<div class="row"><span class="k">谱面：</span>'+esc(r.chart.name)+' <span class="k">#'+r.chart.id+'</span></div>':'')
+      +'<div class="row"><span class="k">房主：</span>'+(r.host?lnkUser(r.host.name,r.host.id):'-')+'</div>'
+      +(r.chart?'<div class="row"><span class="k">谱面：</span>'+lnkChart(r.chart.name,r.chart.id)+'</div>':'')
       +'<div class="row"><span class="k">玩家：</span>'+(users||'<span class="k">无</span>')+'</div>'
       +(mons?'<div class="row"><span class="k">观战：</span>'+mons+'</div>':'')
       +'</div></div>';
@@ -741,8 +782,7 @@ function renderPlayers(){
   players.forEach(function(u){
     var role=u.monitor?'观战':'玩家';
     if(!u.connected)role+='·离线';
-    html+='<div class="player-row"><span class="pname">'+esc(u.name)+'</span>'
-      +'<span class="pid">#'+u.id+'</span>'
+    html+='<div class="player-row">'+lnkUser(u.name,u.id,'pname')
       +(u.banned?'<span class="pban">已封禁</span>':'')
       +'<span class="prole">'+role+'</span>'
       +'<span class="proom'+(u.room?'':' lobby')+'">'+(u.room?esc(u.room):'大厅')+'</span></div>';
