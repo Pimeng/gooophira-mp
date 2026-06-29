@@ -391,11 +391,20 @@ func (s *Session) handleAuthenticate(token string) {
 	s.user = user
 
 	var roomState *protocol.ClientRoomState
+	var restoreChartID *int32 // 非 nil：需在认证后延迟把客户端从 SelectChart 修回 WaitingForReady。
 	if user.Room != nil {
 		cs := user.Room.ClientState(user, func(id int) *server.User { return s.state.Users[id] })
+		// 断线重连修正：房间处于 WaitForReady 且已选谱时，先在响应里伪装成 SelectChart 让客户端载入谱面
+		// 上下文，随后延迟换回 WaitingForReady；否则客户端缺谱面会进入异常状态而反复断线重连（对齐原版）。
+		if _, wfr := user.Room.State.(server.StateWaitForReady); wfr && user.Room.Chart != nil {
+			cid := int32(user.Room.Chart.ID)
+			cs.State = protocol.RoomStateSelectChart{ID: &cid}
+			restoreChartID = &cid
+		}
 		roomState = &cs
 	}
 	me := user.ToInfo()
+	monitor := user.Monitor
 	s.state.Mu.Unlock()
 
 	// 踢旧会话（锁外）。此时 user.Session 已指向新会话，旧会话 cleanup 将短路，不会退房。
@@ -404,8 +413,38 @@ func (s *Session) handleAuthenticate(token string) {
 	}
 
 	s.TrySend(protocol.SrvAuthenticate{Result: protocol.Ok(protocol.AuthInfo{Me: me, Room: roomState})})
-	go s.sendWelcome(user) // 欢迎消息（含一言 HTTP 拉取）异步发送，不阻塞命令循环
-	// TODO(stage-4): WaitForReady→SelectChart 重连修正。
+
+	// 重连进 WaitForReady：延迟两步把客户端状态修回（先 SelectChart 注入谱面，再 WaitingForReady）。
+	if restoreChartID != nil {
+		cid := *restoreChartID
+		time.AfterFunc(20*time.Millisecond, func() {
+			user.TrySend(protocol.SrvChangeState{State: protocol.RoomStateSelectChart{ID: &cid}})
+			time.AfterFunc(20*time.Millisecond, func() {
+				user.TrySend(protocol.SrvChangeState{State: protocol.RoomStateWaitingForReady{}})
+			})
+		})
+	}
+
+	s.logAuthSuccess(user, monitor) // 认证成功日志（对齐原版 log-auth-ok / log-player-join）
+	go s.sendWelcome(user)          // 欢迎消息（含一言 HTTP 拉取）异步发送，不阻塞命令循环
+}
+
+// logAuthSuccess 记录认证成功：DEBUG 级 log-auth-ok 与 INFO 级 log-player-join（对齐原版）。
+func (s *Session) logAuthSuccess(user *server.User, monitor bool) {
+	lg := s.state.Logger
+	if lg == nil {
+		return
+	}
+	suffix := ""
+	if monitor {
+		suffix = l10n.TL(s.state.ServerLang, "label-monitor-suffix", nil)
+	}
+	lg.Debug(l10n.TL(s.state.ServerLang, "log-auth-ok", map[string]string{
+		"id": s.id, "user": user.Name, "monitorSuffix": suffix, "version": strconv.Itoa(protocolVersion),
+	}))
+	lg.Info(l10n.TL(s.state.ServerLang, "log-player-join", map[string]string{
+		"user": user.Name, "id": strconv.Itoa(user.ID), "monitorSuffix": suffix,
+	}))
 }
 
 // sendWelcome 拉取一言（可选）并把欢迎系统聊天发给用户。
