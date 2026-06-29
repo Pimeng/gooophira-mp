@@ -1,0 +1,120 @@
+name: 同步 Release 到 CNB
+
+# GitHub 上发布 Release 时，把该 Release 的标题/说明与已附加的资产镜像到 CNB.cool。
+# 只做「镜像现有 GitHub Release」，不编译二进制。整仓 git 镜像见 sync-cnb.yml。
+# 鉴权使用仓库 Secret CNB_SYNC_TOKEN。
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要同步的 Release tag（手动触发时必填）
+        required: true
+
+permissions:
+  contents: read
+
+# 同一 tag 串行，避免重复触发互相竞争。
+concurrency:
+  group: sync-cnb-release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  sync-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CNB_SYNC_TOKEN: ${{ secrets.CNB_SYNC_TOKEN }}
+      CNB_REPO: Pimeng233/gooophira-mp
+      GH_TOKEN: ${{ github.token }}
+      # release 事件取 tag_name；手动触发取 inputs.tag。
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: 校验 Secret
+        run: |
+          if [ -z "$CNB_SYNC_TOKEN" ]; then
+            echo "::error::缺少 CNB_SYNC_TOKEN Secret，无法同步到 CNB"
+            exit 1
+          fi
+
+      - name: 读取 Release 元信息并下载附件
+        run: |
+          # 落盘为 JSON，后续用 jq 读取，避免把不可信的 release 标题/正文插进 shell（脚本注入）。
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,body,isPrerelease,targetCommitish > release.json
+          mkdir -p assets
+          # 仅下载已上传的附件；无附件时 gh 会报错，吞掉即可（只同步标题与说明）。
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir assets \
+            || echo "（该 Release 无上传附件，仅同步标题与说明）"
+
+      - name: 在 CNB 创建 Release 并上传附件
+        run: |
+          API="https://api.cnb.cool/${CNB_REPO}/-/releases"
+          NAME=$(jq -r '.name // .tagName' release.json)
+          BODY=$(jq -r '.body // ""' release.json)
+          PRERELEASE=$(jq -r '.isPrerelease' release.json)
+          if [ "$PRERELEASE" = "true" ]; then MAKE_LATEST="false"; else MAKE_LATEST="true"; fi
+
+          # CNB 镜像仓库 target_commitish 必填；据 tphira 实测，传分支名（由 CNB 解析为该分支 HEAD）
+          # 而非具体 commit。若 tag 已被 sync-cnb.yml 镜像过去，CNB 会复用已存在的 tag。
+          PAYLOAD=$(jq -n \
+            --arg tag_name "$TAG" \
+            --arg name "$NAME" \
+            --arg body "$BODY" \
+            --argjson prerelease "$PRERELEASE" \
+            --arg make_latest "$MAKE_LATEST" \
+            --arg target_commitish "main" \
+            '{tag_name:$tag_name, name:$name, body:$body, prerelease:$prerelease, make_latest:$make_latest, target_commitish:$target_commitish}')
+
+          RESP=$(curl -s -w "\n%{http_code}" "$API" -X POST \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/vnd.cnb.api+json" \
+            -H "Authorization: Bearer $CNB_SYNC_TOKEN" \
+            -d "$PAYLOAD")
+          CODE=$(echo "$RESP" | tail -n1)
+          B=$(echo "$RESP" | sed '$d')
+          if [ "$CODE" != "201" ]; then
+            echo "::error::CNB release 创建失败 (HTTP $CODE)：$B"
+            exit 1
+          fi
+          RID=$(echo "$B" | jq -r '.id')
+          echo "CNB release 创建成功：$TAG (id=$RID)"
+
+          shopt -s nullglob
+          for FILE in assets/*; do
+            [ -f "$FILE" ] || continue
+            ASSET_NAME=$(basename "$FILE")
+            SIZE=$(stat -c%s "$FILE")
+
+            U=$(curl -s -w "\n%{http_code}" "${API}/${RID}/asset-upload-url" -X POST \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/vnd.cnb.api+json" \
+              -H "Authorization: Bearer $CNB_SYNC_TOKEN" \
+              -d "$(jq -n --arg n "$ASSET_NAME" --argjson s "$SIZE" '{asset_name:$n, size:$s, overwrite:true, ttl:0}')")
+            UC=$(echo "$U" | tail -n1)
+            UB=$(echo "$U" | sed '$d')
+            if [ "$UC" != "201" ]; then
+              echo "::error::获取 ${ASSET_NAME} 上传地址失败 (HTTP $UC)：$UB"
+              exit 1
+            fi
+            UURL=$(echo "$UB" | jq -r '.upload_url')
+            VURL=$(echo "$UB" | jq -r '.verify_url')
+
+            PC=$(curl -s -o /dev/null -w "%{http_code}" -X PUT --data-binary "@${FILE}" "$UURL")
+            if [ "$PC" -ge 300 ]; then
+              echo "::error::上传 ${ASSET_NAME} 内容失败 (HTTP $PC)"
+              exit 1
+            fi
+
+            VC=$(curl -s -w "\n%{http_code}" -X POST "$VURL" \
+              -H "Accept: application/vnd.cnb.api+json" \
+              -H "Authorization: Bearer $CNB_SYNC_TOKEN")
+            VCODE=$(echo "$VC" | tail -n1)
+            if [ "$VCODE" != "200" ]; then
+              echo "::error::确认 ${ASSET_NAME} 上传失败 (HTTP $VCODE)"
+              exit 1
+            fi
+            echo "✅ 已上传附件：${ASSET_NAME}"
+          done
+          echo "✅ Release $TAG 已同步到 https://cnb.cool/${CNB_REPO}"
