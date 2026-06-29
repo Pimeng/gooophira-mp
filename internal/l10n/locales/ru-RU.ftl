@@ -141,6 +141,7 @@ log-server-name = Имя сервера { $name }
 log-server-stopped = Сервер остановлен
 
 log-locale-overrides-loaded = Загружены локализационные переопределения для { $count } язык(ов)
+log-config-created = Файл конфигурации не найден, создана конфигурация по умолчанию в { $path }
 log-config-loaded = Конфигурация загружена из { $path }
 log-config-not-found = Файл конфигурации не найден, используются переменные окружения и значения по умолчанию
 log-redis-fallback = Не удалось подключиться к Redis, откат к локальному кэшу: { $error }

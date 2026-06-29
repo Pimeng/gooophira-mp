@@ -8,8 +8,6 @@ import (
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
 )
 
-func itoa(n int) string { return strconv.Itoa(n) }
-
 // 管理员视图数据：供 HTTP /admin/rooms 与（后续）WebSocket admin 推送共用。
 // 带 JSON 标签，httpapi 直接序列化。对应 TS game/adminViews.ts。
 
@@ -128,7 +126,7 @@ func (s *ServerState) lang(u *User) string {
 // buildAdminRoom 组装单房间管理视图（调用方须持 Mu）。
 func (s *ServerState) buildAdminRoom(id protocol.RoomID, room *Room) AdminRoomData {
 	host := s.Users[room.HostID]
-	hostName := itoa(room.HostID)
+	hostName := strconv.Itoa(room.HostID)
 	if host != nil {
 		hostName = host.Name
 	}
@@ -325,5 +323,5 @@ func nameOrID(u *User, id int) string {
 	if u != nil {
 		return u.Name
 	}
-	return itoa(id)
+	return strconv.Itoa(id)
 }
