@@ -141,6 +141,7 @@ log-server-name = 서버 이름 { $name }
 log-server-stopped = 서버가 중지되었습니다
 
 log-locale-overrides-loaded = { $count }개 언어의 로케일 재정의를 불러왔습니다
+log-config-created = 설정 파일을 찾을 수 없어 기본 설정을 { $path } 에 생성했습니다
 log-config-loaded = { $path } 에서 설정을 불러왔습니다
 log-config-not-found = 설정 파일을 찾을 수 없어 환경 변수와 기본값을 사용합니다
 log-redis-fallback = Redis 연결에 실패하여 로컬 캐시로 대체합니다: { $error }

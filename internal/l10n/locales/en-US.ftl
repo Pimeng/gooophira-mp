@@ -141,6 +141,7 @@ log-server-name = Server name { $name }
 log-server-stopped = Server stopped
 
 log-locale-overrides-loaded = Loaded locale overrides for { $count } language(s)
+log-config-created = Config file not found, generated default config at { $path }
 log-config-loaded = Loaded config from { $path }
 log-config-not-found = Config file not found, using environment variables and defaults
 log-redis-fallback = Redis connection failed, falling back to local cache: { $error }

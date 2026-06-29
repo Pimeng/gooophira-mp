@@ -141,6 +141,7 @@ log-server-name = サーバー名 { $name }
 log-server-stopped = サーバーが停止しました
 
 log-locale-overrides-loaded = { $count } 言語のロケールオーバーライドを読み込みました
+log-config-created = 設定ファイルが見つからないため、デフォルト設定を { $path } に生成しました
 log-config-loaded = { $path } から設定を読み込みました
 log-config-not-found = 設定ファイルが見つかりません。環境変数とデフォルト値を使用します
 log-redis-fallback = Redis 接続に失敗しました。ローカルキャッシュにフォールバックします：{ $error }
