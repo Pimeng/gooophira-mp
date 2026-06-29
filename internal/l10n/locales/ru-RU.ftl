@@ -46,6 +46,7 @@ replay-recorder-name = Запись повтора
 
 chat-welcome = Привет, «{ $userName }»! Добро пожаловать на { $serverName }!
 chat-welcome-version = Сервер работает на версии { $version }
+chat-welcome-stats = Онлайн: { $online }, комнат: { $rooms }
 chat-hitokoto = { $quote } — { $from }
 chat-hitokoto-from-unknown = Неизвестно
 chat-roomlist-title = Доступные комнаты:

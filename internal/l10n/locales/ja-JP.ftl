@@ -46,6 +46,7 @@ replay-recorder-name = リプレイレコーダー
 
 chat-welcome = 「{ $userName }」さん、こんにちは！{ $serverName } へようこそ！
 chat-welcome-version = サーバーのバージョンは { $version } です
+chat-welcome-stats = 現在 { $online } 人がオンライン、{ $rooms } 個のルーム
 chat-hitokoto = { $quote } —— { $from }
 chat-hitokoto-from-unknown = 詠み人知らず
 chat-roomlist-title = 利用可能なルーム：
