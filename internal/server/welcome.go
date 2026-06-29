@@ -26,6 +26,10 @@ func (s *ServerState) BuildWelcomeText(user *User, hitokoto *Hitokoto) string {
 	b.WriteString(tl("chat-welcome", map[string]string{"userName": user.Name, "serverName": s.ServerName}) + "\n")
 	b.WriteString(sep)
 	b.WriteString(tl("chat-welcome-version", map[string]string{"version": s.Version}) + "\n")
+	b.WriteString(tl("chat-welcome-stats", map[string]string{
+		"online": strconv.Itoa(len(s.Users)),
+		"rooms":  strconv.Itoa(len(s.Rooms)),
+	}) + "\n")
 	b.WriteString(sep)
 	b.WriteString(tl("chat-roomlist-title", nil) + "\n")
 	b.WriteString(s.availableRoomsText(lang) + "\n")
