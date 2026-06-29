@@ -5,6 +5,7 @@ import (
 	"math/rand/v2"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
+	"github.com/Pimeng/gooophira-mp/internal/l10n"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
 )
 
@@ -94,6 +95,14 @@ func (h *Hub) BroadcastRoomMessage(room *Room, msg protocol.Message) {
 	room.Send(h.MakeRoomLifecycle(room), msg)
 }
 
+// monitorSuffix 返回观战者后缀（对齐原版 label-monitor-suffix），非观战者为空串。
+func (h *Hub) monitorSuffix(monitor bool) string {
+	if !monitor {
+		return ""
+	}
+	return l10n.TL(h.State.ServerLang, "label-monitor-suffix", nil)
+}
+
 // MakeRoomLifecycle 为房间构造生命周期依赖注入。
 func (h *Hub) MakeRoomLifecycle(room *Room) *RoomLifecycle {
 	return &RoomLifecycle{
@@ -156,6 +165,8 @@ func (h *Hub) ProcessCreateRoom(user *User, id protocol.RoomID) error {
 	user.Room = room
 
 	room.RefreshLive(h.State.ReplayEnabled)
+	// 对齐原版：建房时输出 MARK 级控制台日志。
+	room.logRoomMark(h.MakeRoomLifecycle(room), "log-room-created", map[string]string{"user": user.Name})
 	h.BroadcastRoomMessage(room, protocol.MsgCreateRoom{User: int32(user.ID)})
 	// TODO(stage-5): sendFakeMonitorJoin（回放假观战者）。
 	return nil
@@ -196,6 +207,10 @@ func (h *Hub) ProcessJoinRoom(user *User, id protocol.RoomID, monitor bool) (pro
 	room.HandleJoin(user)
 	room.RefreshLive(h.State.ReplayEnabled)
 
+	// 对齐原版：加入房间输出 MARK 级控制台日志（观战者带后缀）。
+	room.logRoomMark(h.MakeRoomLifecycle(room), "log-room-joined", map[string]string{
+		"user": user.Name, "suffix": h.monitorSuffix(monitor),
+	})
 	h.BroadcastRoom(room, protocol.SrvOnJoinRoom{Info: user.ToInfo()})
 	h.BroadcastRoomMessage(room, protocol.MsgJoinRoom{User: int32(user.ID), Name: user.Name})
 

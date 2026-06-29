@@ -5,6 +5,7 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
@@ -215,6 +216,27 @@ func (r *Room) logRoomInfo(lc *RoomLifecycle, key string, args map[string]string
 	lc.Logger.Info(l10n.TL(lc.Lang, key, args))
 }
 
+// logRoomMark 以 MARK 级记录房间日志（对齐原版 logRoomMark，用于选谱等标记性事件）。
+func (r *Room) logRoomMark(lc *RoomLifecycle, key string, args map[string]string) {
+	if lc.Logger == nil {
+		return
+	}
+	if args == nil {
+		args = map[string]string{}
+	}
+	args["room"] = string(r.ID)
+	lc.Logger.Mark(l10n.TL(lc.Lang, key, args))
+}
+
+// joinIntIDs 把整型 ID 列表用 sep 连接成字符串（用于日志中的玩家/观战者列表）。
+func joinIntIDs(ids []int, sep string) string {
+	parts := make([]string, len(ids))
+	for i, id := range ids {
+		parts[i] = strconv.Itoa(id)
+	}
+	return strings.Join(parts, sep)
+}
+
 // CheckAllReady 推进房间状态机：
 //   - WaitForReady：全员就绪（且非比赛手动开始）则进入 Playing；
 //   - Playing：全员完成（成绩或中止）则结算并回到 SelectChart（含比赛自动解散 / cycle 轮换）。
@@ -245,7 +267,22 @@ func (r *Room) startPlaying(lc *RoomLifecycle) {
 	if lc.OnEnterPlaying != nil {
 		lc.OnEnterPlaying(r)
 	}
-	r.logRoomInfo(lc, "log-room-game-start", nil)
+	// 对齐原版：game-start 日志需注入玩家列表与观战者后缀，否则 { $users } 渲染为空。
+	sep := ", "
+	if lc.Lang != nil && lc.Lang.Tag == "zh-CN" {
+		sep = "、"
+	}
+	monitors := r.MonitorIDs()
+	monitorsSuffix := ""
+	if len(monitors) > 0 {
+		monitorsSuffix = l10n.TL(lc.Lang, "log-room-game-start-monitors", map[string]string{
+			"monitors": joinIntIDs(monitors, sep),
+		})
+	}
+	r.logRoomInfo(lc, "log-room-game-start", map[string]string{
+		"users":          joinIntIDs(r.UserIDs(), sep),
+		"monitorsSuffix": monitorsSuffix,
+	})
 	r.Send(lc, protocol.MsgStartPlaying{})
 	r.ResetGameTime(lc.UsersByID)
 	r.State = StatePlaying{

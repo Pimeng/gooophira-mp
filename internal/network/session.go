@@ -156,11 +156,18 @@ func (s *Session) cleanup() {
 	_, banned := s.state.BannedUsers[u.ID]
 	grace := s.dangleGrace(u)
 	if banned || grace <= 0 {
+		// 对齐原版：封禁用户记 INFO 挂起日志；对局态宽限为 0 则记房间作用域 WARN（强制退出）。
+		if banned {
+			s.logLocalized("INFO", "log-user-dangle", map[string]string{"user": u.Name})
+		} else if u.Room != nil {
+			s.logLocalized("WARN", "log-user-disconnect-playing", map[string]string{"user": u.Name, "room": string(u.Room.ID)})
+		}
 		s.removeUser(u)
 		s.state.Mu.Unlock()
 		return
 	}
 	// 否则标记 dangling，保留房间/用户一段时间，等待同账号重连（重连时 SetSession 清 token）。
+	s.logLocalized("INFO", "log-user-dangle", map[string]string{"user": u.Name})
 	token := u.MarkDangle()
 	s.state.Mu.Unlock()
 	time.AfterFunc(grace, func() { s.processDangle(u, token) })
@@ -195,7 +202,25 @@ func (s *Session) processDangle(u *server.User, token *server.DangleToken) {
 	if !u.IsStillDangling(token) {
 		return // 已重连（SetSession 清除了 token）
 	}
+	// 对齐原版：挂起超时移除时，若仍在房间内记房间作用域 WARN。
+	if u.Room != nil {
+		s.logLocalized("WARN", "log-user-dangle-timeout-remove", map[string]string{"user": u.Name, "room": string(u.Room.ID)})
+	}
 	s.removeUser(u)
+}
+
+// logLocalized 按级别记录一条本地化日志（连接/挂起生命周期用，nil 日志器时静默）。
+func (s *Session) logLocalized(level, key string, args map[string]string) {
+	lg := s.state.Logger
+	if lg == nil {
+		return
+	}
+	msg := l10n.TL(s.state.ServerLang, key, args)
+	if level == "WARN" {
+		lg.Warn(msg)
+	} else {
+		lg.Info(msg)
+	}
 }
 
 // run 启动写循环并运行读循环（阻塞至连接结束）。
