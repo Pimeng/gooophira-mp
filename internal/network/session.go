@@ -320,6 +320,16 @@ func (s *Session) readLoop() {
 	}
 }
 
+// isRoomOnlyCmd 判断命令是否仅需房间级锁（不需要全局 state.Mu）。
+// Touches/Judges 是 Playing 阶段高频命令，无房间间依赖，可用分段锁并行。
+func isRoomOnlyCmd(cmd protocol.ClientCommand) bool {
+	switch cmd.(type) {
+	case protocol.CmdTouches, protocol.CmdJudges:
+		return true
+	}
+	return false
+}
+
 func (s *Session) onCommand(cmd protocol.ClientCommand) {
 	if _, ok := cmd.(protocol.CmdPing); ok {
 		s.TrySend(protocol.SrvPong{})
@@ -341,10 +351,22 @@ func (s *Session) onCommand(cmd protocol.ClientCommand) {
 			return
 		}
 	}
-	// 已认证：全局锁串行化命令处理（等价 TS 单线程事件循环），广播仅向各会话通道入队。
-	s.state.Mu.Lock()
-	resp, has := s.hub.ProcessClientCommand(s.user, cmd)
-	s.state.Mu.Unlock()
+	// 已认证：持锁调度命令。
+	// Touches/Judges 仅持 room.Mu（分段锁，房间间并行），其余命令持 state.Mu（全局串行）。
+	var resp protocol.ServerCommand
+	var has bool
+	if isRoomOnlyCmd(cmd) {
+		room := s.user.Room
+		if room != nil {
+			room.Mu.Lock()
+			resp, has = s.hub.ProcessClientCommand(s.user, cmd)
+			room.Mu.Unlock()
+		}
+	} else {
+		s.state.Mu.Lock()
+		resp, has = s.hub.ProcessClientCommand(s.user, cmd)
+		s.state.Mu.Unlock()
+	}
 	if has {
 		s.TrySend(resp)
 	}

@@ -2,7 +2,7 @@ name: Bench
 
 # 性能基准测试：推送与 PR 时自动运行微基准测试和负载测试，
 # 生成 pprof 分析文件并上传为 Artifact，便于对比性能变化。
-# 还可通过 workflow_dispatch 手动触发更长时间/更多场景的测试。
+# workflow_dispatch 可手动触发高压力参数（80000 客户端 / 8000 房间）。
 
 on:
   push:
@@ -14,29 +14,41 @@ on:
       duration:
         description: '测试持续时间'
         required: true
-        default: '30s'
+        default: '15s'
         type: choice
         options:
           - 10s
+          - 15s
           - 30s
           - 60s
       clients:
         description: '并发客户端数'
         required: true
-        default: '50'
+        default: '10000'
         type: choice
         options:
-          - 10
-          - 50
+          - 1000
+          - 10000
+          - 50000
+          - 80000
+      rooms:
+        description: '房间数'
+        required: true
+        default: '1000'
+        type: choice
+        options:
           - 100
-          - 200
+          - 1000
+          - 4000
+          - 8000
       scenario:
         description: '测试场景'
         required: true
-        default: 'room-cycle'
+        default: 'gameplay'
         type: choice
         options:
           - room-cycle
+          - gameplay
           - connection-storm
           - steady-state
           - mixed
@@ -51,7 +63,7 @@ permissions:
 jobs:
   bench:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -78,12 +90,13 @@ jobs:
       - name: 运行负载测试（cmd/bench）
         run: |
           mkdir -p tmp/profiles/load
-          DURATION="${{ github.event.inputs.duration || '10s' }}"
-          CLIENTS="${{ github.event.inputs.clients || '20' }}"
-          SCENARIO="${{ github.event.inputs.scenario || 'room-cycle' }}"
+          DURATION="${{ github.event.inputs.duration || '15s' }}"
+          CLIENTS="${{ github.event.inputs.clients || '10000' }}"
+          ROOMS="${{ github.event.inputs.rooms || '1000' }}"
+          SCENARIO="${{ github.event.inputs.scenario || 'gameplay' }}"
           go run ./cmd/bench/ \
             -clients="$CLIENTS" \
-            -rooms=4 \
+            -rooms="$ROOMS" \
             -duration="$DURATION" \
             -scenario="$SCENARIO" \
             -profile=all \
