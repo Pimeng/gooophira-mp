@@ -59,6 +59,9 @@ func (h *ConsoleHub) GetRecent(limit int) []ConsoleLogLine {
 	if limit <= 0 || limit > len(h.buf) {
 		limit = len(h.buf)
 	}
+	if limit > consoleLogCap {
+		limit = consoleLogCap
+	}
 	out := make([]ConsoleLogLine, limit)
 	copy(out, h.buf[len(h.buf)-limit:])
 	return out

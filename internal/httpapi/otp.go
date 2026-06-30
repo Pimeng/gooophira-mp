@@ -58,7 +58,7 @@ func (s *Service) handleOTPRequest(w http.ResponseWriter, r *http.Request, _ *l1
 		s.state.Mu.Unlock()
 		short := shortID(ssid)
 		if s.state.Logger != nil {
-			s.state.Logger.Info(fmt.Sprintf("[OTP CLI Request] 收到管理员提权申请，请求IP: %s，会话ID: %s（短码: %s），1分钟内有效。使用 'approve %s' 批准或 'deny %s' 拒绝", ip, ssid, short, short, short))
+			s.state.Logger.Info(fmt.Sprintf("[OTP CLI Request] 收到管理员提权申请，请求IP: %s（短码: %s），1分钟内有效。使用 'approve %s' 批准或 'deny %s' 拒绝", ip, short, short, short))
 		}
 		s.writeJSON(w, http.StatusOK, map[string]any{"ok": true, "ssid": ssid, "expiresIn": server.OTPTTLMS, "mode": "cli"})
 		return
@@ -158,12 +158,12 @@ func (s *Service) verifyOTP(w http.ResponseWriter, lang *l10n.Language, ssid, ot
 		s.otpFailSSID[ssid]++
 		if s.otpFailIP[ip] >= otpMaxAttempts {
 			s.otpBanIP[ip] = now + otpBanDuration
-			s.warnOTP(fmt.Sprintf("[OTP] IP %s 因验证失败次数过多已被封禁", ip))
+			otpStdout(fmt.Sprintf("[OTP] IP %s 因验证失败次数过多已被封禁", ip))
 		}
 		if s.otpFailSSID[ssid] >= otpMaxAttempts {
 			s.otpBanSSID[ssid] = now + otpBanDuration
 			delete(s.otpSessions, ssid)
-			s.warnOTP(fmt.Sprintf("[OTP] 会话 %s 因验证失败次数过多已被封禁", ssid))
+			s.warnOTP(fmt.Sprintf("[OTP] 会话 %s 因验证失败次数过多已被封禁", shortID(ssid)))
 		}
 		s.otpMu.Unlock()
 		s.adminErr(w, lang, http.StatusUnauthorized, "invalid-or-expired-otp", "invalid-or-expired-otp")
