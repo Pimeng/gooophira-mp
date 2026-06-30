@@ -208,9 +208,23 @@ func main() {
 				for uid, rd := range st.Results {
 					results[uid] = rd
 				}
+				durationSec := time.Since(st.StartedAt).Seconds()
 				go func() {
-					if err := statsStore.RecordMatch(roomID, chartID, chartName, userIDs, results); err != nil {
+					if err := statsStore.RecordMatch(roomID, chartID, chartName, userIDs, results, durationSec); err != nil {
 						logger.Warn("stats write failed: " + err.Error())
+						return
+					}
+					// 同步 Redis 排行榜（rating / playtime / score ZSET）。
+					// 从刚更新的 player_stats 读取最新值，保证 Redis 与 SQLite 一致。
+					for uid := range results {
+						if p, err := statsStore.GetPlayerProfile(uid); err == nil {
+							stats.SyncLeaderboard(uid, p.Rating, p.PlayTimeSec, int(p.TotalScore))
+						}
+					}
+					if chartID != 0 {
+						if cp, err := statsStore.GetChartStats(chartID); err == nil {
+							stats.SyncChartHot(chartID, cp.Popularity)
+						}
 					}
 				}()
 			}
