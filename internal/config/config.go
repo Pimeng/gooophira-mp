@@ -26,6 +26,8 @@ const (
 	MaxRoomMaxUsers                 = 64
 	DefaultWebhookTimeoutMS         = 5000
 	DefaultWebhookRetries           = 2
+	DefaultStatsDetailRetentionDays = 90
+	DefaultStatsDBMaxMB             = 500
 )
 
 // 列表类默认值。
@@ -76,6 +78,9 @@ type ServerConfig struct {
 	HitokotoAPIURL           *string        // HITOKOTO_API_URL
 	AllowTokenInQuery        *bool          // ALLOW_TOKEN_IN_QUERY
 	Webhook                  *WebhookConfig // WEBHOOK
+	StatsDBPath              *string        // STATS_DB_PATH
+	StatsDetailRetentionDays *int           // STATS_DETAIL_RETENTION_DAYS
+	StatsDBMaxMB             *int           // STATS_DB_MAX_MB
 }
 
 // ---------- Effective* 访问器：未设置时落地默认值（唯一来源） ----------
@@ -165,6 +170,16 @@ func (c *ServerConfig) EffectiveAllowTokenInQuery() bool { return boolOr(c.Allow
 
 // EffectiveWebhook 返回 Webhook 配置（未设置时为 nil = 关闭）。
 func (c *ServerConfig) EffectiveWebhook() *WebhookConfig { return c.Webhook }
+
+func (c *ServerConfig) EffectiveStatsDBPath() string {
+	return strOr(c.StatsDBPath, "stats.db")
+}
+func (c *ServerConfig) EffectiveStatsDetailRetentionDays() int {
+	return intOr(c.StatsDetailRetentionDays, DefaultStatsDetailRetentionDays)
+}
+func (c *ServerConfig) EffectiveStatsDBMaxMB() int {
+	return intOr(c.StatsDBMaxMB, DefaultStatsDBMaxMB)
+}
 
 // WebhookTimeout 返回单次请求超时（落地默认值）。
 func (w *WebhookConfig) WebhookTimeoutMS() int {

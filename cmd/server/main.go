@@ -29,6 +29,7 @@ import (
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
 	"github.com/Pimeng/gooophira-mp/internal/replay"
 	"github.com/Pimeng/gooophira-mp/internal/server"
+	"github.com/Pimeng/gooophira-mp/internal/stats"
 	"github.com/Pimeng/gooophira-mp/internal/webhook"
 )
 
@@ -147,6 +148,17 @@ func main() {
 	state.AutoUploadCallback = autoUploader.Handle
 	defer autoUploader.Close()
 
+	// 对局成绩持久化（SQLite）：每局结算写入 match_results + 增量 rollup，
+	// 支撑玩家档案、排行榜、谱面热度榜。DB 文件路径可经 STATS_DB_PATH 配置。
+	statsPath := cfg.EffectiveStatsDBPath()
+	statsStore, statsErr := stats.Open(statsPath)
+	if statsErr != nil {
+		logger.Warn(l10n.TL(lang, "log-stats-open-failed", map[string]string{"path": statsPath, "error": statsErr.Error()}))
+	} else {
+		logger.Mark(l10n.TL(lang, "log-stats-opened", map[string]string{"path": statsPath}))
+		defer statsStore.Close()
+	}
+
 	hub.OnEnterPlaying = func(room *server.Room) {
 		ev := server.Event{Type: server.EventGameStart, RoomID: room.ID.String(), UserCount: room.UserCount()}
 		if room.Chart != nil {
@@ -179,6 +191,30 @@ func main() {
 				autoUploader.Handle(f.UserID, f.ChartID, f.Timestamp, 0)
 			}
 		}()
+		// 成绩持久化：异步写入 SQLite（不阻塞命令循环）。拷贝状态避免 room 状态
+		// 被重置为 StateSelectChart 后原 map/slice 被覆写。
+		if statsStore != nil {
+			st, ok := room.PlayingState()
+			if ok && len(st.Results) > 0 {
+				roomID := room.ID.String()
+				chartID := 0
+				chartName := ""
+				if room.Chart != nil {
+					chartID = room.Chart.ID
+					chartName = room.Chart.Name
+				}
+				userIDs := room.UserIDs()
+				results := make(map[int]config.RecordData, len(st.Results))
+				for uid, rd := range st.Results {
+					results[uid] = rd
+				}
+				go func() {
+					if err := statsStore.RecordMatch(roomID, chartID, chartName, userIDs, results); err != nil {
+						logger.Warn("stats write failed: " + err.Error())
+					}
+				}()
+			}
+		}
 	}
 
 	// 回放过期清理：启动时清一次，并每日定时清理。
@@ -190,6 +226,24 @@ func main() {
 			recorder.CleanupExpired(time.Now(), cfg.EffectiveReplayTTLDays())
 		}
 	}()
+
+	// 成绩统计明细裁剪：每日清理超过保留期的 match_results 明细（rollup 不受影响）。
+	if statsStore != nil {
+		statsStore.CleanupDetail(cfg.EffectiveStatsDetailRetentionDays())
+		go func() {
+			ticker := time.NewTicker(24 * time.Hour)
+			defer ticker.Stop()
+			for range ticker.C {
+				retDays := cfg.EffectiveStatsDetailRetentionDays()
+				if err := statsStore.CleanupDetail(retDays); err != nil {
+					logger.Warn("stats cleanup failed: " + err.Error())
+				}
+				if err := statsStore.VacuumIfNeeded(statsPath, cfg.EffectiveStatsDBMaxMB()); err != nil {
+					logger.Warn("stats vacuum failed: " + err.Error())
+				}
+			}
+		}()
+	}
 
 	host := strOr(cfg.Host, "0.0.0.0")
 	port := defaultPort
