@@ -9,6 +9,7 @@ import (
 const consoleLogCap = 500
 
 // maxConsoleRecent 是 GetRecent 单次返回的最大条数，防止因外部传入过大值导致过量分配。
+// 同时也是环形缓冲的上限，确保 make 分配的大小始终安全。
 const maxConsoleRecent = consoleLogCap
 
 // ConsoleLogLine 是一条供 GUI 控制台展示的日志。JSON 字段名与 GUI 契约一致
@@ -56,17 +57,20 @@ func (h *ConsoleHub) Push(level, message string) {
 }
 
 // GetRecent 返回最近 limit 条日志（limit<=0 或超过现有条数则返回全部）。
+// 实际分配大小取自内部缓冲区长度（天然 ≤ consoleLogCap），外部传入的 limit 仅用于缩小范围，
+// 绝不直接作为 make 参数，以防止外部传入过大值导致过量内存分配。
 func (h *ConsoleHub) GetRecent(limit int) []ConsoleLogLine {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if limit <= 0 || limit > len(h.buf) {
-		limit = len(h.buf)
+	n := len(h.buf)
+	if limit > 0 && limit < n {
+		n = limit
 	}
-	if limit > maxConsoleRecent {
-		limit = maxConsoleRecent
+	if n <= 0 {
+		return nil
 	}
-	out := make([]ConsoleLogLine, limit)
-	copy(out, h.buf[len(h.buf)-limit:])
+	out := make([]ConsoleLogLine, n)
+	copy(out, h.buf[len(h.buf)-n:])
 	return out
 }
 
