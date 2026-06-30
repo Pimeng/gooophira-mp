@@ -24,6 +24,8 @@ const (
 	DefaultLogCompressAfterDays     = 14
 	DefaultLogMaxTotalMB            = 500
 	MaxRoomMaxUsers                 = 64
+	DefaultWebhookTimeoutMS         = 5000
+	DefaultWebhookRetries           = 2
 )
 
 // 列表类默认值。
@@ -73,6 +75,7 @@ type ServerConfig struct {
 	Redis                    *RedisConfig   // REDIS (startup-only)
 	HitokotoAPIURL           *string        // HITOKOTO_API_URL
 	AllowTokenInQuery        *bool          // ALLOW_TOKEN_IN_QUERY
+	Webhook                  *WebhookConfig // WEBHOOK
 }
 
 // ---------- Effective* 访问器：未设置时落地默认值（唯一来源） ----------
@@ -159,6 +162,25 @@ func (c *ServerConfig) EffectiveHAProxyProtocol() bool   { return boolOr(c.HAPro
 func (c *ServerConfig) EffectiveHTTPService() bool       { return boolOr(c.HTTPService, false) }
 func (c *ServerConfig) EffectiveGUI() bool               { return boolOr(c.GUI, false) }
 func (c *ServerConfig) EffectiveAllowTokenInQuery() bool { return boolOr(c.AllowTokenInQuery, false) }
+
+// EffectiveWebhook 返回 Webhook 配置（未设置时为 nil = 关闭）。
+func (c *ServerConfig) EffectiveWebhook() *WebhookConfig { return c.Webhook }
+
+// WebhookTimeout 返回单次请求超时（落地默认值）。
+func (w *WebhookConfig) WebhookTimeoutMS() int {
+	if w == nil || w.TimeoutMS <= 0 {
+		return DefaultWebhookTimeoutMS
+	}
+	return w.TimeoutMS
+}
+
+// WebhookRetryCount 返回失败重试次数（落地默认值）。
+func (w *WebhookConfig) WebhookRetryCount() int {
+	if w == nil || w.Retries < 0 {
+		return DefaultWebhookRetries
+	}
+	return w.Retries
+}
 
 func (c *ServerConfig) EffectiveCorsOrigins() []string {
 	if c.CorsOrigins != nil {
@@ -480,4 +502,48 @@ func parseRedisValue(v any) (*RedisConfig, bool) {
 		}
 	}
 	return &RedisConfig{Enabled: enabled, Host: host, Port: port, Password: password, DB: db}, true
+}
+
+// parseWebhookValue 解析 WEBHOOK 块。结构合法即返回（即便 ENABLED 缺省为 false / TARGETS 为空），
+// 仅当 v 根本不是 map 时返回 false（视为未设置）。逐个目标解析：缺 URL 的目标跳过。
+func parseWebhookValue(v any) (*WebhookConfig, bool) {
+	m, ok := asRecord(v)
+	if !ok {
+		return nil, false
+	}
+	enabled, _ := parseBoolValue(m["ENABLED"]) // 缺省/非法 → false（显式 opt-in）
+	timeoutMS := 0
+	if n, ok := asInt(m["TIMEOUT_MS"]); ok && n > 0 {
+		timeoutMS = n
+	}
+	retries := -1
+	if n, ok := asInt(m["RETRIES"]); ok && n >= 0 {
+		retries = n
+	}
+
+	var targets []WebhookTarget
+	if rawList, present := m["TARGETS"]; present {
+		if list, ok := rawList.([]any); ok {
+			for _, item := range list {
+				tm, ok := asRecord(item)
+				if !ok {
+					continue
+				}
+				url, okURL := parseStringValue(tm["URL"])
+				if !okURL {
+					continue // 无效目标：缺 URL，跳过
+				}
+				typ, _ := parseStringValue(tm["TYPE"])
+				typ = strings.ToLower(typ)
+				if typ == "" {
+					typ = "generic"
+				}
+				events, _ := parseStringListValue(tm["EVENTS"]) // nil = 订阅全部
+				secret, _ := parseStringValue(tm["SECRET"])
+				targets = append(targets, WebhookTarget{URL: url, Type: typ, Events: events, Secret: secret})
+			}
+		}
+	}
+
+	return &WebhookConfig{Enabled: enabled, TimeoutMS: timeoutMS, Retries: retries, Targets: targets}, true
 }

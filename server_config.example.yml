@@ -157,3 +157,26 @@ REDIS:
   # PASSWORD: "your_redis_password"
   # Redis 数据库号，默认 0
   DB: 0
+
+# Webhook 事件通知：把对局/房间/维护等事件外发到群机器人（通用 JSON / Discord / 飞书）
+# 异步投递、失败重试，不阻塞对局；支持热重载（改本块即时生效）
+# WEBHOOK:
+#   ENABLED: true
+#   # 单次请求超时（毫秒），默认 5000
+#   TIMEOUT_MS: 5000
+#   # 失败重试次数（仅对 5xx/429/网络错误重试），默认 2
+#   RETRIES: 2
+#   TARGETS:
+#     # 载荷格式 TYPE：generic（结构化 JSON，便于自定义机器人）| discord | feishu
+#     - URL: "https://discord.com/api/webhooks/xxx/yyy"
+#       TYPE: discord
+#       # 订阅的事件类型；省略或留空 = 订阅全部
+#       # 可选：game_start game_end room_create room_disband user_join maintenance
+#       EVENTS: [game_start, game_end, maintenance]
+#     - URL: "https://open.feishu.cn/open-apis/bot/v2/hook/zzz"
+#       TYPE: feishu
+#       EVENTS: [maintenance]
+#     - URL: "https://example.com/hook"
+#       TYPE: generic
+#       # 可选：配置后请求带 X-Phira-Signature: sha256=<HMAC(body)> 头，供接收端校验来源
+#       SECRET: "your_shared_secret"
