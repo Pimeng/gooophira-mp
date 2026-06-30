@@ -8,6 +8,9 @@ import (
 // consoleLogCap 是控制台日志环形缓冲容量。
 const consoleLogCap = 500
 
+// maxConsoleRecent 是 GetRecent 单次返回的最大条数，防止因外部传入过大值导致过量分配。
+const maxConsoleRecent = consoleLogCap
+
 // ConsoleLogLine 是一条供 GUI 控制台展示的日志。JSON 字段名与 GUI 契约一致
 // （level/message/timestamp），对齐 TS utils/consoleHub.ts ConsoleLine。
 type ConsoleLogLine struct {
@@ -59,8 +62,8 @@ func (h *ConsoleHub) GetRecent(limit int) []ConsoleLogLine {
 	if limit <= 0 || limit > len(h.buf) {
 		limit = len(h.buf)
 	}
-	if limit > consoleLogCap {
-		limit = consoleLogCap
+	if limit > maxConsoleRecent {
+		limit = maxConsoleRecent
 	}
 	out := make([]ConsoleLogLine, limit)
 	copy(out, h.buf[len(h.buf)-limit:])

@@ -58,7 +58,7 @@ func (s *Service) handleOTPRequest(w http.ResponseWriter, r *http.Request, _ *l1
 		s.state.Mu.Unlock()
 		short := shortID(ssid)
 		if s.state.Logger != nil {
-			s.state.Logger.Info(fmt.Sprintf("[OTP CLI Request] 收到管理员提权申请，请求IP: %s（短码: %s），1分钟内有效。使用 'approve %s' 批准或 'deny %s' 拒绝", ip, short, short, short))
+			s.state.Logger.Info(fmt.Sprintf("[OTP CLI Request] 收到管理员提权申请，请求IP: %s（短码: %s），1分钟内有效。使用 'approve %s' 批准或 'deny %s' 拒绝", maskIP(ip), short, short, short))
 		}
 		s.writeJSON(w, http.StatusOK, map[string]any{"ok": true, "ssid": ssid, "expiresIn": server.OTPTTLMS, "mode": "cli"})
 		return
@@ -222,6 +222,32 @@ func shortID(id string) string {
 // otpStdout 把含敏感信息（验证码/token）的行直接打印到终端，不经 logger（避免写入日志文件）。
 func otpStdout(msg string) {
 	fmt.Fprintf(os.Stdout, "[%s] [INFO] %s\n", time.Now().Format(time.RFC3339), msg)
+}
+
+// maskIP 对 IP 地址做脱敏处理，防止明文写入日志。
+// IPv4: 保留前三个八位组，最后一段替换为 x（如 "192.168.1.x"）
+// IPv6: 保留前 80 位（5 组），后续替换为 ::
+func maskIP(ip string) string {
+	if ip == "" {
+		return "<unknown>"
+	}
+	// IPv4: 包含 3 个点，替换最后一段
+	if strings.Count(ip, ".") == 3 {
+		if idx := strings.LastIndex(ip, "."); idx > 0 {
+			return ip[:idx+1] + "x"
+		}
+	}
+	// IPv6: 保留前 5 组（80 位），截断
+	colonCount := strings.Count(ip, ":")
+	if colonCount >= 2 {
+		parts := strings.SplitN(ip, ":", 6)
+		if len(parts) > 5 {
+			return strings.Join(parts[:5], ":") + "::"
+		}
+		// 较短地址保留原样（如 ::1）
+		return ip
+	}
+	return "<redacted>"
 }
 
 func max64(a, b int64) int64 {
