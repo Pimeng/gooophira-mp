@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
@@ -405,7 +406,8 @@ func TestDispatch_ReplayWithFakeMonitor(t *testing.T) {
 		t.Fatal("room not created")
 	}
 
-	// 验证假观战者消息已发送给 alice
+	// 验证假观战者消息已发送给 alice（sendFakeMonitorJoin 延迟 20ms 后发送，模仿 TS setImmediate）
+	time.Sleep(50 * time.Millisecond)
 	var gotFakeOnJoin, gotFakeJoinMsg bool
 	for _, cmd := range sentTo(alice) {
 		switch c := cmd.(type) {
