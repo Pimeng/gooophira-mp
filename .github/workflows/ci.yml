@@ -39,57 +39,11 @@ jobs:
       - name: 运行测试
         run: go test -race -count=1 ./...
 
-  # ── 跨平台编译校验 ──
-  build-matrix:
+  # ── 跨平台编译校验（单 runner 交叉编译，无矩阵开销）──
+  build:
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Linux
-          - goos: linux
-            goarch: amd64
-            name: linux-x64
-          - goos: linux
-            goarch: arm64
-            name: linux-arm64
-          - goos: linux
-            goarch: riscv64
-            name: linux-riscv64
-          # Windows
-          - goos: windows
-            goarch: amd64
-            name: windows-x64
-          - goos: windows
-            goarch: arm64
-            name: windows-arm64
-          # macOS
-          - goos: darwin
-            goarch: amd64
-            name: macos-x64
-          - goos: darwin
-            goarch: arm64
-            name: macos-arm64
-          # FreeBSD
-          - goos: freebsd
-            goarch: amd64
-            name: freebsd-x64
-          - goos: freebsd
-            goarch: arm64
-            name: freebsd-arm64
-          # Android / Termux（arm64，Termux 环境可直接运行）
-          - goos: android
-            goarch: arm64
-            name: termux-arm64
-          # OpenBSD / NetBSD（小众但零成本）
-          - goos: openbsd
-            goarch: amd64
-            name: openbsd-x64
-          - goos: netbsd
-            goarch: amd64
-            name: netbsd-x64
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -99,16 +53,29 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: 编译 ${{ matrix.goos }}/${{ matrix.goarch }}
+      - name: 交叉编译全部目标平台
         env:
           CGO_ENABLED: '0'
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
         run: |
-          ext=""
-          [ "$GOOS" = "windows" ] && ext=".exe"
-          BIN="phira-mp$ext"
-          echo "▶ 编译 $GOOS/$GOARCH → $BIN"
-          go build -trimpath -ldflags "-s -w" -o "$BIN" ./cmd/server
-          file "$BIN" || true
-          ls -lh "$BIN"
+          targets="
+          linux   amd64 linux-x64
+          linux   arm64 linux-arm64
+          linux   riscv64 linux-riscv64
+          windows amd64 windows-x64
+          windows arm64 windows-arm64
+          darwin  amd64 macos-x64
+          darwin  arm64 macos-arm64
+          freebsd amd64 freebsd-x64
+          freebsd arm64 freebsd-arm64
+          android arm64 termux-arm64
+          openbsd amd64 openbsd-x64
+          netbsd  amd64 netbsd-x64
+          "
+          echo "$targets" | while read -r goos goarch name; do
+            [ -z "$goos" ] && continue
+            ext=""; [ "$goos" = "windows" ] && ext=".exe"
+            echo "▶ 编译 $goos/$goarch → $name"
+            GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags "-s -w" -o "phira-mp$ext" ./cmd/server
+            ls -lh "phira-mp$ext"
+            rm -f "phira-mp$ext"
+          done
