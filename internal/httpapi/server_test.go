@@ -17,7 +17,7 @@ func newTestService(t *testing.T, cfg *config.ServerConfig) (*Service, *server.S
 		cfg = &config.ServerConfig{}
 	}
 	state := server.NewServerState(cfg, nil, "test", "", "")
-	svc := New(state, server.NewHub(state, nil))
+	svc := New(state, server.NewHub(state, nil), nil)
 	t.Cleanup(func() { _ = svc.Close() }) // 停止后台采样器，避免 goroutine 泄漏
 	return svc, state
 }

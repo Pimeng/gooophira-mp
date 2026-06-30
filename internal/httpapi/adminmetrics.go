@@ -17,9 +17,9 @@ import (
 func (s *Service) handleAdminMetrics(w http.ResponseWriter, r *http.Request, _ *l10n.Language) {
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
-	rss, heapUsed, heapTotal := s.stats.LiveMemory()
+	rss, heapUsed, heapTotal := s.statsProc.LiveMemory()
 	cpuPercent := 0.0
-	if cur, ok := s.stats.Current(); ok {
+	if cur, ok := s.statsProc.Current(); ok {
 		cpuPercent = cur.CPUPercent
 	}
 
@@ -61,7 +61,7 @@ func (s *Service) handleAdminMetrics(w http.ResponseWriter, r *http.Request, _ *
 			"rss":         rss,
 			"heapUsed":    heapUsed,
 			"heapTotal":   heapTotal,
-			"systemTotal": s.stats.SystemTotalMem(),
+			"systemTotal": s.statsProc.SystemTotalMem(),
 			// Go 原生运行时补充字段：
 			"alloc":      mem.Alloc,
 			"totalAlloc": mem.TotalAlloc,
@@ -71,7 +71,7 @@ func (s *Service) handleAdminMetrics(w http.ResponseWriter, r *http.Request, _ *
 			"numGC":      mem.NumGC,
 		},
 		"cpu": map[string]any{
-			"cores":   s.stats.CPUCount(),
+			"cores":   s.statsProc.CPUCount(),
 			"percent": cpuPercent,
 		},
 		"business": map[string]any{
@@ -88,7 +88,7 @@ func (s *Service) handleAdminMetrics(w http.ResponseWriter, r *http.Request, _ *
 	}
 	// ?history=1 附带 CPU/内存历史采样（GUI 图表回填）。
 	if r.URL.Query().Get("history") == "1" {
-		resp["history"] = s.stats.History()
+		resp["history"] = s.statsProc.History()
 	}
 	s.writeJSON(w, http.StatusOK, resp)
 }

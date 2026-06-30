@@ -288,7 +288,7 @@ func main() {
 		if cfg.HTTPPort != nil {
 			httpPort = *cfg.HTTPPort
 		}
-		httpSvc = httpapi.New(state, hub)
+		httpSvc = httpapi.New(state, hub, statsStore)
 		httpAddr, herr := httpSvc.Start(net.JoinHostPort(host, strconv.Itoa(httpPort)))
 		if herr != nil {
 			logger.Error(l10n.TL(lang, "log-http-start-failed", map[string]string{"error": herr.Error()}))

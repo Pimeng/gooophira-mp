@@ -40,7 +40,7 @@ func newReplayService(t *testing.T) (*Service, *server.ServerState, string, int6
 
 	cfg := &config.ServerConfig{ReplayBaseDir: &dir}
 	state := server.NewServerState(cfg, nil, "test", "", "")
-	svc := New(state, server.NewHub(state, fakeReplayPhira{id: 100}))
+	svc := New(state, server.NewHub(state, fakeReplayPhira{id: 100}), nil)
 	return svc, state, dir, ts
 }
 
@@ -158,7 +158,7 @@ func TestReplay_UploadToShareStation(t *testing.T) {
 
 	cfg := &config.ServerConfig{ReplayBaseDir: &dir, ShareStation: &config.ShareStation{URL: ss.URL, Token: "tok"}}
 	state := server.NewServerState(cfg, nil, "test", "", "")
-	svc := New(state, server.NewHub(state, fakeReplayPhira{id: 100}))
+	svc := New(state, server.NewHub(state, fakeReplayPhira{id: 100}), nil)
 
 	body := fmt.Sprintf(`{"token":"valid","chartId":42,"timestamp":%d}`, ts)
 	w := doReq(svc, http.MethodPost, "/replay/upload", body)
