@@ -76,6 +76,8 @@ LRU + 落盘，可切 Redis 多实例共享）。
 
 ### 关键配置项
 
+完整带注释的示例见 [`server_config.example.yml`](server_config.example.yml)。
+
 | 配置项 | 环境变量 | 默认值 | 说明 |
 |--------|----------|--------|------|
 | `HOST` / `PORT` | `HOST` / `PORT` | `::` / `12346` | TCP 游戏服务监听地址/端口 |
@@ -84,9 +86,64 @@ LRU + 落盘，可切 Redis 多实例共享）。
 | `ADMIN_TOKEN` | `ADMIN_TOKEN` | 空 | HTTP 管理接口鉴权令牌（不配则禁用管理接口） |
 | `LOG_LEVEL` | `LOG_LEVEL` | `INFO` | 日志级别：`DEBUG`/`INFO`/`MARK`/`WARN`/`ERROR` |
 | `LANG` | `PHIRA_MP_LANG` > `LANG` | `zh-CN` | 界面语言：`zh-CN`/`en-US` |
-| `ROOM_MAX_USERS` | `ROOM_MAX_USERS` | `12` | 单个房间最大人数 |
+| `ROOM_MAX_USERS` | `ROOM_MAX_USERS` | `8` | 单个房间最大人数 |
 | `REPLAY_ENABLED` | `REPLAY_ENABLED` | `false` | 是否录制回放（可运行时切换） |
 | `REDIS` | `REDIS_ENABLED` / `REDIS_HOST` ... | 关闭 | Redis 多实例共享缓存（见高级功能） |
+
+**网络与安全：**
+| 配置项 | 环境变量 | 默认值 | 说明 |
+|--------|----------|--------|------|
+| `HAPROXY_PROTOCOL` | 同名 | `false` | 是否启用 HAProxy PROXY v1/v2 协议 |
+| `MAX_CONNECTIONS` | 同名 | `0`（不限） | 全服 TCP 连接数上限 |
+| `CONNECTION_RATE_LIMIT` | 同名 | `30` | 单 IP 每 10s 窗口允许新建连接数 |
+| `COMMAND_RATE_LIMIT` | 同名 | `true` | 会话级命令令牌桶限流 |
+| `HTTP_RATE_LIMIT_MAX_REQUESTS` | 同名 | `100` | HTTP API 单 IP 限流窗口内最大请求数 |
+| `HTTP_RATE_LIMIT_WINDOW_MS` | 同名 | `60000` | HTTP API 限流窗口（毫秒） |
+| `CORS_ORIGINS` | 同名 | `[]`（允许所有） | HTTP CORS 允许来源列表 |
+| `REAL_IP_HEADER` | 同名 | `X-Forwarded-For` | HTTP 真实 IP 头名称（反代场景） |
+| `ALLOW_TOKEN_IN_QUERY` | 同名 | `false` | 是否允许 URL 查询参数传 token |
+
+**房间与对局：**
+| 配置项 | 环境变量 | 默认值 | 说明 |
+|--------|----------|--------|------|
+| `ROOM_CREATION_ENABLED` | 同名 | `true` | 是否允许玩家创建房间 |
+| `MAX_ROOMS` | 同名 | `0`（不限） | 全服同时存在的房间数上限 |
+| `PLAYING_RECONNECT_GRACE` | 同名 | `5` | 对局断线重连宽限时长（秒） |
+| `CHAT_ENABLED` | 同名 | `true` | 是否启用聊天 |
+| `SERVER_NAME` | 同名 | `"Phira MP"` | 服务器名称（显示在欢迎信息中） |
+| `MONITORS` | 同名 | `[2]` | 观战用户 ID 列表 |
+| `TEST_ACCOUNT_IDS` | 同名 | `[1739989]` | 测试账号 ID（日志不写入文件） |
+| `ROOM_LIST_TIP` | 同名 | 空 | 房间列表后追加显示的提示文案 |
+
+**回放：**
+| 配置项 | 环境变量 | 默认值 | 说明 |
+|--------|----------|--------|------|
+| `REPLAY_BASE_DIR` | 同名 | `./record` | 回放录制目录 |
+| `REPLAY_TTL_DAYS` | 同名 | `4` | 回放文件保留天数（每日凌晨清理） |
+| `REPLAY_AUTO_UPLOAD` | 同名 | `false` | 是否自动上传回放到分享站 |
+| `SHARE_STATION` | `SHARE_STATION_URL` / `TOKEN` | 未设置 | 分享站地址与 token |
+
+**日志：**
+| 配置项 | 环境变量 | 默认值 | 说明 |
+|--------|----------|--------|------|
+| `LOG_COMPRESS_AFTER_DAYS` | 同名 | `14` | 历史日志超天数后 gzip 压缩；0 关闭 |
+| `LOG_MAX_TOTAL_MB` | 同名 | `500` | 日志目录总占用上限（MB）；0 不限制 |
+
+**外部服务：**
+| 配置项 | 环境变量 | 默认值 | 说明 |
+|--------|----------|--------|------|
+| `PHIRA_API_ENDPOINT` | 同名 | `https://phira.5wyxi.com` | Phira API 端点地址 |
+| `HITOKOTO_API_URL` | 同名 | `https://v1.hitokoto.cn/` | 一言 API 地址 |
+| `OUTBOUND_PROXY` | `OUTBOUND_PROXY` | 未设置 | 出站代理（false=直连 / URL=指定代理） |
+| `WEBHOOK` | 仅 YAML | 未设置 | Webhook 事件通知（见高级功能） |
+
+**管理数据与统计：**
+| 配置项 | 环境变量 | 默认值 | 说明 |
+|--------|----------|--------|------|
+| `ADMIN_DATA_PATH` | 同名 | `./admin_data.json` | 管理数据持久化路径 |
+| `STATS_DB_PATH` | 同名 | `stats.db` | 统计数据库路径（SQLite） |
+| `STATS_DETAIL_RETENTION_DAYS` | 同名 | `90` | 统计数据明细保留天数 |
+| `STATS_DB_MAX_MB` | 同名 | `500` | 统计数据库文件大小上限（MB） |
 
 > **热重载**：修改配置文件后服务自动加载新配置（连接限速、日志级别、回放开关等即时生效）；仅端口、GUI、Redis 等启动项需重启。
 
@@ -116,7 +173,7 @@ roomcreation <on|off|status>  建房开关
 maintenance <on|off|status> [消息]   维护模式
 contest <roomId> <enable|disable|whitelist|start> [...]   比赛模式
 ipblacklist <list|remove <ip>|clear>   连接日志 IP 黑名单
-pending / approve <ssid> / deny <ssid>   CLI 提权审批
+pending / approve <ssid> / deny <ssid> / reject <ssid>   CLI 提权审批
 stop, shutdown                优雅关闭
 ```
 
@@ -136,16 +193,26 @@ stop, shutdown                优雅关闭
 - `GET /room` – 房间列表
 - `GET /gui` – GUI 页面
 - `GET /room-creation/config`、`/replay/config` – 开关状态
-- `POST /replay/auth`、`/replay/download`、`/replay/delete` – 回放操作
+- `GET /replay/download`、`POST /replay/auth`、`POST /replay/delete`、`POST /replay/upload` – 回放文件操作
+- `GET/POST /replay/auto-upload/config` – 自动上传配置读写
+- `GET /charts/hot` – 热门谱面排行
+- `GET /chart/:id` – 谱面信息
+- `GET /player/:id` – 玩家信息
+- `GET /player/:id/recent` – 玩家近期成绩
+- `GET /leaderboard` – 综合排行榜
 - `WS /ws` – WebSocket 实时订阅
 
 **管理接口**（需 token）：
 - `GET /admin/rooms`、`/admin/users`、`/admin/metrics` – 状态查询
-- `POST /admin/ban/user`、`/admin/ban/room`、`/admin/disband`、`/admin/broadcast` – 封禁/解散/广播
+- `GET /admin/users/:id` – 查看用户详情
 - `POST /admin/users/:id/move` – 迁移离线用户
-- `GET/POST /admin/runtime-config` – 运行时配置读写/回滚
+- `POST /admin/users/:id/disconnect` – 断开用户连接
+- `POST /admin/ban/user`、`/admin/ban/room`、`/admin/disband`、`/admin/broadcast` – 封禁/解散/广播
+- `GET/POST /admin/runtime-config`、`POST /admin/runtime-config/rollback` – 运行时配置读写/回滚
+- `GET/POST /admin/replay/config` – 回放配置读写
+- `GET/POST /admin/room-creation/config` – 建房配置读写
 - `GET/POST /admin/console/logs`、`/admin/console/command` – 控制台日志与命令
-- `POST /admin/contest/rooms/:id/...` – 比赛模式管理
+- `POST /admin/contest/rooms/:id/config`、`.../whitelist`、`.../start` – 比赛模式管理
 - `POST /admin/otp/request`、`/admin/otp/verify` – OTP 提权（无 token 时经终端审批获取临时 token）
 
 ---
@@ -183,7 +250,7 @@ REDIS:
 
 把服务器事件异步推送到群机器人或自建服务，投递带缓冲队列、超时与失败重试，目标不可达也不阻塞对局逻辑；配置热重载（改 `WEBHOOK` 块即时生效）。
 
-- 事件类型：`game_start`、`game_end`、`room_create`、`room_disband`、`user_join`、`maintenance`
+- 事件类型：`room_create`、`room_disband`、`user_join`、`maintenance`
 - 载荷格式（`TYPE`）：`generic`（结构化 JSON，自定义机器人自行渲染）、`discord`、`feishu`
 - 可选 `SECRET`：请求带 `X-Phira-Signature: sha256=<HMAC(body)>` 头供接收端验签
 
@@ -195,7 +262,7 @@ WEBHOOK:
   TARGETS:
     - URL: "https://discord.com/api/webhooks/xxx/yyy"
       TYPE: discord
-      EVENTS: [game_start, game_end, maintenance]   # 省略 = 订阅全部
+      EVENTS: [room_create, room_disband, maintenance]   # 省略 = 订阅全部
     - URL: "https://example.com/hook"
       TYPE: generic
       SECRET: "shared_secret"
