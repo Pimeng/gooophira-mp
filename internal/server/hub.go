@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"math/rand/v2"
+	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
@@ -175,15 +176,31 @@ func (h *Hub) ProcessCreateRoom(user *User, id protocol.RoomID) error {
 
 // sendFakeMonitorJoin 向目标用户发送回放假观战者加入通知（OnJoinRoom + JoinRoom）。
 // 客户端检测到观战者后会上报 Touches/Judges，供录制器采集。对应 TS Session.sendFakeMonitorJoin。
+//
+// ⚠️ 必须延迟到当前命令处理完成后发送（模仿 TS setImmediate）：客户端收到 OnJoinRoom
+// 时房间必须已初始化完毕，否则客户端不会把假观战者加入其内部用户列表，导致不会上报
+// Touches/Judges，回放文件将只有元数据而无任何帧。
 func (h *Hub) sendFakeMonitorJoin(targetUser *User, room *Room) {
-	if !h.State.ReplayEnabled || !room.ReplayEligible || h.State.ReplayRecorder == nil {
+	if !h.State.ReplayEnabled || !room.ReplayEligible {
 		return
 	}
-	name := l10n.TL(h.State.ServerLang, "replay-recorder-name", nil)
-	fake := h.State.ReplayRecorder.FakeMonitorInfo(name)
-	targetUser.TrySend(protocol.SrvOnJoinRoom{Info: fake})
-	targetUser.TrySend(protocol.SrvMessage{
-		Message: protocol.MsgJoinRoom{User: fake.ID, Name: fake.Name},
+	// 对齐 TS sendFakeMonitorJoin：延迟到下一轮事件循环，确保 CreateRoom/JoinRoom
+	// 的响应已先被客户端处理完毕。同时再验证用户仍在此房间（可能在延迟期间离开）。
+	roomID := room.ID
+	time.AfterFunc(20*time.Millisecond, func() {
+		// 仅在用户仍在此房间时发送；已离开或已换房则跳过。
+		if targetUser.Room == nil || targetUser.Room.ID != roomID {
+			return
+		}
+		if h.State.ReplayRecorder == nil {
+			return
+		}
+		name := l10n.TL(h.State.ServerLang, "replay-recorder-name", nil)
+		fake := h.State.ReplayRecorder.FakeMonitorInfo(name)
+		targetUser.TrySend(protocol.SrvOnJoinRoom{Info: fake})
+		targetUser.TrySend(protocol.SrvMessage{
+			Message: protocol.MsgJoinRoom{User: fake.ID, Name: fake.Name},
+		})
 	})
 }
 
