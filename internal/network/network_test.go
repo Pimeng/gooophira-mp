@@ -251,9 +251,9 @@ func TestNetwork_LivePhiraEndToEnd(t *testing.T) {
 
 // TestNetwork_DangleReconnectKeepsRoom 验证断线宽限窗内同账号重连能拿回房间。
 func TestNetwork_DangleReconnectKeepsRoom(t *testing.T) {
-	old := dangleWindowNonPlaying
-	dangleWindowNonPlaying = 5 * time.Second // 足够长，确保重连发生在窗口内
-	defer func() { dangleWindowNonPlaying = old }()
+	old := time.Duration(dangleWindowNonPlaying.Load())
+	dangleWindowNonPlaying.Store(int64(5 * time.Second)) // 足够长，确保重连发生在窗口内
+	defer dangleWindowNonPlaying.Store(int64(old))
 
 	srv, state := newTestServer(t)
 	defer srv.Close()
@@ -433,9 +433,9 @@ func TestNetwork_DuplicateOnlineKicksOld(t *testing.T) {
 // 对共享状态（rooms/users map）的并发改动无死锁/无 panic（race 检测器不可用时的替代验证）。
 func TestNetwork_ConcurrentClients(t *testing.T) {
 	// 调短 dangle 窗口，使断开后房间快速回收（默认 10s）。
-	old := dangleWindowNonPlaying
-	dangleWindowNonPlaying = 50 * time.Millisecond
-	defer func() { dangleWindowNonPlaying = old }()
+	old := time.Duration(dangleWindowNonPlaying.Load())
+	dangleWindowNonPlaying.Store(int64(50 * time.Millisecond))
+	defer dangleWindowNonPlaying.Store(int64(old))
 
 	srv, state := newTestServer(t)
 	defer srv.Close()
