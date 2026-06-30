@@ -512,13 +512,16 @@ func runRoomCycleScenario(bc benchConfig, mc *metricsCollector) scenarioResult {
 
 				t0 := time.Now()
 
-				state.Mu.Lock()
-				hub.ProcessClientCommand(cl.user, touches)
-				state.Mu.Unlock()
+				// 持 room.Mu 分段锁（不同房间间并行）
+				if room := cl.user.Room; room != nil {
+					room.Mu.Lock()
+					hub.ProcessClientCommand(cl.user, touches)
+					room.Mu.Unlock()
 
-				state.Mu.Lock()
-				hub.ProcessClientCommand(cl.user, played)
-				state.Mu.Unlock()
+					room.Mu.Lock()
+					hub.ProcessClientCommand(cl.user, played)
+					room.Mu.Unlock()
+				}
 
 				mc.recordCycle(time.Since(t0))
 				mc.addCommands(2)
@@ -810,11 +813,14 @@ func runGameplayScenario(bc benchConfig, mc *metricsCollector) scenarioResult {
 					idx := int(frameIdx.Add(1)) % len(bundles)
 					t0 := time.Now()
 
-					// 对齐真实 Server：持 state.Mu 串行化命令处理
-					state.Mu.Lock()
-					cl.hub.ProcessClientCommand(cl.user, bundles[idx].touches)
-					cl.hub.ProcessClientCommand(cl.user, bundles[idx].judges)
-					state.Mu.Unlock()
+					// 对齐真实 session：Touches/Judges 仅持 room.Mu（分段锁，房间间并行）
+					room := cl.user.Room
+					if room != nil {
+						room.Mu.Lock()
+						cl.hub.ProcessClientCommand(cl.user, bundles[idx].touches)
+						cl.hub.ProcessClientCommand(cl.user, bundles[idx].judges)
+						room.Mu.Unlock()
+					}
 
 					mc.recordCycle(time.Since(t0))
 					mc.addCommands(2)

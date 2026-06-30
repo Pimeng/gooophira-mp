@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
@@ -60,6 +61,9 @@ var ErrOnlyHost = errors.New("room-only-host")
 
 // Room 代表一个多人游戏房间，管理状态机、成员、房主转移、结果统计与房间日志。
 type Room struct {
+	// Mu 分段锁：保护房间内部状态。Touches/Judges 热路径仅持此锁，
+	// 不竞争全局 state.Mu，不同房间之间完全并行。
+	Mu sync.Mutex
 	// ID 房间唯一标识。
 	ID protocol.RoomID
 	// MaxUsers 最大用户数。
