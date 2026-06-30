@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"math"
+	"sync"
 	"testing"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
@@ -14,12 +15,17 @@ import (
 // mockSession 是用于测试的最小 Session 实现，记录收到的命令。
 type mockSession struct {
 	id   string
+	mu   sync.Mutex
 	sent []protocol.ServerCommand
 }
 
-func (m *mockSession) ID() string                         { return m.id }
-func (m *mockSession) TrySend(cmd protocol.ServerCommand) { m.sent = append(m.sent, cmd) }
-func (m *mockSession) Close()                             {}
+func (m *mockSession) ID() string { return m.id }
+func (m *mockSession) TrySend(cmd protocol.ServerCommand) {
+	m.mu.Lock()
+	m.sent = append(m.sent, cmd)
+	m.mu.Unlock()
+}
+func (m *mockSession) Close() {}
 
 // testHarness 持有共享用户表与捕获的广播，便于断言。
 type testHarness struct {
@@ -42,12 +48,15 @@ func (h *testHarness) addUser(id int, name string) *User {
 	return u
 }
 
-// sentTo 返回某用户 mock 会话收到的全部命令。
+// sentTo 返回某用户 mock 会话收到的全部命令的副本。
 func sentTo(u *User) []protocol.ServerCommand {
-	if ms, ok := u.Session.(*mockSession); ok {
-		return ms.sent
+	ms, ok := u.Session.(*mockSession)
+	if !ok {
+		return nil
 	}
-	return nil
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	return append([]protocol.ServerCommand(nil), ms.sent...)
 }
 
 func (h *testHarness) lifecycle() *RoomLifecycle {
@@ -296,16 +305,14 @@ func TestOnUserLeave_HostTransfer(t *testing.T) {
 		t.Error("should broadcast NewHost once")
 	}
 	// 新房主应收到 ChangeHost(is_host=true)
-	if ms, ok := bob.Session.(*mockSession); ok {
-		found := false
-		for _, c := range ms.sent {
-			if ch, ok := c.(protocol.SrvChangeHost); ok && ch.IsHost {
-				found = true
-			}
+	found := false
+	for _, c := range sentTo(bob) {
+		if ch, ok := c.(protocol.SrvChangeHost); ok && ch.IsHost {
+			found = true
 		}
-		if !found {
-			t.Error("new host should receive ChangeHost{IsHost:true}")
-		}
+	}
+	if !found {
+		t.Error("new host should receive ChangeHost{IsHost:true}")
 	}
 }
 
