@@ -1,0 +1,99 @@
+name: Bench
+
+# 性能基准测试：推送与 PR 时自动运行微基准测试和负载测试，
+# 生成 pprof 分析文件并上传为 Artifact，便于对比性能变化。
+# 还可通过 workflow_dispatch 手动触发更长时间/更多场景的测试。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: '测试持续时间'
+        required: true
+        default: '30s'
+        type: choice
+        options:
+          - 10s
+          - 30s
+          - 60s
+      clients:
+        description: '并发客户端数'
+        required: true
+        default: '50'
+        type: choice
+        options:
+          - 10
+          - 50
+          - 100
+          - 200
+      scenario:
+        description: '测试场景'
+        required: true
+        default: 'room-cycle'
+        type: choice
+        options:
+          - room-cycle
+          - connection-storm
+          - steady-state
+          - mixed
+
+concurrency:
+  group: bench-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: 下载依赖
+        run: go mod download
+
+      - name: 运行微基准测试（Go testing.B）
+        run: |
+          mkdir -p tmp/profiles/micro
+          go test -bench=Benchmark -benchmem -count=3 \
+            -cpuprofile=tmp/profiles/micro/cpu.out \
+            -memprofile=tmp/profiles/micro/mem.out \
+            -mutexprofile=tmp/profiles/micro/mutex.out \
+            -blockprofile=tmp/profiles/micro/block.out \
+            -run='^$' \
+            ./internal/protocol/... ./internal/server/... 2>&1 | tee tmp/profiles/micro/bench.txt
+
+      - name: 运行负载测试（cmd/bench）
+        run: |
+          mkdir -p tmp/profiles/load
+          DURATION="${{ github.event.inputs.duration || '10s' }}"
+          CLIENTS="${{ github.event.inputs.clients || '20' }}"
+          SCENARIO="${{ github.event.inputs.scenario || 'room-cycle' }}"
+          go run ./cmd/bench/ \
+            -clients="$CLIENTS" \
+            -rooms=4 \
+            -duration="$DURATION" \
+            -scenario="$SCENARIO" \
+            -profile=all \
+            -profile-dir=./tmp/profiles/load \
+            -json 2>&1 | tee tmp/profiles/load/result.json
+
+      - name: 上传基准测试结果
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-results-${{ github.sha }}
+          path: tmp/profiles/
+          retention-days: 30

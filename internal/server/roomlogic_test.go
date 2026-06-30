@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -380,5 +381,148 @@ func TestClientState(t *testing.T) {
 	}
 	if !bobState.IsReady {
 		t.Error("bob is in started set → ready")
+	}
+}
+
+// ---------- 基准测试 ----------
+
+// benchDispatch 是 mustDispatch 的 testing.B 版本。
+func benchDispatch(b *testing.B, h *Hub, user *User, cmd protocol.ClientCommand) protocol.ServerCommand {
+	b.Helper()
+	resp, ok := h.ProcessClientCommand(user, cmd)
+	if !ok {
+		b.Fatalf("expected a response for %T", cmd)
+	}
+	return resp
+}
+
+// BenchmarkRoomLifecycle_N 基准测试完整房间生命周期，调整玩家数 N。
+// 运行: go test -bench=BenchmarkRoomLifecycle -benchmem ./internal/server/
+
+func BenchmarkRoomLifecycle_4Players(b *testing.B)   { benchmarkRoomLifecycle(b, 4) }
+func BenchmarkRoomLifecycle_8Players(b *testing.B)   { benchmarkRoomLifecycle(b, 8) }
+func BenchmarkRoomLifecycle_16Players(b *testing.B)  { benchmarkRoomLifecycle(b, 16) }
+
+func benchmarkRoomLifecycle(b *testing.B, n int) {
+	h := newHarness()
+	phira := &mockPhira{
+		charts:  map[int]config.Chart{1: {ID: 1, Name: "chart1"}},
+		records: map[int]config.RecordData{
+			10: {ID: 10, Player: 1, Score: 900000, Accuracy: 0.95, Std: 0.02},
+		},
+	}
+	hub := NewHub(h.state, phira)
+
+	// 创建玩家
+	players := make([]*User, n)
+	for i := range n {
+		id := i + 1
+		players[i] = h.addUser(id, fmt.Sprintf("player%d", id))
+	}
+
+	// 为所有玩家预配置相同的 record，使 CmdPlayed 通过校验
+	for i := 2; i <= n; i++ {
+		phira.records[i*10] = config.RecordData{ID: i * 10, Player: i, Score: 900000, Accuracy: 0.95, Std: 0.02}
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		// 重置状态（每次迭代独立）
+		h.state.Rooms = make(map[protocol.RoomID]*Room)
+		for _, u := range players {
+			u.Room = nil
+		}
+
+		// 1) 创建房间
+		benchDispatch(b, hub, players[0], protocol.CmdCreateRoom{ID: "bench"})
+
+		// 2) 其余玩家加入
+		for i := 1; i < n; i++ {
+			benchDispatch(b, hub, players[i], protocol.CmdJoinRoom{ID: "bench", Monitor: false})
+		}
+
+		// 3) 选谱
+		benchDispatch(b, hub, players[0], protocol.CmdSelectChart{ID: 1})
+
+		// 4) 请求开始
+		benchDispatch(b, hub, players[0], protocol.CmdRequestStart{})
+
+		// 5) 其余玩家准备
+		for i := 1; i < n; i++ {
+			benchDispatch(b, hub, players[i], protocol.CmdReady{})
+		}
+
+		// 6) 所有玩家提交成绩
+		for i := range n {
+			benchDispatch(b, hub, players[i], protocol.CmdPlayed{ID: int32((i + 1) * 10)})
+		}
+	}
+}
+
+// BenchmarkRoomGameplay 基准测试 Playing 阶段的高频帧（Touches / Judges）。
+func BenchmarkRoomGameplay(b *testing.B) {
+	h := newHarness()
+	phira := &mockPhira{
+		charts:  map[int]config.Chart{1: {ID: 1, Name: "chart1"}},
+		records: map[int]config.RecordData{10: {ID: 10, Player: 1, Score: 900000}},
+	}
+	hub := NewHub(h.state, phira)
+	alice := h.addUser(1, "alice")
+	bob := h.addUser(2, "bob")
+
+	// 进入 Playing 状态
+	benchDispatch(b, hub, alice, protocol.CmdCreateRoom{ID: "room1"})
+	benchDispatch(b, hub, bob, protocol.CmdJoinRoom{ID: "room1", Monitor: false})
+	benchDispatch(b, hub, alice, protocol.CmdSelectChart{ID: 1})
+	benchDispatch(b, hub, alice, protocol.CmdRequestStart{})
+	benchDispatch(b, hub, bob, protocol.CmdReady{})
+
+	// 准备触摸帧和判定事件
+	touches := protocol.CmdTouches{
+		Frames: []protocol.TouchFrame{
+			{Time: 0.0, Points: []protocol.TouchPoint{
+				{ID: 0, Pos: protocol.CompactPos{X: 0.5, Y: 0.3}},
+				{ID: 1, Pos: protocol.CompactPos{X: 0.7, Y: 0.4}},
+			}},
+		},
+	}
+	judges := protocol.CmdJudges{
+		Judges: []protocol.JudgeEvent{
+			{Time: 1.0, LineID: 0, NoteID: 10, Judgement: protocol.JudgePerfect},
+			{Time: 2.0, LineID: 1, NoteID: 20, Judgement: protocol.JudgeGood},
+		},
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		// 模拟 Playing 阶段的帧数据收发
+		hub.ProcessClientCommand(alice, touches)
+		hub.ProcessClientCommand(bob, touches)
+		hub.ProcessClientCommand(alice, judges)
+		hub.ProcessClientCommand(bob, judges)
+	}
+}
+
+// BenchmarkRoomCreateMany 基准测试创建大量房间和快速加入。
+func BenchmarkRoomCreateMany(b *testing.B) {
+	h := newHarness()
+	hub := NewHub(h.state, &mockPhira{})
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		// 每次迭代先清理
+		h.state.Rooms = make(map[protocol.RoomID]*Room)
+
+		// 创建 N=100 个房间，每个 1 个用户
+		for j := range 100 {
+			u := h.addUser(j+1, fmt.Sprintf("u%d", j+1))
+			benchDispatch(b, hub, u, protocol.CmdCreateRoom{ID: protocol.RoomID(fmt.Sprintf("r%d", j))})
+		}
 	}
 }
