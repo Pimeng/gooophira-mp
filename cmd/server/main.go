@@ -205,26 +205,26 @@ func main() {
 				}
 				userIDs := room.UserIDs()
 				results := make(map[int]config.RecordData, len(st.Results))
+				userNames := make(map[int]string, len(st.Results))
 				for uid, rd := range st.Results {
 					results[uid] = rd
+					if u := state.Users[uid]; u != nil {
+						userNames[uid] = u.Name
+					}
 				}
 				durationSec := time.Since(st.StartedAt).Seconds()
 				go func() {
-					if err := statsStore.RecordMatch(roomID, chartID, chartName, userIDs, results, durationSec); err != nil {
+					mr, err := statsStore.RecordMatch(roomID, chartID, chartName, userIDs, results, userNames, durationSec)
+					if err != nil {
 						logger.Warn("stats write failed: " + err.Error())
 						return
 					}
-					// 同步 Redis 排行榜（rating / playtime / score ZSET）。
-					// 从刚更新的 player_stats 读取最新值，保证 Redis 与 SQLite 一致。
-					for uid := range results {
-						if p, err := statsStore.GetPlayerProfile(uid); err == nil {
-							stats.SyncLeaderboard(uid, p.Rating, p.PlayTimeSec, int(p.TotalScore))
-						}
+					// 同步 Redis 排行榜（使用事务内计算好的聚合值，免 N+1 回查）。
+					for _, r := range mr {
+						stats.SyncLeaderboard(r.UserID, r.Rating, r.PlayTimeSec, r.TotalScore)
 					}
-					if chartID != 0 {
-						if cp, err := statsStore.GetChartStats(chartID); err == nil {
-							stats.SyncChartHot(chartID, cp.Popularity)
-						}
+					if chartID != 0 && len(mr) > 0 && mr[0].ChartPop > 0 {
+						stats.SyncChartHot(chartID, mr[0].ChartPop)
 					}
 				}()
 			}
