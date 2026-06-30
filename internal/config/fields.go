@@ -229,6 +229,9 @@ var configFields = []fieldSpec{
 		set:   func(c *ServerConfig, v any) { c.Webhook = v.(*WebhookConfig) },
 		clear: func(c *ServerConfig) { c.Webhook = nil },
 	},
+	strField("STATS_DB_PATH", false, parseStringValue, func(c *ServerConfig) **string { return &c.StatsDBPath }),
+	intField("STATS_DETAIL_RETENTION_DAYS", false, parseNonNegativeIntValue, func(c *ServerConfig) **int { return &c.StatsDetailRetentionDays }),
+	intField("STATS_DB_MAX_MB", false, parsePositiveIntValue, func(c *ServerConfig) **int { return &c.StatsDBMaxMB }),
 }
 
 // KnownEnvNames 返回所有已知配置项的 ENV/YAML 名。

@@ -1,6 +1,7 @@
 # 运行时生成目录/文件（任意层级）
 logs/
 record/
+tmp/
 admin_data.json
 
 # 编译产物
@@ -8,9 +9,12 @@ admin_data.json
 /server.exe
 *.exe
 
-# IDE
-/.idea/
-.reasonix/
+# 隐藏文件
+/.*/
+!.github/
 
 # 一些文件
 *.phirarec
+
+# 原仓库
+tphira-mp-src/
