@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
@@ -31,8 +32,10 @@ const (
 )
 
 // dangleWindowNonPlaying 是非对局态断线后保留房间、等待重连的窗口（对应 TS DANGLE_WINDOW_MS）。
-// 为包级变量便于测试调短。对局态断线用 config.playing_reconnect_grace（0=立即移除）。
-var dangleWindowNonPlaying = 10 * time.Second
+// 为 atomic.Int64 便于测试安全调短（避免并发 data race）。对局态断线用 config.playing_reconnect_grace（0=立即移除）。
+var dangleWindowNonPlaying atomic.Int64
+
+func init() { dangleWindowNonPlaying.Store(int64(10 * time.Second)) }
 
 // Session 管理单个 TCP 连接：握手、认证、心跳、命令循环、断线清理。实现 server.Session。
 type Session struct {
@@ -181,7 +184,7 @@ func (s *Session) dangleGrace(u *server.User) time.Duration {
 			return time.Duration(s.state.Config.EffectivePlayingReconnectGrace()) * time.Second
 		}
 	}
-	return dangleWindowNonPlaying
+	return time.Duration(dangleWindowNonPlaying.Load())
 }
 
 // removeUser 退房并移除用户（调用方须持 state.Mu）。
