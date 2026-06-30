@@ -8,19 +8,21 @@ import (
 	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
-	_ "modernc.org/sqlite" // database/sql driver
+	_ "modernc.org/sqlite"
 )
 
-// popularityHalfLifeDays 是谱面热度半衰期（天）。
-const popularityHalfLifeDays = 30
+const (
+	popularityHalfLifeDays = 30
+	eloKFactor             = 32
+	eloBaseRating          = 1500.0
+)
 
-// Store 是 SQLite 持久化封装。db 并发安全（连接池），多 goroutine 同时写安全。
+// Store 是 SQLite 持久化封装。db 并发安全（连接池）。
 type Store struct {
 	db *sql.DB
 }
 
 // Open 打开（或创建）SQLite 数据库，开启 WAL 模式、建表并执行迁移。
-// path 为空时返回错误。
 func Open(path string) (*Store, error) {
 	if path == "" {
 		return nil, fmt.Errorf("stats: db path is empty")
@@ -41,26 +43,36 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("stats: schema: %w", err)
 	}
-	// 增量迁移：为老 DB 补加新列（列已存在时静默跳过）。
 	for _, m := range migrations {
 		db.Exec(m)
 	}
 	return &Store{db: db}, nil
 }
 
-// Close 关闭数据库连接。
 func (s *Store) Close() error { return s.db.Close() }
 
-// RecordMatch 在一笔事务中写入 match + match_results，并增量更新
-// player_stats（含 play_time_sec / total_score）与 chart_stats（含 popularity）rollup 表。
+// RecordMatchResult 是 RecordMatch 返回的每位玩家的更新后聚合值，
+// 供调用方直接同步 Redis 排行榜，避免 N+1 回查。
+type RecordMatchResult struct {
+	UserID      int
+	Rating      float64
+	PlayTimeSec int
+	TotalScore  int
+	ChartPop    float64 // 谱面更新后的 popularity（仅 chartID != 0 时有值）
+}
+
+// RecordMatch 在一笔事务中写入 match + match_results + ELO rating 更新，
+// 增量更新 player_stats（含 play_time_sec / total_score）与 chart_stats（含 popularity）。
 //
-// duration 为本局墙钟时长（秒）；results 的 key 为 userID；userIDs 保持房间成员顺序。
+// userNames 是 userID → 名字（来自服务器状态，可为空 map）。
+// 返回每位参与玩家的更新后 rating / play_time / total_score。
 func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
-	userIDs []int, results map[int]config.RecordData, durationSec float64) error {
+	userIDs []int, results map[int]config.RecordData, userNames map[int]string,
+	durationSec float64) ([]RecordMatchResult, error) {
 
 	tx, err := s.db.Begin()
 	if err != nil {
-		return fmt.Errorf("stats: begin tx: %w", err)
+		return nil, fmt.Errorf("stats: begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
@@ -70,20 +82,26 @@ func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
 		roomID, chartID, chartName, durationSec, len(userIDs),
 	)
 	if err != nil {
-		return fmt.Errorf("stats: insert match: %w", err)
+		return nil, fmt.Errorf("stats: insert match: %w", err)
 	}
 	matchID, err := res.LastInsertId()
 	if err != nil {
-		return fmt.Errorf("stats: last insert id: %w", err)
+		return nil, fmt.Errorf("stats: last insert id: %w", err)
 	}
 
-	// 2. 按 score desc 计算排名（同分同名）
-	ranked := rankByScore(userIDs, results)
+	// 2. 读取当前 rating 用于 ELO 计算
+	oldRatings := s.loadRatings(tx, userIDs)
 
-	// 3. 逐人插入 match_results + 更新 player_stats
+	// 3. 按 score desc 计算排名 + pairwise ELO 增量
+	ranked := rankByScore(userIDs, results)
+	eloDeltas := computeELO(ranked, oldRatings)
+
+	// 4. 逐人插入 match_results + 更新 player_stats + users
 	now := time.Now().UTC().Format(time.RFC3339)
+	var out []RecordMatchResult
 	for _, rr := range ranked {
 		rd := rr.record
+		uid := rd.Player
 		fc := 0
 		if rd.FullCombo {
 			fc = 1
@@ -91,17 +109,18 @@ func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
 		if _, err := tx.Exec(
 			`INSERT INTO match_results(match_id,user_id,score,accuracy,perfect,good,bad,miss,max_combo,full_combo,std,std_score,rank)
 			 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			matchID, rd.Player, rd.Score, rd.Accuracy,
+			matchID, uid, rd.Score, rd.Accuracy,
 			rd.Perfect, rd.Good, rd.Bad, rd.Miss,
 			rd.MaxCombo, fc, rd.Std, rd.StdScore, rr.rank,
 		); err != nil {
-			return fmt.Errorf("stats: insert match_result user=%d: %w", rd.Player, err)
+			return nil, fmt.Errorf("stats: insert match_result user=%d: %w", uid, err)
 		}
 
-		// 增量更新 player_stats（upsert）：games / wins / sum_acc / best_score / total_score / play_time_sec
+		// player_stats upsert（含 ELO rating 增量）
+		newRating := oldRatings[uid] + eloDeltas[uid]
 		if _, err := tx.Exec(
-			`INSERT INTO player_stats(user_id,games,wins,sum_acc,best_score,total_score,play_time_sec,updated_at)
-			 VALUES(?,1,?,?,?,?,?,?)
+			`INSERT INTO player_stats(user_id,games,wins,sum_acc,best_score,total_score,play_time_sec,rating,updated_at)
+			 VALUES(?,1,?,?,?,?,?,?,?)
 			 ON CONFLICT(user_id) DO UPDATE SET
 			   games         = games + 1,
 			   wins          = wins   + excluded.wins,
@@ -109,19 +128,32 @@ func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
 			   best_score    = MAX(best_score, excluded.best_score),
 			   total_score   = total_score + excluded.total_score,
 			   play_time_sec = play_time_sec + excluded.play_time_sec,
+			   rating        = excluded.rating,
 			   updated_at    = excluded.updated_at`,
-			rd.Player, boolToInt(rr.rank == 1), rd.Accuracy, rd.Score, rd.Score, int(durationSec), now,
+			uid, boolToInt(rr.rank == 1), rd.Accuracy, rd.Score, rd.Score, int(durationSec), newRating, now,
 		); err != nil {
-			return fmt.Errorf("stats: upsert player_stats user=%d: %w", rd.Player, err)
+			return nil, fmt.Errorf("stats: upsert player_stats user=%d: %w", uid, err)
 		}
 
-		// 更新 users 名字缓存
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO users(id,name,last_seen) VALUES(?,?,?)`, rd.Player, "", now); err != nil {
-			return fmt.Errorf("stats: upsert user %d: %w", rd.Player, err)
+		// users 名字缓存
+		name := userNames[uid]
+		if _, err := tx.Exec(
+			`INSERT INTO users(id,name,last_seen) VALUES(?,?,?)
+			 ON CONFLICT(id) DO UPDATE SET name=excluded.name, last_seen=excluded.last_seen`,
+			uid, name, now,
+		); err != nil {
+			return nil, fmt.Errorf("stats: upsert user %d: %w", uid, err)
 		}
+
+		out = append(out, RecordMatchResult{
+			UserID: uid, Rating: newRating,
+			PlayTimeSec: 0, // 在事务外查询累加值
+			TotalScore:  rd.Score,
+		})
 	}
 
-	// 4. 更新 chart_stats（含 recency 加权 popularity）
+	// 5. 更新 chart_stats
+	var chartPop float64
 	if chartID != 0 {
 		n := len(results)
 		passCount := 0
@@ -134,9 +166,6 @@ func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
 		if n > 0 {
 			initialPassRate = float64(passCount) / float64(n)
 		}
-		// popularity: 旧值按 last_played_at 衰减后 + 本次游玩次数。
-		// 衰减公式: old * exp(-ln(2) * days_since_last / halfLifeDays) + n
-		// exp() 参数 = -ln(2)/halfLifeDays ≈ 预计算常量传入。
 		decayExpr := `CASE
 			WHEN last_played_at != '' THEN popularity * EXP((julianday(?) - julianday(last_played_at)) * ?) + ?
 			ELSE ?
@@ -158,21 +187,100 @@ func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
 				   updated_at     = excluded.updated_at`, decayExpr),
 			chartID, chartName, n, sumAcc(results), initialPassRate, now, float64(n), now,
 			float64(passCount),
-			// decayExpr args:
 			now, decayLambda, float64(n), float64(n),
 		); err != nil {
-			return fmt.Errorf("stats: upsert chart_stats chart=%d: %w", chartID, err)
+			return nil, fmt.Errorf("stats: upsert chart_stats chart=%d: %w", chartID, err)
+		}
+		// 读回更新后的 popularity
+		if err := tx.QueryRow("SELECT popularity FROM chart_stats WHERE chart_id=?", chartID).Scan(&chartPop); err != nil {
+			chartPop = float64(n) // fallback
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("stats: commit: %w", err)
+	}
+
+	// 事务提交后回查 play_time_sec 累加值（仅需一次批量查询）
+	for i := range out {
+		var pt int
+		if err := s.db.QueryRow("SELECT play_time_sec FROM player_stats WHERE user_id=?", out[i].UserID).Scan(&pt); err == nil {
+			out[i].PlayTimeSec = pt
+		}
+	}
+	if chartID != 0 {
+		for i := range out {
+			out[i].ChartPop = chartPop
+		}
+	}
+	return out, nil
 }
 
-// ---------- 查询 API（只读 rollup 表，永不扫历史明细）----------
+// loadRatings 从 player_stats 读取当前 rating（新玩家默认 1500）。
+func (s *Store) loadRatings(tx *sql.Tx, userIDs []int) map[int]float64 {
+	ratings := make(map[int]float64, len(userIDs))
+	for _, uid := range userIDs {
+		ratings[uid] = eloBaseRating
+	}
+	// 批量读取已有记录
+	rows, err := tx.Query(`SELECT user_id, rating FROM player_stats WHERE user_id IN (` + placeholders(len(userIDs)) + `)`, intsToAny(userIDs)...)
+	if err != nil {
+		return ratings
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var uid int
+		var r float64
+		if rows.Scan(&uid, &r) == nil {
+			ratings[uid] = r
+		}
+	}
+	return ratings
+}
+
+// computeELO 对所有配对计算 ELO 增量。新玩家从 1500 起步。
+func computeELO(ranked []rankedResult, oldRatings map[int]float64) map[int]float64 {
+	deltas := make(map[int]float64)
+	type entry struct {
+		uid   int
+		score int
+		rank  int
+	}
+	entries := make([]entry, len(ranked))
+	for i, rr := range ranked {
+		entries[i] = entry{uid: rr.record.Player, score: rr.record.Score, rank: rr.rank}
+	}
+	n := len(entries)
+	for i := 0; i < n; i++ {
+		for j := i + 1; j < n; j++ {
+			a, b := entries[i], entries[j]
+			ra := oldRatings[a.uid]
+			rb := oldRatings[b.uid]
+			// 预期胜率
+			ea := 1.0 / (1.0 + math.Pow(10, (rb-ra)/400.0))
+			eb := 1.0 - ea
+			// 实际得分
+			var sa, sb float64
+			if a.rank < b.rank {
+				sa, sb = 1, 0
+			} else if a.rank > b.rank {
+				sa, sb = 0, 1
+			} else {
+				sa, sb = 0.5, 0.5
+			}
+			deltas[a.uid] += eloKFactor * (sa - ea)
+			deltas[b.uid] += eloKFactor * (sb - eb)
+		}
+	}
+	return deltas
+}
+
+// ---------- 查询 API ----------
 
 // PlayerProfile 是玩家档案页数据。
 type PlayerProfile struct {
 	UserID      int
+	Name        string
 	Games       int
 	Wins        int
 	AvgAcc      float64
@@ -181,22 +289,75 @@ type PlayerProfile struct {
 	PlayTimeSec int
 	Rating      float64
 	UpdatedAt   string
-	sumAcc      float64 // 内部使用，导出 AvgAcc
+	sumAcc      float64
 }
 
-// GetPlayerProfile 从 player_stats 读取玩家终身聚合。
 func (s *Store) GetPlayerProfile(userID int) (*PlayerProfile, error) {
 	row := s.db.QueryRow(
-		`SELECT user_id, games, wins, sum_acc, best_score, total_score, play_time_sec, rating, updated_at
-		 FROM player_stats WHERE user_id = ?`, userID,
+		`SELECT p.user_id, u.name, p.games, p.wins, p.sum_acc, p.best_score, p.total_score, p.play_time_sec, p.rating, p.updated_at
+		 FROM player_stats p LEFT JOIN users u ON u.id = p.user_id
+		 WHERE p.user_id = ?`, userID,
 	)
 	p := &PlayerProfile{}
-	if err := row.Scan(&p.UserID, &p.Games, &p.Wins, &p.sumAcc, &p.BestScore,
+	if err := row.Scan(&p.UserID, &p.Name, &p.Games, &p.Wins, &p.sumAcc, &p.BestScore,
 		&p.TotalScore, &p.PlayTimeSec, &p.Rating, &p.UpdatedAt); err != nil {
 		return nil, fmt.Errorf("stats: player %d: %w", userID, err)
 	}
 	p.AvgAcc = avgFromSum(p.sumAcc, p.Games)
 	return p, nil
+}
+
+// PlayerLeaderboard 是排行榜条目。
+type PlayerLeaderboard struct {
+	Rank        int
+	UserID      int
+	Name        string
+	Games       int
+	Wins        int
+	AvgAcc      float64
+	BestScore   int
+	TotalScore  int64
+	PlayTimeSec int
+	Rating      float64
+}
+
+func (s *Store) GetLeaderboardByRating(limit int) ([]PlayerLeaderboard, error) {
+	rows, err := s.db.Query(
+		`SELECT p.user_id, u.name, p.games, p.wins, p.sum_acc, p.best_score, p.total_score, p.play_time_sec, p.rating
+		 FROM player_stats p LEFT JOIN users u ON u.id = p.user_id
+		 WHERE p.games > 0 ORDER BY p.rating DESC LIMIT ?`, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("stats: leaderboard rating: %w", err)
+	}
+	defer rows.Close()
+	return scanLeaderboard(rows)
+}
+
+func (s *Store) GetLeaderboardByPlayTime(limit int) ([]PlayerLeaderboard, error) {
+	rows, err := s.db.Query(
+		`SELECT p.user_id, u.name, p.games, p.wins, p.sum_acc, p.best_score, p.total_score, p.play_time_sec, p.rating
+		 FROM player_stats p LEFT JOIN users u ON u.id = p.user_id
+		 WHERE p.games > 0 ORDER BY p.play_time_sec DESC LIMIT ?`, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("stats: leaderboard playtime: %w", err)
+	}
+	defer rows.Close()
+	return scanLeaderboard(rows)
+}
+
+func (s *Store) GetLeaderboardByTotalScore(limit int) ([]PlayerLeaderboard, error) {
+	rows, err := s.db.Query(
+		`SELECT p.user_id, u.name, p.games, p.wins, p.sum_acc, p.best_score, p.total_score, p.play_time_sec, p.rating
+		 FROM player_stats p LEFT JOIN users u ON u.id = p.user_id
+		 WHERE p.games > 0 ORDER BY p.total_score DESC LIMIT ?`, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("stats: leaderboard score: %w", err)
+	}
+	defer rows.Close()
+	return scanLeaderboard(rows)
 }
 
 // ChartPopularity 是谱面热度项。
@@ -208,15 +369,13 @@ type ChartPopularity struct {
 	PassRate     float64
 	LastPlayedAt string
 	Popularity   float64
-	sumAcc       float64 // 内部使用，导出 AvgAcc
+	sumAcc       float64
 }
 
-// GetChartPopularity 按 popularity desc 返回排行榜前 N 名。
 func (s *Store) GetChartPopularity(limit int) ([]ChartPopularity, error) {
 	rows, err := s.db.Query(
 		`SELECT chart_id, chart_name, plays, sum_acc, pass_rate, last_played_at, popularity
-		 FROM chart_stats WHERE plays > 0
-		 ORDER BY popularity DESC LIMIT ?`, limit,
+		 FROM chart_stats WHERE plays > 0 ORDER BY popularity DESC LIMIT ?`, limit,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("stats: chart popularity: %w", err)
@@ -225,7 +384,6 @@ func (s *Store) GetChartPopularity(limit int) ([]ChartPopularity, error) {
 	return scanChartPopularity(rows)
 }
 
-// GetChartStats 获取单个谱面的聚合统计。
 func (s *Store) GetChartStats(chartID int) (*ChartPopularity, error) {
 	row := s.db.QueryRow(
 		`SELECT chart_id, chart_name, plays, sum_acc, pass_rate, last_played_at, popularity
@@ -240,59 +398,37 @@ func (s *Store) GetChartStats(chartID int) (*ChartPopularity, error) {
 	return c, nil
 }
 
-// PlayerLeaderboard 是排行榜条目。
-type PlayerLeaderboard struct {
-	Rank        int
-	UserID      int
-	Games       int
-	Wins        int
-	AvgAcc      float64
-	BestScore   int
-	TotalScore  int64
-	PlayTimeSec int
-	Rating      float64
+// RecentMatch 是玩家最近一场比赛的摘要。
+type RecentMatch struct {
+	MatchID   int64   `json:"match_id"`
+	ChartID   int     `json:"chart_id"`
+	ChartName string  `json:"chart_name"`
+	Score     int     `json:"score"`
+	Accuracy  float64 `json:"accuracy"`
+	Rank      int     `json:"rank"`
+	PlayedAt  string  `json:"played_at"`
 }
 
-// GetLeaderboardByRating 按 rating desc 返回前 N 名。
-func (s *Store) GetLeaderboardByRating(limit int) ([]PlayerLeaderboard, error) {
+// GetRecentMatches 返回玩家最近 N 场比赛。
+func (s *Store) GetRecentMatches(userID, limit int) ([]RecentMatch, error) {
 	rows, err := s.db.Query(
-		`SELECT user_id, games, wins, sum_acc, best_score, total_score, play_time_sec, rating
-		 FROM player_stats WHERE games > 0
-		 ORDER BY rating DESC LIMIT ?`, limit,
+		`SELECT mr.match_id, m.chart_id, m.chart_name, mr.score, mr.accuracy, mr.rank, m.started_at
+		 FROM match_results mr JOIN matches m ON m.id = mr.match_id
+		 WHERE mr.user_id = ? ORDER BY m.started_at DESC LIMIT ?`, userID, limit,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("stats: leaderboard rating: %w", err)
+		return nil, fmt.Errorf("stats: recent matches %d: %w", userID, err)
 	}
 	defer rows.Close()
-	return scanLeaderboard(rows)
-}
-
-// GetLeaderboardByPlayTime 按 play_time_sec desc 返回前 N 名。
-func (s *Store) GetLeaderboardByPlayTime(limit int) ([]PlayerLeaderboard, error) {
-	rows, err := s.db.Query(
-		`SELECT user_id, games, wins, sum_acc, best_score, total_score, play_time_sec, rating
-		 FROM player_stats WHERE games > 0
-		 ORDER BY play_time_sec DESC LIMIT ?`, limit,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("stats: leaderboard playtime: %w", err)
+	var out []RecentMatch
+	for rows.Next() {
+		var m RecentMatch
+		if err := rows.Scan(&m.MatchID, &m.ChartID, &m.ChartName, &m.Score, &m.Accuracy, &m.Rank, &m.PlayedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
 	}
-	defer rows.Close()
-	return scanLeaderboard(rows)
-}
-
-// GetLeaderboardByTotalScore 按 total_score desc 返回前 N 名。
-func (s *Store) GetLeaderboardByTotalScore(limit int) ([]PlayerLeaderboard, error) {
-	rows, err := s.db.Query(
-		`SELECT user_id, games, wins, sum_acc, best_score, total_score, play_time_sec, rating
-		 FROM player_stats WHERE games > 0
-		 ORDER BY total_score DESC LIMIT ?`, limit,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("stats: leaderboard score: %w", err)
-	}
-	defer rows.Close()
-	return scanLeaderboard(rows)
+	return out, rows.Err()
 }
 
 // ---------- helpers ----------
@@ -314,7 +450,6 @@ func rankByScore(userIDs []int, results map[int]config.RecordData) []rankedResul
 		}
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].score > entries[j].score })
-
 	ranked := make([]rankedResult, 0, len(entries))
 	for i, e := range entries {
 		rank := i + 1
@@ -324,6 +459,28 @@ func rankByScore(userIDs []int, results map[int]config.RecordData) []rankedResul
 		ranked = append(ranked, rankedResult{record: results[e.userID], rank: rank})
 	}
 	return ranked
+}
+
+func placeholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	b := make([]byte, 0, n*2-1)
+	for i := 0; i < n; i++ {
+		if i > 0 {
+			b = append(b, ',')
+		}
+		b = append(b, '?')
+	}
+	return string(b)
+}
+
+func intsToAny(v []int) []any {
+	out := make([]any, len(v))
+	for i, x := range v {
+		out[i] = x
+	}
+	return out
 }
 
 func sumAcc(results map[int]config.RecordData) float64 {
@@ -355,7 +512,7 @@ func scanLeaderboard(rows *sql.Rows) ([]PlayerLeaderboard, error) {
 		rank++
 		e := PlayerLeaderboard{Rank: rank}
 		var sumAcc float64
-		if err := rows.Scan(&e.UserID, &e.Games, &e.Wins, &sumAcc, &e.BestScore,
+		if err := rows.Scan(&e.UserID, &e.Name, &e.Games, &e.Wins, &sumAcc, &e.BestScore,
 			&e.TotalScore, &e.PlayTimeSec, &e.Rating); err != nil {
 			return nil, err
 		}

@@ -8,7 +8,6 @@ import (
 	"github.com/Pimeng/gooophira-mp/internal/stats"
 )
 
-// requireStats 若 statsStore 未初始化，返回 503。
 func (s *Service) requireStats(w http.ResponseWriter) bool {
 	if s.statsStore == nil {
 		s.writeJSON(w, http.StatusServiceUnavailable, map[string]any{
@@ -25,8 +24,14 @@ func (s *Service) handlePlayer(w http.ResponseWriter, r *http.Request) {
 	if !s.requireStats(w) {
 		return
 	}
-	// /player/1001 → "1001"
 	idStr := strings.TrimPrefix(r.URL.Path, "/player/")
+
+	// /player/:id/recent
+	if rest, ok := strings.CutSuffix(idStr, "/recent"); ok {
+		s.handlePlayerRecent(w, r, rest)
+		return
+	}
+
 	id, err := strconv.Atoi(idStr)
 	if err != nil || id <= 0 {
 		s.writeJSON(w, http.StatusBadRequest, map[string]any{
@@ -45,6 +50,7 @@ func (s *Service) handlePlayer(w http.ResponseWriter, r *http.Request) {
 		"ok": true,
 		"player": map[string]any{
 			"id":             p.UserID,
+			"name":           p.Name,
 			"games":          p.Games,
 			"wins":           p.Wins,
 			"avg_acc":        p.AvgAcc,
@@ -54,6 +60,30 @@ func (s *Service) handlePlayer(w http.ResponseWriter, r *http.Request) {
 			"rating":         p.Rating,
 			"updated_at":     p.UpdatedAt,
 		},
+	})
+}
+
+// ---------- GET /player/:id/recent?limit=10 ----------
+
+func (s *Service) handlePlayerRecent(w http.ResponseWriter, r *http.Request, idStr string) {
+	id, err := strconv.Atoi(idStr)
+	if err != nil || id <= 0 {
+		s.writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid-player-id"})
+		return
+	}
+	limit := 10
+	if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 && l <= 50 {
+		limit = l
+	}
+	matches, err := s.statsStore.GetRecentMatches(id, limit)
+	if err != nil {
+		s.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"user_id": id,
+		"recent":  matches,
 	})
 }
 
@@ -99,8 +129,8 @@ func (s *Service) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, http.StatusOK, map[string]any{
-		"ok":         true,
-		"sort":       sortBy,
+		"ok":          true,
+		"sort":        sortBy,
 		"leaderboard": entries,
 	})
 }
@@ -108,6 +138,7 @@ func (s *Service) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 type leaderboardJSON struct {
 	Rank        int     `json:"rank"`
 	UserID      int     `json:"user_id"`
+	Name        string  `json:"name"`
 	Games       int     `json:"games"`
 	Wins        int     `json:"wins"`
 	AvgAcc      float64 `json:"avg_acc"`
@@ -194,6 +225,7 @@ func toLeaderboardJSON(lb []stats.PlayerLeaderboard) []leaderboardJSON {
 		out = append(out, leaderboardJSON{
 			Rank:        e.Rank,
 			UserID:      e.UserID,
+			Name:        e.Name,
 			Games:       e.Games,
 			Wins:        e.Wins,
 			AvgAcc:      e.AvgAcc,
