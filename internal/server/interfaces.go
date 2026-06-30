@@ -52,7 +52,8 @@ type ReplayRecorder interface {
 	SetRecordID(roomID protocol.RoomID, userID, recordID int)
 	// EndRoom 结束并落盘某房间进行中的录制（回放热关闭时也会调用）。
 	EndRoom(roomID protocol.RoomID)
-	// 录制启停 / fakeMonitorInfo 等在 Stage 5 细化。
+	// FakeMonitorInfo 返回用于让客户端上报游戏数据的假观战者信息。
+	FakeMonitorInfo(name string) protocol.UserInfo
 }
 
 // MonitorBuffer 聚合实时游戏数据（Touches/Judges）后批量转发给观战者，
