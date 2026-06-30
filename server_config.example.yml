@@ -21,6 +21,11 @@ CORS_ORIGINS:
   - "https://t.phira.link"
   - "http://localhost:5173"
 
+# HTTP API 单 IP 限流：窗口内最大请求数，默认 100
+# HTTP_RATE_LIMIT_MAX_REQUESTS: 100
+# HTTP API 限流窗口（毫秒），默认 60000（1 分钟）
+# HTTP_RATE_LIMIT_WINDOW_MS: 60000
+
 # 日志等级：DEBUG、INFO、MARK、WARN、ERROR，默认 INFO
 LOG_LEVEL: INFO
 
@@ -171,8 +176,8 @@ REDIS:
 #     - URL: "https://discord.com/api/webhooks/xxx/yyy"
 #       TYPE: discord
 #       # 订阅的事件类型；省略或留空 = 订阅全部
-#       # 可选：game_start game_end room_create room_disband user_join maintenance
-#       EVENTS: [game_start, game_end, maintenance]
+#       # 可选：room_create room_disband user_join maintenance
+#       EVENTS: [room_create, room_disband, maintenance]
 #     - URL: "https://open.feishu.cn/open-apis/bot/v2/hook/zzz"
 #       TYPE: feishu
 #       EVENTS: [maintenance]
@@ -180,3 +185,10 @@ REDIS:
 #       TYPE: generic
 #       # 可选：配置后请求带 X-Phira-Signature: sha256=<HMAC(body)> 头，供接收端校验来源
 #       SECRET: "your_shared_secret"
+
+# 统计数据库路径（SQLite），默认 stats.db
+# STATS_DB_PATH: "stats.db"
+# 统计数据明细保留天数，超过后自动清理，默认 90
+# STATS_DETAIL_RETENTION_DAYS: 90
+# 统计数据库文件大小上限（MB），超过后从最旧记录开始清理，默认 500
+# STATS_DB_MAX_MB: 500
