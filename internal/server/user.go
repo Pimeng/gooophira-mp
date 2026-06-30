@@ -3,6 +3,7 @@ package server
 import (
 	"math"
 	"slices"
+	"sync"
 
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
@@ -23,6 +24,9 @@ type User struct {
 	Lang *l10n.Language
 	// Server 是全局状态引用。
 	Server *ServerState
+
+	// mu 保护 Session、dangleToken、DangleDeadline 的并发访问。
+	mu sync.Mutex
 
 	// Session 是当前关联会话（nil = 离线/断线）。
 	Session Session
@@ -67,17 +71,22 @@ func (u *User) CanMonitor() bool {
 
 // SetSession 设置/清除关联会话；设置新会话时清除 dangling 状态。
 func (u *User) SetSession(session Session) {
+	u.mu.Lock()
 	u.Session = session
 	u.dangleToken = nil
 	u.DangleDeadline = nil
+	u.mu.Unlock()
 }
 
 // TrySend 尝试向用户发送命令；无活跃会话时静默忽略。
 func (u *User) TrySend(cmd protocol.ServerCommand) {
-	if u.Session == nil {
+	u.mu.Lock()
+	s := u.Session
+	u.mu.Unlock()
+	if s == nil {
 		return
 	}
-	u.Session.TrySend(cmd)
+	s.TrySend(cmd)
 }
 
 // MarkDangle 标记用户为 dangling（断线等待重连），返回用于校验重连的 token。
