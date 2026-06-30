@@ -85,7 +85,7 @@ jobs:
       - name: 负载测试摘要
         if: always()
         run: |
-          grep '^{' tmp/profiles/load/result.json | jq -r '
+          sed -n '/^{/,/^}/p' tmp/profiles/load/result.json | jq -r '
             .results[0] as $r |
             "## Load Test — \($r.name)",
             "",
