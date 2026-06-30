@@ -41,7 +41,9 @@ jobs:
         with: { go-version-file: go.mod }
       - run: go mod download
 
-      - name: 微基准测试（基础）
+      # ----- micro benchmarks -----
+
+      - name: run micro benchmarks
         run: |
           mkdir -p tmp/profiles/micro
           go test -bench=Benchmark -benchmem -count=3 \
@@ -50,7 +52,7 @@ jobs:
             -run='^$' \
             ./internal/protocol/... ./internal/server/... 2>&1 | tee tmp/profiles/micro/bench.txt
 
-      - name: 微基准测试（锁分析）
+      - name: run micro benchmarks (lock profiles)
         run: |
           go test -bench=Benchmark -benchmem -count=1 \
             -mutexprofile=tmp/profiles/micro/mutex.out \
@@ -58,36 +60,37 @@ jobs:
             -run='^$' \
             ./internal/server/ 2>&1 | tee -a tmp/profiles/micro/bench.txt
 
-      - name: 微基准摘要
+      - name: micro summary
         if: always()
         run: |
           {
             echo "## Micro Benchmarks"
             echo "| Benchmark | ns/op | B/op | allocs/op |"
             echo "|---|---:|---:|---:|"
-            grep '^Benchmark' tmp/profiles/micro/bench.txt | sort | while read name iter ns b allc _; do
-              printf "| %s | %s | %s | %s |\n" "$name" "$ns" "$b" "$allc"
-            done
+            awk '/^Benchmark/ {
+              printf "| %s | %s %s | %s %s | %s %s |\n", $1, $3, $4, $5, $6, $7, $8
+            }' tmp/profiles/micro/bench.txt | sort -u
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: 负载测试
+      # ----- load test -----
+
+      - name: run load test
         run: |
           mkdir -p tmp/profiles/load
-          CLIENTS="${{ github.event.inputs.clients || '10000' }}"
-          ROOMS="${{ github.event.inputs.rooms || '1000' }}"
-          DURATION="${{ github.event.inputs.duration || '15s' }}"
-          SCENARIO="${{ github.event.inputs.scenario || 'gameplay' }}"
           go run ./cmd/bench/ \
-            -clients="$CLIENTS" -rooms="$ROOMS" -duration="$DURATION" \
-            -scenario="$SCENARIO" -profile=all -profile-dir=./tmp/profiles/load \
+            -clients="${{ github.event.inputs.clients || '10000' }}" \
+            -rooms="${{ github.event.inputs.rooms || '1000' }}" \
+            -duration="${{ github.event.inputs.duration || '15s' }}" \
+            -scenario="${{ github.event.inputs.scenario || 'gameplay' }}" \
+            -profile=all -profile-dir=./tmp/profiles/load \
             -json > tmp/profiles/load/result.json
 
-      - name: 负载测试摘要
+      - name: load summary
         if: always()
         run: |
           jq -r '
             .results[0] as $r |
-            "## Load Test — \($r.name)",
+            "## Load Test - \($r.name)",
             "",
             "| Metric | Value |",
             "|---|---|",
@@ -96,14 +99,16 @@ jobs:
             "| Duration | \($r.duration / 1000000000)s |",
             "| Throughput | \($r.commands_per_sec | floor) cmd/s |",
             "| Cycles/sec | \($r.cycles_per_sec | floor) |",
-            "| Latency avg/min/max | \($r.cycle_latency.mean/1000 | floor)µs / \($r.cycle_latency.min/1000 | floor)µs / \($r.cycle_latency.max/1000 | floor)µs |",
-            "| Latency p50/p90/p99 | \($r.cycle_latency.p50/1000 | floor)µs / \($r.cycle_latency.p90/1000 | floor)µs / \($r.cycle_latency.p99/1000 | floor)µs |",
+            "| Latency avg/min/max | \($r.cycle_latency.mean/1000 | floor)us / \($r.cycle_latency.min/1000 | floor)us / \($r.cycle_latency.max/1000 | floor)us |",
+            "| Latency p50/p90/p99 | \($r.cycle_latency.p50/1000 | floor)us / \($r.cycle_latency.p90/1000 | floor)us / \($r.cycle_latency.p99/1000 | floor)us |",
             "| Peak goroutines | \($r.peak_goroutines) |",
             "| Peak heap | \(($r.peak_heap_mb * 10 | floor) / 10) MB |",
             "| GC count | \($r.num_gc) |",
             "| Errors | \($r.errors) |",
             ""
-          ' >> "$GITHUB_STEP_SUMMARY"
+          ' tmp/profiles/load/result.json >> "$GITHUB_STEP_SUMMARY"
+
+      # ----- upload -----
 
       - uses: actions/upload-artifact@v4
         if: always()
