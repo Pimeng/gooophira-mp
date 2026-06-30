@@ -168,6 +168,7 @@ func (h *Hub) ProcessCreateRoom(user *User, id protocol.RoomID) error {
 	// 对齐原版：建房时输出 MARK 级控制台日志。
 	room.logRoomMark(h.MakeRoomLifecycle(room), "log-room-created", map[string]string{"user": user.Name})
 	h.BroadcastRoomMessage(room, protocol.MsgCreateRoom{User: int32(user.ID)})
+	h.State.EmitEvent(Event{Type: EventRoomCreate, RoomID: room.ID.String(), UserID: user.ID, UserName: user.Name})
 	// TODO(stage-5): sendFakeMonitorJoin（回放假观战者）。
 	return nil
 }
@@ -213,6 +214,7 @@ func (h *Hub) ProcessJoinRoom(user *User, id protocol.RoomID, monitor bool) (pro
 	})
 	h.BroadcastRoom(room, protocol.SrvOnJoinRoom{Info: user.ToInfo()})
 	h.BroadcastRoomMessage(room, protocol.MsgJoinRoom{User: int32(user.ID), Name: user.Name})
+	h.State.EmitEvent(Event{Type: EventUserJoin, RoomID: room.ID.String(), UserID: user.ID, UserName: user.Name, UserCount: room.UserCount()})
 
 	users := make([]protocol.UserInfo, 0, room.UserCount()+room.MonitorCount())
 	for _, pid := range room.AllParticipantIDs() {
@@ -243,6 +245,7 @@ func (h *Hub) DisbandRoom(room *Room) {
 		room.OnUserLeave(lc, u)
 	}
 	delete(h.State.Rooms, room.ID)
+	h.State.EmitEvent(Event{Type: EventRoomDisband, RoomID: room.ID.String()})
 }
 
 // ---------- Phira 取数 ----------

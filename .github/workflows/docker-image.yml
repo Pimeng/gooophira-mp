@@ -1,0 +1,67 @@
+name: 构建并推送容器镜像
+
+# 与「版本号变更时自动发布」同源触发：push 到 main 且 internal/version/VERSION 变更时，
+# 构建 linux/amd64 + linux/arm64 多架构镜像推送到 GHCR。也支持手动触发。
+on:
+  push:
+    branches: [main]
+    paths:
+      - internal/version/VERSION
+      - Dockerfile
+  workflow_dispatch: {}
+
+concurrency:
+  group: docker-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write # 推送镜像到 GHCR
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 读取版本号
+        id: ver
+        run: echo "version=$(tr -d ' \t\r\n' < internal/version/VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: 设置 QEMU（跨架构构建）
+        uses: docker/setup-qemu-action@v3
+
+      - name: 设置 Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # metadata-action 自动把镜像名小写化，并据版本/分支生成标签。
+      - name: 生成镜像标签
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=${{ steps.ver.outputs.version }}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: 构建并推送多架构镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

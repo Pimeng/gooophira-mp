@@ -29,6 +29,7 @@ import (
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
 	"github.com/Pimeng/gooophira-mp/internal/replay"
 	"github.com/Pimeng/gooophira-mp/internal/server"
+	"github.com/Pimeng/gooophira-mp/internal/webhook"
 )
 
 // 默认监听端口（标准 Phira MP 端口）。
@@ -100,6 +101,13 @@ func main() {
 	state.OnConfigReload(func(c *config.ServerConfig) { logger.SetLevel(c.EffectiveLogLevel()) })
 	// 日志旁路到 GUI 控制台缓冲（供 /admin/console/logs 回填与 WS 推送）。
 	logger.SetOnLog(state.ConsoleHub.Push)
+
+	// Webhook 事件外发（对局/房间/维护事件 → 群机器人等）。非阻塞，未配置则 no-op；热重载生效。
+	webhookDispatcher := webhook.New(logger)
+	webhookDispatcher.SetConfig(cfg.EffectiveWebhook())
+	state.Events = webhookDispatcher
+	state.OnConfigReload(func(c *config.ServerConfig) { webhookDispatcher.SetConfig(c.EffectiveWebhook()) })
+	defer webhookDispatcher.Close()
 	if err := state.LoadAdminData(); err != nil {
 		logger.Warn(l10n.TL(lang, "log-admin-data-load-failed", map[string]string{"error": err.Error()}))
 	}
@@ -140,6 +148,11 @@ func main() {
 	defer autoUploader.Close()
 
 	hub.OnEnterPlaying = func(room *server.Room) {
+		ev := server.Event{Type: server.EventGameStart, RoomID: room.ID.String(), UserCount: room.UserCount()}
+		if room.Chart != nil {
+			ev.ChartID, ev.ChartName = room.Chart.ID, room.Chart.Name
+		}
+		state.EmitEvent(ev) // 无视回放开关，每局开始都发
 		if !state.ReplayEnabled || !room.ReplayEligible || room.Chart == nil {
 			return
 		}
@@ -154,6 +167,11 @@ func main() {
 		recorder.StartRoom(room.ID, room.Chart.ID, room.Chart.Name, users)
 	}
 	hub.OnGameEnd = func(room *server.Room) {
+		ev := server.Event{Type: server.EventGameEnd, RoomID: room.ID.String()}
+		if room.Chart != nil {
+			ev.ChartID, ev.ChartName = room.Chart.ID, room.Chart.Name
+		}
+		state.EmitEvent(ev)
 		go func() {
 			recorder.EndRoom(room.ID) // 落盘放到 goroutine，避免阻塞命令处理（持有 state.Mu）
 			// 落盘完成后逐个触发自动上传（Handle 内部判断开关/分享站/延迟）。

@@ -79,6 +79,8 @@ type ServerState struct {
 
 	// WSService WebSocket 服务（仅 HTTP 服务启用时存在）。
 	WSService WebSocketService
+	// Events 服务器事件外发槽（Webhook 等）；nil = 不外发。注入见 cmd/server。
+	Events EventSink
 	// ConsoleHub 控制台日志中心。
 	ConsoleHub *ConsoleHub
 	// ConsoleExecutor GUI 控制台命令执行器（nil = 未就绪）。
@@ -139,6 +141,21 @@ func NewServerState(cfg *config.ServerConfig, logger Logger, serverName, adminDa
 		AutoUploadConfigs:   make(map[int]*AutoUploadConfig),
 		UploadedReplayMeta:  make(map[int]map[int][]UploadedReplayMeta),
 	}
+}
+
+// EmitEvent 异步外发一个服务器事件（Webhook 等）。Events 未注入时为 no-op。
+// 缺省补齐 Time/Server。调用方可能持有 Mu——实现保证非阻塞，故此处直接调用安全。
+func (s *ServerState) EmitEvent(ev Event) {
+	if s.Events == nil {
+		return
+	}
+	if ev.Time.IsZero() {
+		ev.Time = time.Now()
+	}
+	if ev.Server == "" {
+		ev.Server = s.ServerName
+	}
+	s.Events.Emit(ev)
 }
 
 // ShareStation 返回分享站配置（未配置时为 nil）。

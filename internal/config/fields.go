@@ -216,6 +216,19 @@ var configFields = []fieldSpec{
 	},
 	strField("HITOKOTO_API_URL", false, parseStringValue, func(c *ServerConfig) **string { return &c.HitokotoAPIURL }),
 	boolField("ALLOW_TOKEN_IN_QUERY", false, func(c *ServerConfig) **bool { return &c.AllowTokenInQuery }),
+	{
+		// WEBHOOK：嵌套含目标列表，仅经 YAML 配置（无 env 合成）；非 startup-only，支持热重载。
+		env:   "WEBHOOK",
+		parse: func(v any) (any, bool) { return parseWebhookValue(v) },
+		get: func(c *ServerConfig) any {
+			if c.Webhook == nil {
+				return nil
+			}
+			return *c.Webhook
+		},
+		set:   func(c *ServerConfig, v any) { c.Webhook = v.(*WebhookConfig) },
+		clear: func(c *ServerConfig) { c.Webhook = nil },
+	},
 }
 
 // KnownEnvNames 返回所有已知配置项的 ENV/YAML 名。
@@ -308,6 +321,8 @@ func ensureParsed(v any) any {
 	case ShareStation:
 		return &x
 	case RedisConfig:
+		return &x
+	case WebhookConfig:
 		return &x
 	default:
 		return v

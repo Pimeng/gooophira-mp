@@ -7,10 +7,33 @@
 // 持久化/差异比对所需的「存在性」，又把每个默认值写在唯一位置，避免散落出错。
 package config
 
+import "slices"
+
 // ShareStation 是回放分享站配置（自动上传到第三方平台用）。
 type ShareStation struct {
 	URL   string
 	Token string
+}
+
+// WebhookTarget 是单个 Webhook 投递目标。
+type WebhookTarget struct {
+	URL    string   // 投递地址（仅出站 HTTP POST）
+	Type   string   // 载荷格式：generic | discord | feishu（未知按 generic）
+	Events []string // 订阅的事件类型；空 = 订阅全部
+	Secret string   // 可选：HMAC-SHA256 签名密钥（写入 X-Phira-Signature 头）
+}
+
+// Subscribes 报告该目标是否订阅了给定事件类型（空订阅列表视为订阅全部）。
+func (t WebhookTarget) Subscribes(event string) bool {
+	return len(t.Events) == 0 || slices.Contains(t.Events, event)
+}
+
+// WebhookConfig 是 Webhook 通知配置（对局/房间/维护等事件外发到群机器人等）。
+type WebhookConfig struct {
+	Enabled   bool
+	TimeoutMS int // 单次请求超时（ms），≤0 用默认
+	Retries   int // 失败重试次数，<0 用默认
+	Targets   []WebhookTarget
 }
 
 // RedisConfig 是 Redis 缓存配置。

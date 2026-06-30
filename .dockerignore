@@ -1,0 +1,34 @@
+# 构建镜像时排除：版本号/本地化/GUI 页面等运行期资源都经 go:embed 打进 internal/，
+# 故只需源码 + go.mod/go.sum，可安全排除以下顶层杂项（加速构建、避免 VCS stamping 报错）。
+
+# 版本控制 / CI / IDE
+.git
+.github
+.idea
+
+# 运行期生成的数据目录/文件（不应进镜像）
+logs/
+record/
+cache/
+admin_data.json
+server_config.yml
+
+# 本地编译产物
+/server
+/server.exe
+*.exe
+dist/
+
+# 文档（构建不需要）
+*.md
+License
+
+# 未跟踪的本地目录
+internal/plugin/
+
+# Docker 自身文件
+Dockerfile
+.dockerignore
+docker-compose.yml
+.env
+.env.example
