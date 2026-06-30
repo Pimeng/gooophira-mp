@@ -937,7 +937,6 @@ func main() {
 
 	if bc.JSONOut {
 		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
 		_ = enc.Encode(report)
 	} else {
 		printResult(result)
