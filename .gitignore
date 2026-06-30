@@ -10,3 +10,7 @@ admin_data.json
 
 # IDE
 /.idea/
+.reasonix/
+
+# 一些文件
+*.phirarec
