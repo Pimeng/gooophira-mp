@@ -168,6 +168,9 @@ func (s *Service) route(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, "/chart/"):
 		s.handleChart(w, r)
 	case strings.HasPrefix(r.URL.Path, "/player/"):
+		s.handlePlayer(w, r)
+	case r.Method == http.MethodGet && r.URL.Path == "/leaderboard":
+		s.handleLeaderboard(w, r)
 	default:
 		w.Header().Set("content-type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusNotFound)
