@@ -1,9 +1,5 @@
 name: Bench
 
-# 性能基准测试：推送与 PR 时自动运行微基准测试和负载测试，
-# 生成 pprof 分析文件并上传为 Artifact，便于对比性能变化。
-# workflow_dispatch 可手动触发高压力参数（80000 客户端 / 8000 房间）。
-
 on:
   push:
     branches: [main]
@@ -12,46 +8,21 @@ on:
   workflow_dispatch:
     inputs:
       duration:
-        description: '测试持续时间'
-        required: true
         default: '15s'
         type: choice
-        options:
-          - 10s
-          - 15s
-          - 30s
-          - 60s
+        options: [10s, 15s, 30s, 60s]
       clients:
-        description: '并发客户端数'
-        required: true
         default: '10000'
         type: choice
-        options:
-          - 1000
-          - 10000
-          - 50000
-          - 80000
+        options: [1000, 10000, 50000, 80000]
       rooms:
-        description: '房间数'
-        required: true
         default: '1000'
         type: choice
-        options:
-          - 100
-          - 1000
-          - 4000
-          - 8000
+        options: [100, 1000, 4000, 8000]
       scenario:
-        description: '测试场景'
-        required: true
         default: 'gameplay'
         type: choice
-        options:
-          - room-cycle
-          - gameplay
-          - connection-storm
-          - steady-state
-          - mixed
+        options: [room-cycle, gameplay, connection-storm, steady-state, mixed]
 
 concurrency:
   group: bench-${{ github.ref }}-${{ github.event_name }}
@@ -65,46 +36,76 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - run: go mod download
 
-      - name: 设置 Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: 下载依赖
-        run: go mod download
-
-      - name: 运行微基准测试（Go testing.B）
+      - name: 微基准测试（基础）
         run: |
           mkdir -p tmp/profiles/micro
           go test -bench=Benchmark -benchmem -count=3 \
             -cpuprofile=tmp/profiles/micro/cpu.out \
             -memprofile=tmp/profiles/micro/mem.out \
-            -mutexprofile=tmp/profiles/micro/mutex.out \
-            -blockprofile=tmp/profiles/micro/block.out \
             -run='^$' \
             ./internal/protocol/... ./internal/server/... 2>&1 | tee tmp/profiles/micro/bench.txt
 
-      - name: 运行负载测试（cmd/bench）
+      - name: 微基准测试（锁分析）
+        run: |
+          go test -bench=Benchmark -benchmem -count=1 \
+            -mutexprofile=tmp/profiles/micro/mutex.out \
+            -blockprofile=tmp/profiles/micro/block.out \
+            -run='^$' \
+            ./internal/server/ 2>&1 | tee -a tmp/profiles/micro/bench.txt
+
+      - name: 微基准摘要
+        if: always()
+        run: |
+          {
+            echo "## Micro Benchmarks"
+            echo "| Benchmark | ns/op | B/op | allocs/op |"
+            echo "|---|---:|---:|---:|"
+            grep '^Benchmark' tmp/profiles/micro/bench.txt | sort | while read name iter ns b allc _; do
+              printf "| %s | %s | %s | %s |\n" "$name" "$ns" "$b" "$allc"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 负载测试
         run: |
           mkdir -p tmp/profiles/load
-          DURATION="${{ github.event.inputs.duration || '15s' }}"
           CLIENTS="${{ github.event.inputs.clients || '10000' }}"
           ROOMS="${{ github.event.inputs.rooms || '1000' }}"
+          DURATION="${{ github.event.inputs.duration || '15s' }}"
           SCENARIO="${{ github.event.inputs.scenario || 'gameplay' }}"
           go run ./cmd/bench/ \
-            -clients="$CLIENTS" \
-            -rooms="$ROOMS" \
-            -duration="$DURATION" \
-            -scenario="$SCENARIO" \
-            -profile=all \
-            -profile-dir=./tmp/profiles/load \
+            -clients="$CLIENTS" -rooms="$ROOMS" -duration="$DURATION" \
+            -scenario="$SCENARIO" -profile=all -profile-dir=./tmp/profiles/load \
             -json 2>&1 | tee tmp/profiles/load/result.json
 
-      - name: 上传基准测试结果
-        uses: actions/upload-artifact@v4
+      - name: 负载测试摘要
+        if: always()
+        run: |
+          grep '^{' tmp/profiles/load/result.json | jq -r '
+            .results[0] as $r |
+            "## Load Test — \($r.name)",
+            "",
+            "| Metric | Value |",
+            "|---|---|",
+            "| Clients | \($r.clients) |",
+            "| Rooms | \($r.rooms) |",
+            "| Duration | \($r.duration / 1000000000)s |",
+            "| Throughput | \($r.commands_per_sec | floor) cmd/s |",
+            "| Cycles/sec | \($r.cycles_per_sec | floor) |",
+            "| Latency avg/min/max | \($r.cycle_latency.mean/1000 | floor)µs / \($r.cycle_latency.min/1000 | floor)µs / \($r.cycle_latency.max/1000 | floor)µs |",
+            "| Latency p50/p90/p99 | \($r.cycle_latency.p50/1000 | floor)µs / \($r.cycle_latency.p90/1000 | floor)µs / \($r.cycle_latency.p99/1000 | floor)µs |",
+            "| Peak goroutines | \($r.peak_goroutines) |",
+            "| Peak heap | \(($r.peak_heap_mb * 10 | floor) / 10) MB |",
+            "| GC count | \($r.num_gc) |",
+            "| Errors | \($r.errors) |",
+            ""
+          ' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: bench-results-${{ github.sha }}
