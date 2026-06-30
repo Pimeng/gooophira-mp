@@ -134,6 +134,93 @@ jobs:
           path: artifacts
           merge-multiple: true # 所有平台产物汇到 artifacts/ 一层
 
+      - name: 生成自定义 Release Notes
+        id: notes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.check-version.outputs.version }}
+        run: |
+          PREVIOUS_VERSION=$(gh release list --limit 100 --json tagName,isPrerelease \
+            --jq '[.[] | select(.isPrerelease == false) | .tagName] | .[0]' 2>/dev/null || echo "")
+
+          if [ -z "$PREVIOUS_VERSION" ]; then
+            echo "未找到上一个 release，读取所有提交"
+            COMMITS=$(git log --pretty=format:"%s")
+          else
+            echo "找到上一个 release 版本: ${PREVIOUS_VERSION}"
+            git fetch --tags origin
+
+            if git rev-parse "refs/tags/${PREVIOUS_VERSION}" >/dev/null 2>&1; then
+              echo "从远程 tag ${PREVIOUS_VERSION} 到 HEAD 对比提交"
+              COMMITS=$(git log ${PREVIOUS_VERSION}..HEAD --pretty=format:"%s")
+            else
+              echo "警告: 远程 tag ${PREVIOUS_VERSION} 不存在，读取所有提交"
+              COMMITS=$(git log --pretty=format:"%s")
+            fi
+          fi
+
+          # 有的提交把多个 conventional 段塞进同一行（如 "feat: A refactor: B"）。
+          # 在每个内嵌的 "<type>:" 前断行，让每段各自归类。
+          COMMITS=$(printf '%s\n' "$COMMITS" \
+            | sed -E 's/[[:space:]]+(feat|fix|perf|refactor|improvement|chore|i18n|docs|test|ci|build|style|revert)(\([^)]*\))?:[[:space:]]/\n\1\2: /gI')
+
+          FEATURES=""
+          FIXES=""
+          IMPROVEMENTS=""
+          OTHERS=""
+
+          shopt -s nocasematch
+
+          while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+
+            if [[ $line =~ ^feat(\(.*\))?:\ (.*) ]]; then
+              FEATURES+="* ${BASH_REMATCH[2]}"$'\n'
+            elif [[ $line =~ ^fix(\(.*\))?:\ (.*) ]]; then
+              FIXES+="* ${BASH_REMATCH[2]}"$'\n'
+            elif [[ $line =~ ^(perf|refactor|improvement|chore|i18n)(\(.*\))?:\ (.*) ]]; then
+              IMPROVEMENTS+="* ${BASH_REMATCH[3]}"$'\n'
+            elif [[ ! $line =~ ^(docs|test|ci|build|style|revert)(\(.*\))?:\ (.*) ]]; then
+              OTHERS+="* $line"$'\n'
+            fi
+          done <<< "$COMMITS"
+
+          shopt -u nocasematch
+
+          NOTES="## 更新"$'\n'
+
+          if [ -n "$FEATURES" ]; then
+            NOTES+="### ✨ 新增"$'\n'
+            NOTES+="$FEATURES"
+          fi
+
+          if [ -n "$FIXES" ]; then
+            NOTES+="### 🐛 修复"$'\n'
+            NOTES+="$FIXES"
+          fi
+
+          if [ -n "$IMPROVEMENTS" ]; then
+            NOTES+="### 🔄 改进"$'\n'
+            NOTES+="$IMPROVEMENTS"
+          fi
+
+          if [ -n "$OTHERS" ]; then
+            NOTES+="### 📝 其他"$'\n'
+            NOTES+="$OTHERS"
+          fi
+
+          NOTES+="***"$'\n'
+          if [ -n "$PREVIOUS_VERSION" ]; then
+            NOTES+="[完整更新日志](https://github.com/${{ github.repository }}/compare/${PREVIOUS_VERSION}...$TAG)"
+          else
+            NOTES+="完整更新日志"
+          fi
+
+          NOTES_FILE=$(mktemp)
+          printf '%s\n' "$NOTES" > "$NOTES_FILE"
+          echo "notes_file=$NOTES_FILE" >> "$GITHUB_OUTPUT"
+
       - name: 创建 GitHub Release 并上传产物
         env:
           GH_TOKEN: ${{ github.token }}
@@ -146,7 +233,7 @@ jobs:
             echo "Release $TAG 已存在，覆盖上传产物"
             gh release upload "$TAG" "${FILES[@]}" --clobber --repo "$GITHUB_REPOSITORY"
           else
-            ARGS=(--title "$TAG" --generate-notes --target "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY")
+            ARGS=(--title "$TAG" --notes-file "${{ steps.notes.outputs.notes_file }}" --target "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY")
             [ "$PRERELEASE" = "true" ] && ARGS+=(--prerelease)
             gh release create "$TAG" "${FILES[@]}" "${ARGS[@]}"
           fi
