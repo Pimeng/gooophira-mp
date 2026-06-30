@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
@@ -25,6 +26,8 @@ type (
 		Aborted map[int]struct{}
 		// ReconnectNotified 是已播报过「等待重连」的挂起玩家 id（避免重复刷屏）。
 		ReconnectNotified map[int]struct{}
+		// StartedAt 进入 Playing 状态的墙钟时间（用于结算时计算本局时长）。
+		StartedAt time.Time
 	}
 )
 
