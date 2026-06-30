@@ -142,6 +142,13 @@ func (r *Room) CheckHost(user *User) error {
 // UserIDs 返回普通玩家 id（加入顺序，副本）。
 func (r *Room) UserIDs() []int { return append([]int(nil), r.users...) }
 
+// PlayingState 返回 StatePlaying（若当前为 Playing 状态）及 true；否则返回零值与 false。
+// 用于结算路径从 Room 安全读取成绩数据。
+func (r *Room) PlayingState() (StatePlaying, bool) {
+	st, ok := r.State.(StatePlaying)
+	return st, ok
+}
+
 // MonitorIDs 返回观战者 id（加入顺序，副本）。
 func (r *Room) MonitorIDs() []int { return append([]int(nil), r.monitors...) }
 
