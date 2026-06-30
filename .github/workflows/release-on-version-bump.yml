@@ -91,6 +91,7 @@ jobs:
           darwin  arm64 macos-arm64
           darwin  amd64 macos-x64
           freebsd amd64 freebsd-x64
+          android arm64 termux-arm64
           "
           mkdir -p dist
           echo "$targets" | while read -r goos goarch name; do
