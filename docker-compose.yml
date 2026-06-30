@@ -1,0 +1,59 @@
+# Phira MP 服务端一键栈：server + Redis（多实例共享缓存）。
+#
+#   cp .env.example .env      # 按需填 ADMIN_TOKEN 等
+#   docker compose up -d --build
+#   docker compose logs -f phira-mp
+#
+# 数据（配置/日志/回放/缓存/封禁数据）持久化在具名卷 phira-data。
+
+name: phira-mp
+
+services:
+  phira-mp:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-}
+    image: phira-mp:local
+    restart: unless-stopped
+    ports:
+      - "${GAME_PORT:-12346}:12346"   # TCP 游戏服务
+      - "${HTTP_PORT:-12347}:12347"   # HTTP 管理 / GUI 控制台
+    environment:
+      # —— 服务监听 ——
+      HOST: "::"
+      PORT: "12346"
+      HTTP_SERVICE: "true"
+      HTTP_PORT: "12347"
+      # —— 管理 / 运行参数（从 .env 注入，留空则管理接口禁用）——
+      ADMIN_TOKEN: "${ADMIN_TOKEN:-}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      PHIRA_MP_LANG: "${PHIRA_MP_LANG:-zh-CN}"
+      ROOM_MAX_USERS: "${ROOM_MAX_USERS:-12}"
+      TZ: "${TZ:-Asia/Shanghai}"
+      # —— Redis 多实例共享缓存 ——
+      REDIS_ENABLED: "true"
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+    volumes:
+      - phira-data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # 轻量持久化：60s 内有 ≥1 次写则快照；高频缓存场景关掉 AOF。
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "no"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  phira-data:
+  redis-data:

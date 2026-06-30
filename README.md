@@ -24,7 +24,9 @@ LRU + 落盘，可切 Redis 多实例共享）。
   - [回放录制与上传](#回放录制与上传)
   - [Redis 共享缓存](#redis-共享缓存)
   - [比赛模式](#比赛模式)
+  - [Webhook 通知](#webhook-通知)
 - [构建与开发](#构建与开发)
+  - [Docker 部署](#docker-部署)
 - [项目结构](#项目结构)
 - [测试](#测试)
 
@@ -177,6 +179,28 @@ REDIS:
 
 通过 CLI 或 HTTP API 管理房间的比赛模式（开启/关闭/白名单/开始），适合组织竞技赛事。
 
+### Webhook 通知
+
+把服务器事件异步推送到群机器人或自建服务，投递带缓冲队列、超时与失败重试，目标不可达也不阻塞对局逻辑；配置热重载（改 `WEBHOOK` 块即时生效）。
+
+- 事件类型：`game_start`、`game_end`、`room_create`、`room_disband`、`user_join`、`maintenance`
+- 载荷格式（`TYPE`）：`generic`（结构化 JSON，自定义机器人自行渲染）、`discord`、`feishu`
+- 可选 `SECRET`：请求带 `X-Phira-Signature: sha256=<HMAC(body)>` 头供接收端验签
+
+```yaml
+WEBHOOK:
+  ENABLED: true
+  TIMEOUT_MS: 5000   # 单次请求超时(ms)，默认 5000
+  RETRIES: 2         # 仅对 5xx/429/网络错误重试，默认 2
+  TARGETS:
+    - URL: "https://discord.com/api/webhooks/xxx/yyy"
+      TYPE: discord
+      EVENTS: [game_start, game_end, maintenance]   # 省略 = 订阅全部
+    - URL: "https://example.com/hook"
+      TYPE: generic
+      SECRET: "shared_secret"
+```
+
 ---
 
 ## 构建与开发
@@ -218,6 +242,23 @@ GOOS=darwin GOARCH=arm64 go build -o phira-mp-server-darwin-arm64 ./cmd/server
 GOOS=darwin GOARCH=amd64 go build -o phira-mp-server-darwin-amd64 ./cmd/server
 ```
 
+### Docker 部署
+
+镜像多阶段构建（`CGO_ENABLED=0` 静态编译，运行层为带 CA 证书的最小 Alpine），非 root 运行，工作目录 `/data` 即数据目录（配置/日志/回放/缓存均持久化于此）。
+
+```bash
+# 单容器
+docker build -t phira-mp:local .
+docker run -d --name phira-mp -p 12346:12346 -p 12347:12347 \
+  -e ADMIN_TOKEN=changeme -v phira-data:/data phira-mp:local
+
+# 一键栈（server + Redis）
+cp .env.example .env      # 按需填 ADMIN_TOKEN 等
+docker compose up -d --build
+```
+
+容器内默认 `HTTP_SERVICE=true` 并内置 `HEALTHCHECK`；首次运行自动生成 `/data/server_config.yml`。`internal/version/VERSION` 升高或手动触发 [`docker-image.yml`](.github/workflows/docker-image.yml) 会构建 `amd64`+`arm64` 多架构镜像推送 GHCR。
+
 ### 测试
 
 ```bash
@@ -246,6 +287,7 @@ internal/
   replay/           回放录制、存储、读取、清理
   sharestation/     回放分享站客户端
   autoupload/       对局结束自动上传
+  webhook/          事件外发（对局/房间/维护 → Discord/飞书/通用 JSON）
   cache/            通用缓存（内存+LRU+落盘）+ Redis 后端
   phira/            Phira API 客户端（认证/谱面/成绩，带缓存）
   procstats/        进程 CPU/内存采样（GUI 监控，平台适配）

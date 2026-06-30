@@ -602,19 +602,22 @@ func (c *Console) cmdMaintenance(args []string) {
 	}
 	switch strings.ToLower(args[0]) {
 	case "on":
+		msg := ""
 		c.state.Mu.Lock()
 		c.state.Maintenance = true
 		if len(args) > 1 {
-			msg := strings.Join(args[1:], " ")
+			msg = strings.Join(args[1:], " ")
 			c.state.MaintenanceMessage = &msg
 		}
 		c.state.Mu.Unlock()
+		c.state.EmitEvent(server.Event{Type: server.EventMaintenance, Enabled: true, Message: msg})
 		c.printOK(c.t("cli-maintenance-status", map[string]string{"state": c.stateOnOff(true)}))
 	case "off":
 		c.state.Mu.Lock()
 		c.state.Maintenance = false
 		c.state.MaintenanceMessage = nil
 		c.state.Mu.Unlock()
+		c.state.EmitEvent(server.Event{Type: server.EventMaintenance, Enabled: false})
 		c.printOK(c.t("cli-maintenance-status", map[string]string{"state": c.stateOnOff(false)}))
 	default:
 		c.printInfo(c.t("cli-maintenance-status", map[string]string{"state": c.stateOnOff(c.state.Maintenance)}))
