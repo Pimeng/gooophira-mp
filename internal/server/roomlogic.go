@@ -288,6 +288,7 @@ func (r *Room) startPlaying(lc *RoomLifecycle) {
 	r.State = StatePlaying{
 		Results: make(map[int]config.RecordData),
 		Aborted: make(map[int]struct{}),
+		StartedAt: time.Now(),
 	}
 	r.OnStateChange(lc)
 	r.NotifyWebSocket(lc)

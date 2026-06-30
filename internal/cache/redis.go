@@ -85,6 +85,10 @@ func CloseRedis() {
 // RedisEnabled 报告当前是否使用 Redis 后端。
 func RedisEnabled() bool { return getRedis() != nil }
 
+// RedisClient 返回共享的 go-redis 客户端；未启用时返回 nil。
+// 调用方可在 client 上直接使用 ZADD / ZRANGE / ZREVRANGE 等 sorted-set 命令。
+func RedisClient() *redis.Client { return getRedis() }
+
 func getRedis() *redis.Client {
 	redisMu.RLock()
 	defer redisMu.RUnlock()
