@@ -876,15 +876,21 @@ func runGameplayScenario(bc benchConfig, mc *metricsCollector) scenarioResult {
 func main() {
 	bc := parseFlags()
 
-	fmt.Println("═══════════════════════════════════════════")
-	fmt.Println("  Phira MP 服务器性能压测工具")
-	fmt.Println("═══════════════════════════════════════════")
-	fmt.Printf("  场景:      %s\n", bc.Scenario)
-	fmt.Printf("  客户端数:  %d\n", bc.Clients)
-	fmt.Printf("  房间数:    %d\n", bc.Rooms)
-	fmt.Printf("  持续时间:  %s\n", bc.Duration)
-	fmt.Printf("  pprof:     %s\n", bc.Profile)
-	fmt.Println("───────────────────────────────────────────")
+	// JSON 模式下状态信息走 stderr，stdout 仅输出纯净 JSON
+	out := os.Stdout
+	if bc.JSONOut {
+		out = os.Stderr
+	}
+
+	fmt.Fprintln(out, "═══════════════════════════════════════════")
+	fmt.Fprintln(out, "  Phira MP 服务器性能压测工具")
+	fmt.Fprintln(out, "═══════════════════════════════════════════")
+	fmt.Fprintf(out, "  场景:      %s\n", bc.Scenario)
+	fmt.Fprintf(out, "  客户端数:  %d\n", bc.Clients)
+	fmt.Fprintf(out, "  房间数:    %d\n", bc.Rooms)
+	fmt.Fprintf(out, "  持续时间:  %s\n", bc.Duration)
+	fmt.Fprintf(out, "  pprof:     %s\n", bc.Profile)
+	fmt.Fprintln(out, "───────────────────────────────────────────")
 
 	// 启动 pprof
 	prof, err := startProfiler(bc)
@@ -895,7 +901,7 @@ func main() {
 	defer prof.stop()
 
 	// 预热：跑少量周期让缓存/内存分配稳定
-	fmt.Print("  [1/2] 预热... ")
+	fmt.Fprint(out, "  [1/2] 预热... ")
 	{
 		warmupMC := &metricsCollector{}
 		wc := benchConfig{Clients: 5, Rooms: 2, Duration: 2 * time.Second}
@@ -904,11 +910,11 @@ func main() {
 		} else {
 			_ = runRoomCycleScenario(wc, warmupMC)
 		}
-		fmt.Println("OK")
+		fmt.Fprintln(out, "OK")
 	}
 
 	// 运行测试
-	fmt.Println("  [2/2] 运行测试...")
+	fmt.Fprintln(out, "  [2/2] 运行测试...")
 	mc := &metricsCollector{}
 	var result scenarioResult
 	switch bc.Scenario {
@@ -943,15 +949,15 @@ func main() {
 	}
 
 	if bc.Profile != "" && bc.Profile != "none" {
-		fmt.Println("\n── pprof 分析提示 ──")
-		fmt.Printf("  CPU:    go tool pprof -http=:8080 %s/cpu.pprof\n", bc.ProfileDir)
-		fmt.Printf("  Heap:   go tool pprof -http=:8080 %s/heap.pprof\n", bc.ProfileDir)
-		fmt.Printf("  Goroutines: go tool pprof -http=:8080 %s/goroutine.pprof\n", bc.ProfileDir)
+		fmt.Fprintln(out, "\n── pprof 分析提示 ──")
+		fmt.Fprintf(out, "  CPU:    go tool pprof -http=:8080 %s/cpu.pprof\n", bc.ProfileDir)
+		fmt.Fprintf(out, "  Heap:   go tool pprof -http=:8080 %s/heap.pprof\n", bc.ProfileDir)
+		fmt.Fprintf(out, "  Goroutines: go tool pprof -http=:8080 %s/goroutine.pprof\n", bc.ProfileDir)
 		if bc.Profile == "mutex" || bc.Profile == "all" {
-			fmt.Printf("  Mutex:  go tool pprof -http=:8080 %s/mutex.pprof\n", bc.ProfileDir)
+			fmt.Fprintf(out, "  Mutex:  go tool pprof -http=:8080 %s/mutex.pprof\n", bc.ProfileDir)
 		}
 		if bc.Profile == "block" || bc.Profile == "all" {
-			fmt.Printf("  Block:  go tool pprof -http=:8080 %s/block.pprof\n", bc.ProfileDir)
+			fmt.Fprintf(out, "  Block:  go tool pprof -http=:8080 %s/block.pprof\n", bc.ProfileDir)
 		}
 	}
 }

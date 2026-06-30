@@ -80,12 +80,12 @@ jobs:
           go run ./cmd/bench/ \
             -clients="$CLIENTS" -rooms="$ROOMS" -duration="$DURATION" \
             -scenario="$SCENARIO" -profile=all -profile-dir=./tmp/profiles/load \
-            -json 2>&1 | tee tmp/profiles/load/result.json
+            -json > tmp/profiles/load/result.json
 
       - name: 负载测试摘要
         if: always()
         run: |
-          awk '/^{/,0' tmp/profiles/load/result.json | jq -r '
+          jq -r '
             .results[0] as $r |
             "## Load Test — \($r.name)",
             "",
