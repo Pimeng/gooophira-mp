@@ -115,3 +115,85 @@ func TestTryDecodeFrame_EmptyPayload(t *testing.T) {
 		t.Fatalf("empty payload frame failed: %+v", r)
 	}
 }
+
+// ---------- 基准测试 ----------
+
+func BenchmarkFrameWithLengthPrefix(b *testing.B) {
+	payload := make([]byte, 512)
+	for i := range payload {
+		payload[i] = byte(i & 0xFF)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		_ = FrameWithLengthPrefix(payload)
+	}
+}
+
+func BenchmarkTryDecodeFrame(b *testing.B) {
+	payload := make([]byte, 512)
+	for i := range payload {
+		payload[i] = byte(i & 0xFF)
+	}
+	frame := FrameWithLengthPrefix(payload)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		r := TryDecodeFrame(frame, 8192)
+		if r.Kind != FrameOK {
+			b.Fatal("decode failed")
+		}
+	}
+}
+
+func BenchmarkFrameEncodeDecodeRoundtrip(b *testing.B) {
+	payload := make([]byte, 512)
+	for i := range payload {
+		payload[i] = byte(i & 0xFF)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		frame := FrameWithLengthPrefix(payload)
+		r := TryDecodeFrame(frame, 8192)
+		if r.Kind != FrameOK {
+			b.Fatal("roundtrip failed")
+		}
+		_ = r.Payload
+	}
+}
+
+func BenchmarkFrameWriter(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		w := NewFrameWriter(5)
+		for j := range 512 {
+			w.WriteU8(uint8(j & 0xFF))
+		}
+		_ = w.ToFrameBuffer()
+	}
+}
+
+// BenchmarkFrameMultiple simulates processing many small frames in sequence.
+func BenchmarkFrameMultiple(b *testing.B) {
+	// 预构建 100 个小帧（每个 ~50 字节 payload）
+	var frames [][]byte
+	for range 100 {
+		payload := make([]byte, 50)
+		for i := range payload {
+			payload[i] = byte(i)
+		}
+		frames = append(frames, FrameWithLengthPrefix(payload))
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		for _, frame := range frames {
+			r := TryDecodeFrame(frame, 8192)
+			if r.Kind != FrameOK {
+				b.Fatal("decode failed")
+			}
+		}
+	}
+}

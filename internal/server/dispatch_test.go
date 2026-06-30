@@ -554,3 +554,49 @@ func readUleb(r *protocol.BinaryReader) uint64 {
 		shift += 7
 	}
 }
+
+// ---------- 基准测试 ----------
+
+// BenchmarkDispatch_AllCommands 基准测试所有命令类型的派发吞吐量。
+func BenchmarkDispatch_AllCommands(b *testing.B) {
+	h := newHarness()
+	phira := &mockPhira{
+		charts:  map[int]config.Chart{1: {ID: 1, Name: "chart1"}},
+		records: map[int]config.RecordData{10: {ID: 10, Player: 1, Score: 900000}},
+	}
+	hub := NewHub(h.state, phira)
+	alice := h.addUser(1, "alice")
+	bob := h.addUser(2, "bob")
+
+	// 设置一个进行中的房间用于需要房间上下文的命令
+	hub.ProcessClientCommand(alice, protocol.CmdCreateRoom{ID: "bench"})
+	hub.ProcessClientCommand(bob, protocol.CmdJoinRoom{ID: "bench", Monitor: false})
+	hub.ProcessClientCommand(alice, protocol.CmdSelectChart{ID: 1})
+	hub.ProcessClientCommand(alice, protocol.CmdRequestStart{})
+	hub.ProcessClientCommand(bob, protocol.CmdReady{})
+
+	cmds := []protocol.ClientCommand{
+		protocol.CmdPing{},
+		protocol.CmdAuthenticate{Token: "test"},
+		protocol.CmdChat{Message: "hi"},
+		protocol.CmdCreateRoom{ID: "other"},
+		protocol.CmdJoinRoom{ID: "other", Monitor: false},
+		protocol.CmdLeaveRoom{},
+		protocol.CmdLockRoom{Lock: true},
+		protocol.CmdCycleRoom{Cycle: true},
+		protocol.CmdSelectChart{ID: 2},
+		protocol.CmdRequestStart{},
+		protocol.CmdReady{},
+		protocol.CmdCancelReady{},
+		protocol.CmdPlayed{ID: 10},
+		protocol.CmdAbort{},
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		for _, cmd := range cmds {
+			hub.ProcessClientCommand(alice, cmd)
+		}
+	}
+}
