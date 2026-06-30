@@ -17,17 +17,19 @@ import (
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
 	"github.com/Pimeng/gooophira-mp/internal/procstats"
 	"github.com/Pimeng/gooophira-mp/internal/server"
+	"github.com/Pimeng/gooophira-mp/internal/stats"
 )
 
 // Service 是 HTTP 服务实例。
 type Service struct {
-	state *server.ServerState
-	hub   *server.Hub
-	rl    *rateLimiter
-	auth  *adminAuth
-	ws    *wsHub
-	stats *procstats.Sampler
-	http  *http.Server
+	state      *server.ServerState
+	hub        *server.Hub
+	rl         *rateLimiter
+	auth       *adminAuth
+	ws         *wsHub
+	statsProc  *procstats.Sampler
+	statsStore *stats.Store
+	http       *http.Server
 
 	roomCacheMu sync.Mutex
 	roomCache   []byte
@@ -46,9 +48,9 @@ type Service struct {
 	startedAt time.Time // 启动时间（用于 /admin/metrics uptime）
 }
 
-// New 创建 HTTP 服务（未启动）。同时把 WebSocket hub 注入 state.WSService，
-// 使房间状态变更能经 Room.NotifyWebSocket 推送给订阅者。
-func New(state *server.ServerState, hub *server.Hub) *Service {
+// New 创建 HTTP 服务（未启动）。statsStore 为 nil 时统计端点返回 503。
+// 同时把 WebSocket hub 注入 state.WSService。
+func New(state *server.ServerState, hub *server.Hub, statsStore *stats.Store) *Service {
 	cfg := state.Config
 	s := &Service{
 		state: state,
@@ -58,6 +60,7 @@ func New(state *server.ServerState, hub *server.Hub) *Service {
 			time.Duration(cfg.EffectiveHTTPRateLimitWindowMS())*time.Millisecond,
 		),
 		auth:           newAdminAuth(),
+		statsStore:     statsStore,
 		replaySessions: make(map[string]replaySession),
 		otpSessions:    make(map[string]otpSession),
 		otpFailIP:      make(map[string]int),
@@ -67,7 +70,7 @@ func New(state *server.ServerState, hub *server.Hub) *Service {
 		startedAt:      time.Now(),
 	}
 	s.ws = newWSHub(s)
-	s.stats = procstats.Start() // 进程 CPU/内存采样（GUI 监控图表）
+	s.statsProc = procstats.Start() // 进程 CPU/内存采样（GUI 监控图表）
 	state.WSService = s.ws
 	// 配置热重载时更新 HTTP 限流阈值/窗口。
 	state.OnConfigReload(func(c *config.ServerConfig) {
@@ -90,8 +93,8 @@ func (s *Service) Start(addr string) (net.Addr, error) {
 // Close 优雅关闭 HTTP 与 WebSocket 服务，并停止后台采样。
 func (s *Service) Close() error {
 	s.ws.closeAll()
-	if s.stats != nil {
-		s.stats.Stop()
+	if s.statsProc != nil {
+		s.statsProc.Stop()
 	}
 	if s.http == nil {
 		return nil
@@ -160,6 +163,11 @@ func (s *Service) route(w http.ResponseWriter, r *http.Request) {
 				"ok": false, "error": "not-found", "message": l10n.TL(lang, "http-not-found", nil),
 			})
 		}
+	case r.Method == http.MethodGet && r.URL.Path == "/charts/hot":
+		s.handleChartsHot(w, r)
+	case strings.HasPrefix(r.URL.Path, "/chart/"):
+		s.handleChart(w, r)
+	case strings.HasPrefix(r.URL.Path, "/player/"):
 	default:
 		w.Header().Set("content-type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusNotFound)
