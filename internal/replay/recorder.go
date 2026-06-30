@@ -16,6 +16,9 @@ const (
 	fakeMonitorID = 2_000_000_000
 )
 
+// FakeMonitorID 返回回放假观战者的固定用户 ID。
+func FakeMonitorID() int32 { return int32(fakeMonitorID) }
+
 // Logger 是录制器使用的最小日志接口（可为 nil）。
 type Logger interface {
 	Debug(msg string)

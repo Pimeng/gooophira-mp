@@ -1,11 +1,16 @@
 package server
 
 import (
+	"bytes"
+	"compress/flate"
 	"errors"
+	"io"
+	"os"
 	"testing"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
+	"github.com/Pimeng/gooophira-mp/internal/replay"
 )
 
 // mockPhira 是测试用的 Phira API 桩。
@@ -352,5 +357,200 @@ func TestDispatch_LeaveRoomDisbands(t *testing.T) {
 	hub.mustDispatch(t, alice, protocol.CmdLeaveRoom{})
 	if h.room("room1") != nil {
 		t.Error("room should be disbanded when last user leaves")
+	}
+}
+
+// TestDispatch_ReplayWithFakeMonitor 对应 TS test/game/replay.test.ts
+// "启用回放录制时，无观战者也能产生触控/判定录制数据"。
+// 验证：sendFakeMonitorJoin 发送假观战者 → 客户端上报 Touches/Judges →
+// 录制器正确落盘，文件包含游戏数据。
+func TestDispatch_ReplayWithFakeMonitor(t *testing.T) {
+	dir := t.TempDir()
+	enabled := true
+	cfg := &config.ServerConfig{ReplayEnabled: &enabled, ReplayBaseDir: &dir}
+	st := NewServerState(cfg, nil, "test", "", "")
+	rec := replay.NewRecorder(dir, nil)
+	st.ReplayRecorder = rec
+
+	phira := &mockPhira{
+		charts:  map[int]config.Chart{1: {ID: 1, Name: "Chart-1"}},
+		records: map[int]config.RecordData{10: {ID: 10, Player: 1, Score: 900000, Accuracy: 0.95, Std: 0.02}},
+	}
+	hub := NewHub(st, phira)
+	hub.OnEnterPlaying = func(room *Room) {
+		if !st.ReplayEnabled || !room.ReplayEligible || room.Chart == nil {
+			return
+		}
+		users := make([]replay.Participant, 0, room.UserCount())
+		for _, id := range room.UserIDs() {
+			name := ""
+			if u := st.Users[id]; u != nil {
+				name = u.Name
+			}
+			users = append(users, replay.Participant{ID: id, Name: name})
+		}
+		rec.StartRoom(room.ID, room.Chart.ID, room.Chart.Name, users)
+	}
+	hub.OnGameEnd = func(room *Room) { rec.EndRoom(room.ID) }
+
+	// 添加用户到 testHarness 风格的状态
+	alice := NewUser(1, "Alice", "", st)
+	alice.SetSession(&mockSession{id: "alice"})
+	st.Users[1] = alice
+
+	// 1. 建房 → sendFakeMonitorJoin 应发送假观战者加入消息
+	hub.mustDispatch(t, alice, protocol.CmdCreateRoom{ID: "room_replay"})
+	room := st.Rooms["room_replay"]
+	if room == nil {
+		t.Fatal("room not created")
+	}
+
+	// 验证假观战者消息已发送给 alice
+	var gotFakeOnJoin, gotFakeJoinMsg bool
+	for _, cmd := range sentTo(alice) {
+		switch c := cmd.(type) {
+		case protocol.SrvOnJoinRoom:
+			if c.Info.ID == replay.FakeMonitorID() && c.Info.Monitor {
+				gotFakeOnJoin = true
+			}
+		case protocol.SrvMessage:
+			if m, ok := c.Message.(protocol.MsgJoinRoom); ok && m.User == replay.FakeMonitorID() {
+				gotFakeJoinMsg = true
+			}
+		}
+	}
+	if !gotFakeOnJoin {
+		t.Error("fake monitor OnJoinRoom not sent to room creator")
+	}
+	if !gotFakeJoinMsg {
+		t.Error("fake monitor JoinRoom message not sent to room creator")
+	}
+
+	// 2. 选谱 → 请求开始（单人立即 Playing，触发 OnEnterPlaying → StartRoom）
+	hub.mustDispatch(t, alice, protocol.CmdSelectChart{ID: 1})
+	hub.mustDispatch(t, alice, protocol.CmdRequestStart{})
+	if _, ok := room.State.(StatePlaying); !ok {
+		t.Fatalf("single-player room should enter Playing, got %T", room.State)
+	}
+
+	// 3. 发送触摸帧和判定事件（客户端因为有假观战者所以上报）
+	frames := []protocol.TouchFrame{
+		{Time: 1, Points: []protocol.TouchPoint{{ID: 0, Pos: protocol.CompactPos{X: 0.5, Y: 0.5}}}},
+	}
+	judges := []protocol.JudgeEvent{
+		{Time: 1, LineID: 1, NoteID: 2, Judgement: protocol.JudgePerfect},
+	}
+	if _, ok := hub.ProcessClientCommand(alice, protocol.CmdTouches{Frames: frames}); ok {
+		t.Error("Touches should produce no response")
+	}
+	if _, ok := hub.ProcessClientCommand(alice, protocol.CmdJudges{Judges: judges}); ok {
+		t.Error("Judges should produce no response")
+	}
+
+	// 4. 交成绩 → 结算（触发 OnGameEnd → EndRoom 写盘）
+	hub.mustDispatch(t, alice, protocol.CmdPlayed{ID: 10})
+	if _, ok := room.State.(StateSelectChart); !ok {
+		t.Fatalf("should settle to SelectChart, got %T", room.State)
+	}
+
+	// 5. 读取回放文件，验证内容
+	files := rec.ListRoomFiles("room_replay")
+	if len(files) != 1 {
+		t.Fatalf("expected 1 replay file, got %d", len(files))
+	}
+	raw, err := os.ReadFile(files[0].Path)
+	if err != nil {
+		t.Fatalf("read replay file: %v", err)
+	}
+	if len(raw) < 13 || string(raw[0:8]) != "PHIRAREC" {
+		t.Fatalf("invalid replay file (len=%d, magic=%q)", len(raw), string(raw[:8]))
+	}
+
+	// 用 reader 验证解码后的数据
+	hdr, err := replay.ReadReplayHeader(files[0].Path)
+	if err != nil {
+		t.Fatalf("ReadReplayHeader: %v", err)
+	}
+	if hdr.RecordID != 10 {
+		t.Errorf("recordID = %d, want 10", hdr.RecordID)
+	}
+	if hdr.ChartID != 1 {
+		t.Errorf("chartID = %d, want 1", hdr.ChartID)
+	}
+	if hdr.ChartName != "Chart-1" {
+		t.Errorf("chartName = %q, want %q", hdr.ChartName, "Chart-1")
+	}
+	if hdr.UserID != 1 {
+		t.Errorf("userID = %d, want 1", hdr.UserID)
+	}
+	if hdr.UserName != "Alice" {
+		t.Errorf("userName = %q, want %q", hdr.UserName, "Alice")
+	}
+
+	// 验证录制文件包含实际游戏数据：解压并检查 touches/judges 数组非空。
+	// 仅含元数据的 bug 录制文件 → 0 touches + 0 judges; 修复后应有数据。
+	content, err := decodePhiraRecPayload(raw)
+	if err != nil {
+		t.Fatalf("decode replay payload: %v", err)
+	}
+	// buildContent 顺序: recordID(I32) + ts(I64) + chartID(I32) + chartName(str) + userID(I32) + userName(str) + touches(arr) + judges(arr)
+	br := protocol.NewBinaryReader(content)
+	_ = br.ReadI32()  // recordID
+	_ = br.ReadI64()  // timestamp
+	_ = br.ReadI32()  // chartID
+	_ = br.ReadString() // chartName
+	_ = br.ReadI32()  // userID
+	_ = br.ReadString() // userName
+	touchCount := readUleb(br)
+	// 跳过触摸帧数据，以便读取 judges 计数
+	for i := uint64(0); i < touchCount; i++ {
+		_ = br.ReadF32()                       // time
+		ptCount := readUleb(br)               // points count
+		for j := uint64(0); j < ptCount; j++ {
+			_ = br.ReadI8()                  // point id
+			_ = br.ReadU16()                 // x (F16 bits)
+			_ = br.ReadU16()                 // y (F16 bits)
+		}
+	}
+	judgeCount := readUleb(br)
+	if touchCount == 0 {
+		t.Errorf("touchCount = 0: touches not recorded — fake monitor may not be triggering client data")
+	}
+	if judgeCount == 0 {
+		t.Errorf("judgeCount = 0: judges not recorded — fake monitor may not be triggering client data")
+	}
+	t.Logf("touchCount=%d, judgeCount=%d", touchCount, judgeCount)
+}
+
+// decodePhiraRecPayload 解压 PHIRAREC 文件载荷（检查 magic + version + compression 后解压）。
+func decodePhiraRecPayload(raw []byte) ([]byte, error) {
+	if len(raw) < 13 || string(raw[0:8]) != "PHIRAREC" {
+		return nil, errors.New("not a PHIRAREC file")
+	}
+	compression := raw[12]
+	payload := raw[13:]
+	switch compression {
+	case 0x00:
+		return payload, nil
+	case 0x02: // DEFLATE
+		r := flate.NewReader(bytes.NewReader(payload))
+		defer r.Close()
+		return io.ReadAll(r)
+	default:
+		return nil, errors.New("unsupported compression")
+	}
+}
+
+// readUleb 从 BinaryReader 读取一个 LEB128 无符号整数（不 panic）。
+func readUleb(r *protocol.BinaryReader) uint64 {
+	var result uint64
+	var shift uint
+	for {
+		b := r.ReadU8()
+		result |= uint64(b&0x7F) << shift
+		if b&0x80 == 0 {
+			return result
+		}
+		shift += 7
 	}
 }

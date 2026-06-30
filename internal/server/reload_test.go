@@ -22,6 +22,9 @@ func (f *fakeRecorder) AppendTouches(protocol.RoomID, int, []protocol.TouchFrame
 func (f *fakeRecorder) AppendJudges(protocol.RoomID, int, []protocol.JudgeEvent)  {}
 func (f *fakeRecorder) SetRecordID(protocol.RoomID, int, int)                     {}
 func (f *fakeRecorder) EndRoom(id protocol.RoomID)                                { f.endRooms = append(f.endRooms, id) }
+func (f *fakeRecorder) FakeMonitorInfo(name string) protocol.UserInfo {
+	return protocol.UserInfo{ID: 2_000_000_000, Name: name, Monitor: true}
+}
 
 func TestReloadConfig_ListenerAndChangedKeys(t *testing.T) {
 	st := NewServerState(&config.ServerConfig{}, nil, "test", "", "")

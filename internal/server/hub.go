@@ -169,8 +169,22 @@ func (h *Hub) ProcessCreateRoom(user *User, id protocol.RoomID) error {
 	room.logRoomMark(h.MakeRoomLifecycle(room), "log-room-created", map[string]string{"user": user.Name})
 	h.BroadcastRoomMessage(room, protocol.MsgCreateRoom{User: int32(user.ID)})
 	h.State.EmitEvent(Event{Type: EventRoomCreate, RoomID: room.ID.String(), UserID: user.ID, UserName: user.Name})
-	// TODO(stage-5): sendFakeMonitorJoin（回放假观战者）。
+	h.sendFakeMonitorJoin(user, room)
 	return nil
+}
+
+// sendFakeMonitorJoin 向目标用户发送回放假观战者加入通知（OnJoinRoom + JoinRoom）。
+// 客户端检测到观战者后会上报 Touches/Judges，供录制器采集。对应 TS Session.sendFakeMonitorJoin。
+func (h *Hub) sendFakeMonitorJoin(targetUser *User, room *Room) {
+	if !h.State.ReplayEnabled || !room.ReplayEligible || h.State.ReplayRecorder == nil {
+		return
+	}
+	name := l10n.TL(h.State.ServerLang, "replay-recorder-name", nil)
+	fake := h.State.ReplayRecorder.FakeMonitorInfo(name)
+	targetUser.TrySend(protocol.SrvOnJoinRoom{Info: fake})
+	targetUser.TrySend(protocol.SrvMessage{
+		Message: protocol.MsgJoinRoom{User: fake.ID, Name: fake.Name},
+	})
 }
 
 // ProcessJoinRoom 处理加入房间：封禁/维护/已在房 校验，房间封禁/存在/加入合法性检查，
@@ -214,6 +228,7 @@ func (h *Hub) ProcessJoinRoom(user *User, id protocol.RoomID, monitor bool) (pro
 	})
 	h.BroadcastRoom(room, protocol.SrvOnJoinRoom{Info: user.ToInfo()})
 	h.BroadcastRoomMessage(room, protocol.MsgJoinRoom{User: int32(user.ID), Name: user.Name})
+	h.sendFakeMonitorJoin(user, room)
 	h.State.EmitEvent(Event{Type: EventUserJoin, RoomID: room.ID.String(), UserID: user.ID, UserName: user.Name, UserCount: room.UserCount()})
 
 	users := make([]protocol.UserInfo, 0, room.UserCount()+room.MonitorCount())
@@ -229,7 +244,6 @@ func (h *Hub) ProcessJoinRoom(user *User, id protocol.RoomID, monitor bool) (pro
 		cid := int32(room.Chart.ID)
 		respState = protocol.RoomStateSelectChart{ID: &cid}
 	}
-	// TODO(stage-4): 延迟修正（先 SelectChart 再真实状态）与 cycle/lock 补发、sendFakeMonitorJoin。
 
 	return protocol.JoinRoomResponse{State: respState, Users: users, Live: room.IsLive()}, nil
 }
