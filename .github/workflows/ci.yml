@@ -53,29 +53,28 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: 交叉编译全部目标平台
+      - name: 交叉编译全部目标平台（并行）
         env:
           CGO_ENABLED: '0'
         run: |
-          targets="
-          linux   amd64 linux-x64
-          linux   arm64 linux-arm64
-          linux   riscv64 linux-riscv64
-          windows amd64 windows-x64
-          windows arm64 windows-arm64
-          darwin  amd64 macos-x64
-          darwin  arm64 macos-arm64
-          freebsd amd64 freebsd-x64
-          freebsd arm64 freebsd-arm64
-          android arm64 termux-arm64
-          openbsd amd64 openbsd-x64
-          netbsd  amd64 netbsd-x64
-          "
-          echo "$targets" | while read -r goos goarch name; do
-            [ -z "$goos" ] && continue
+          printf '%s\n' \
+            "linux amd64 linux-x64" \
+            "linux arm64 linux-arm64" \
+            "linux riscv64 linux-riscv64" \
+            "windows amd64 windows-x64" \
+            "windows arm64 windows-arm64" \
+            "darwin amd64 macos-x64" \
+            "darwin arm64 macos-arm64" \
+            "freebsd amd64 freebsd-x64" \
+            "freebsd arm64 freebsd-arm64" \
+            "android arm64 termux-arm64" \
+            "openbsd amd64 openbsd-x64" \
+            "netbsd amd64 netbsd-x64" \
+          | xargs -P $(nproc) -L 1 sh -c '
+            goos="$1"; goarch="$2"; name="$3"
             ext=""; [ "$goos" = "windows" ] && ext=".exe"
             echo "▶ 编译 $goos/$goarch → $name"
             GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags "-s -w" -o "phira-mp$ext" ./cmd/server
             ls -lh "phira-mp$ext"
             rm -f "phira-mp$ext"
-          done
+          ' _
