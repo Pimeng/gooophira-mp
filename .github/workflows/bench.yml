@@ -23,6 +23,22 @@ on:
         default: 'gameplay'
         type: choice
         options: [room-cycle, gameplay, connection-storm, steady-state, mixed]
+      tcp-duration:
+        default: '30s'
+        type: choice
+        options: [10s, 15s, 30s, 60s]
+      tcp-clients:
+        default: '50'
+        type: choice
+        options: [10, 50, 100, 200, 500]
+      tcp-rooms:
+        default: '5'
+        type: choice
+        options: [0, 5, 10, 20, 50]
+      tcp-scenario:
+        default: 'connection-storm'
+        type: choice
+        options: [room-cycle, gameplay, connection-storm, steady-state]
 
 concurrency:
   group: bench-${{ github.ref }}-${{ github.event_name }}
@@ -107,6 +123,45 @@ jobs:
             "| Errors | \($r.errors) |",
             ""
           ' tmp/profiles/load/result.json >> "$GITHUB_STEP_SUMMARY"
+
+      # ----- TCP connect load test -----
+
+      - name: run TCP connect load test
+        run: |
+          mkdir -p tmp/profiles/tcpconnect
+          go run ./cmd/tcpconnectbench/ \
+            -clients="${{ github.event.inputs.tcp-clients || '50' }}" \
+            -rooms="${{ github.event.inputs.tcp-rooms || '5' }}" \
+            -duration="${{ github.event.inputs.tcp-duration || '20s' }}" \
+            -scenario="${{ github.event.inputs.tcp-scenario || 'connection-storm' }}" \
+            -profile=all -profile-dir=./tmp/profiles/tcpconnect \
+            -json > tmp/profiles/tcpconnect/result.json
+
+      - name: TCP connect load summary
+        if: always()
+        run: |
+          jq -r '
+            .results[0] as $r |
+            "## TCP Connect Load Test - \($r.name)",
+            "",
+            "| Metric | Value |",
+            "|---|---|",
+            "| Clients | \($r.clients) |",
+            "| Rooms | \($r.rooms) |",
+            "| Duration | \($r.duration / 1000000000)s |",
+            "| Throughput | \($r.commands_per_sec | floor) cmd/s |",
+            "| TCP connect avg/min/max | \($r.connect_latency.mean/1000 | floor)us / \($r.connect_latency.min/1000 | floor)us / \($r.connect_latency.max/1000 | floor)us |",
+            "| TCP connect p50/p90/p99 | \($r.connect_latency.p50/1000 | floor)us / \($r.connect_latency.p90/1000 | floor)us / \($r.connect_latency.p99/1000 | floor)us |",
+            "| Auth RTT avg/min/max | \($r.auth_latency.mean/1000 | floor)us / \($r.auth_latency.min/1000 | floor)us / \($r.auth_latency.max/1000 | floor)us |",
+            "| Auth RTT p50/p90/p99 | \($r.auth_latency.p50/1000 | floor)us / \($r.auth_latency.p90/1000 | floor)us / \($r.auth_latency.p99/1000 | floor)us |",
+            "| Cycle latency avg/min/max | \($r.cycle_latency.mean/1000 | floor)us / \($r.cycle_latency.min/1000 | floor)us / \($r.cycle_latency.max/1000 | floor)us |",
+            "| Cycle latency p50/p90/p99 | \($r.cycle_latency.p50/1000 | floor)us / \($r.cycle_latency.p90/1000 | floor)us / \($r.cycle_latency.p99/1000 | floor)us |",
+            "| Peak goroutines | \($r.peak_goroutines) |",
+            "| Peak heap | \(($r.peak_heap_mb * 10 | floor) / 10) MB |",
+            "| GC count | \($r.num_gc) |",
+            "| Errors | \($r.errors) |",
+            ""
+          ' tmp/profiles/tcpconnect/result.json >> "$GITHUB_STEP_SUMMARY"
 
       # ----- upload -----
 
