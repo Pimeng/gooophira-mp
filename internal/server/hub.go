@@ -168,7 +168,7 @@ func (h *Hub) ProcessCreateRoom(user *User, id protocol.RoomID) error {
 	room.RefreshLive(h.State.ReplayEnabled)
 	// 对齐原版：建房时输出 MARK 级控制台日志。
 	room.logRoomMark(h.MakeRoomLifecycle(room), "log-room-created", map[string]string{"user": user.Name})
-	h.BroadcastRoomMessage(room, protocol.MsgCreateRoom{User: int32(user.ID)})
+	h.BroadcastRoomMessage(room, protocol.MsgCreateRoom{User: int32FromInt(user.ID)})
 	h.State.EmitEvent(Event{Type: EventRoomCreate, RoomID: room.ID.String(), UserID: user.ID, UserName: user.Name})
 	h.sendFakeMonitorJoin(user, room)
 	return nil
@@ -244,7 +244,7 @@ func (h *Hub) ProcessJoinRoom(user *User, id protocol.RoomID, monitor bool) (pro
 		"user": user.Name, "suffix": h.monitorSuffix(monitor),
 	})
 	h.BroadcastRoom(room, protocol.SrvOnJoinRoom{Info: user.ToInfo()})
-	h.BroadcastRoomMessage(room, protocol.MsgJoinRoom{User: int32(user.ID), Name: user.Name})
+	h.BroadcastRoomMessage(room, protocol.MsgJoinRoom{User: int32FromInt(user.ID), Name: user.Name})
 	h.sendFakeMonitorJoin(user, room)
 	h.State.EmitEvent(Event{Type: EventUserJoin, RoomID: room.ID.String(), UserID: user.ID, UserName: user.Name, UserCount: room.UserCount()})
 

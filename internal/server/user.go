@@ -59,7 +59,7 @@ func NewUser(id int, name, language string, server *ServerState) *User {
 // ToInfo 返回用于协议传输的 UserInfo（带 monitor 变更感知的缓存）。
 func (u *User) ToInfo() protocol.UserInfo {
 	if u.infoCache == nil || u.infoCache.Monitor != u.Monitor {
-		u.infoCache = &protocol.UserInfo{ID: int32(u.ID), Name: u.Name, Monitor: u.Monitor}
+		u.infoCache = &protocol.UserInfo{ID: int32FromInt(u.ID), Name: u.Name, Monitor: u.Monitor}
 	}
 	return *u.infoCache
 }
@@ -99,6 +99,15 @@ func (u *User) MarkDangle() *DangleToken {
 // IsStillDangling 报告用户是否仍处于由 token 标识的 dangling 状态。
 func (u *User) IsStillDangling(token *DangleToken) bool {
 	return u.dangleToken == token
+}
+
+// int32FromInt 安全地将 int 转换为 int32（带溢出检查，满足 CodeQL 边界验证要求）。
+// 用于所有已知安全的 int→int32 窄化场景（用户 ID、谱面 ID 等数据库来源的整型）。
+func int32FromInt(n int) int32 {
+	if n < int(math.MinInt32) || n > int(math.MaxInt32) {
+		panic("integer overflow: value does not fit in int32")
+	}
+	return int32(n)
 }
 
 // TL 是 l10n.TL 针对该用户语言的便捷封装。
