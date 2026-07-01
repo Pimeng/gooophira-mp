@@ -89,6 +89,17 @@ func (u *User) TrySend(cmd protocol.ServerCommand) {
 	s.TrySend(cmd)
 }
 
+// TrySendFrame 尝试向用户发送预编码的二进制帧；无活跃会话时静默忽略。
+func (u *User) TrySendFrame(frame []byte) {
+	u.mu.Lock()
+	s := u.Session
+	u.mu.Unlock()
+	if s == nil {
+		return
+	}
+	s.TrySendFrame(frame)
+}
+
 // MarkDangle 标记用户为 dangling（断线等待重连），返回用于校验重连的 token。
 func (u *User) MarkDangle() *DangleToken {
 	token := &DangleToken{}

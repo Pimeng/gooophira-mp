@@ -50,6 +50,7 @@ type stubSession struct {
 
 func (s *stubSession) ID() string                        { return s.id }
 func (s *stubSession) TrySend(protocol.ServerCommand)    {}
+func (s *stubSession) TrySendFrame([]byte)                {}
 func (s *stubSession) Close()                            { s.closed = true }
 func (s *stubSession) AdminDisconnect(preserveRoom bool) { s.disconnectArg = &preserveRoom }
 

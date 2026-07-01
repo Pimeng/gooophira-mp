@@ -349,6 +349,7 @@ type benchSession struct {
 
 func (s *benchSession) ID() string                                 { return s.id }
 func (s *benchSession) TrySend(cmd protocol.ServerCommand)          { s.sentCmds = append(s.sentCmds, cmd) }
+func (s *benchSession) TrySendFrame(frame []byte)                   {} // bench 不依赖帧路径
 func (s *benchSession) Close()                                      {}
 
 type benchClient struct {

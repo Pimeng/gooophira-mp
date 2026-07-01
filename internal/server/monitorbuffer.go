@@ -124,12 +124,12 @@ func (b *AggregatingMonitorBuffer) Stop() {
 
 // broadcastTouches 按 (房间, 玩家) 合并帧后广播给各房间当前观战者（调用方持 state.Mu）。
 func (b *AggregatingMonitorBuffer) broadcastTouches(items []monitorTouchItem) {
-	merged := make(map[*Room]map[int][]protocol.TouchFrame)
+	merged := make(map[*Room]map[int][]protocol.TouchFrame, 8)
 	var order []*Room
 	for _, it := range items {
 		pm := merged[it.room]
 		if pm == nil {
-			pm = make(map[int][]protocol.TouchFrame)
+			pm = make(map[int][]protocol.TouchFrame, len(items)/2+1)
 			merged[it.room] = pm
 			order = append(order, it.room)
 		}
@@ -142,9 +142,14 @@ func (b *AggregatingMonitorBuffer) broadcastTouches(items []monitorTouchItem) {
 		}
 		for player, frames := range merged[room] {
 			cmd := protocol.SrvTouches{Player: int32(player), Frames: frames}
+			// 预编码一次帧，广播给所有观战者
+			frame := encodeServerCommandFrame(cmd)
+			if frame == nil {
+				continue
+			}
 			for _, id := range ids {
 				if u := b.state.Users[id]; u != nil {
-					u.TrySend(cmd)
+					u.TrySendFrame(frame)
 				}
 			}
 		}
@@ -153,12 +158,12 @@ func (b *AggregatingMonitorBuffer) broadcastTouches(items []monitorTouchItem) {
 
 // broadcastJudges 按 (房间, 玩家) 合并判定事件后广播给各房间当前观战者（调用方持 state.Mu）。
 func (b *AggregatingMonitorBuffer) broadcastJudges(items []monitorJudgeItem) {
-	merged := make(map[*Room]map[int][]protocol.JudgeEvent)
+	merged := make(map[*Room]map[int][]protocol.JudgeEvent, 8)
 	var order []*Room
 	for _, it := range items {
 		pm := merged[it.room]
 		if pm == nil {
-			pm = make(map[int][]protocol.JudgeEvent)
+			pm = make(map[int][]protocol.JudgeEvent, len(items)/2+1)
 			merged[it.room] = pm
 			order = append(order, it.room)
 		}
@@ -171,9 +176,13 @@ func (b *AggregatingMonitorBuffer) broadcastJudges(items []monitorJudgeItem) {
 		}
 		for player, judges := range merged[room] {
 			cmd := protocol.SrvJudges{Player: int32(player), Judges: judges}
+			frame := encodeServerCommandFrame(cmd)
+			if frame == nil {
+				continue
+			}
 			for _, id := range ids {
 				if u := b.state.Users[id]; u != nil {
-					u.TrySend(cmd)
+					u.TrySendFrame(frame)
 				}
 			}
 		}

@@ -16,6 +16,7 @@ type fakeSession struct {
 
 func (f *fakeSession) ID() string                     { return f.id }
 func (f *fakeSession) TrySend(protocol.ServerCommand) {}
+func (f *fakeSession) TrySendFrame([]byte)             {}
 func (f *fakeSession) Close()                         { f.closed = true }
 
 func addUser(state *server.ServerState, id int, name string, sess server.Session) *server.User {
