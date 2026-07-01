@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"math/rand/v2"
+	"sync"
 	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
@@ -74,21 +75,57 @@ var (
 
 // ---------- 广播 ----------
 
-// BroadcastRoom 向房间所有参与者发送一条命令。
+// BroadcastRoom 向房间所有参与者发送一条命令（预编码一次，广播给所有用户）。
 func (h *Hub) BroadcastRoom(room *Room, cmd protocol.ServerCommand) {
-	for _, id := range room.AllParticipantIDs() {
+	// 收集目标用户
+	ids := room.AllParticipantIDs()
+	if len(ids) == 0 {
+		return
+	}
+	// 预编码一次帧，通过 TrySendFrame 广播给所有用户
+	frame := encodeServerCommandFrame(cmd)
+	if frame == nil {
+		return
+	}
+	for _, id := range ids {
 		if u := h.State.Users[id]; u != nil {
-			u.TrySend(cmd)
+			u.TrySendFrame(frame)
 		}
 	}
 }
 
 func (h *Hub) broadcastToMonitors(room *Room, cmd protocol.ServerCommand) {
-	for _, id := range room.MonitorIDs() {
+	ids := room.MonitorIDs()
+	if len(ids) == 0 {
+		return
+	}
+	frame := encodeServerCommandFrame(cmd)
+	if frame == nil {
+		return
+	}
+	for _, id := range ids {
 		if u := h.State.Users[id]; u != nil {
-			u.TrySend(cmd)
+			u.TrySendFrame(frame)
 		}
 	}
+}
+
+// encodeServerCommandFrame 编码一条服务端命令为二进制帧（用于广播预编码优化）。
+// 返回的帧可安全传递给 TrySendFrame（会被拷贝）。
+func encodeServerCommandFrame(cmd protocol.ServerCommand) []byte {
+	w := serverFrameWriterPool.Get().(*protocol.BinaryWriter)
+	defer serverFrameWriterPool.Put(w)
+	w.Reset()
+	protocol.EncodeServerCommand(w, cmd)
+	fb := w.ToFrameBuffer()
+	frame := make([]byte, len(fb))
+	copy(frame, fb)
+	return frame
+}
+
+// serverFrameWriterPool 是临时 BinaryWriter 对象池（预留 5 字节 LEB128 头部）。
+var serverFrameWriterPool = &sync.Pool{
+	New: func() any { return protocol.NewFrameWriter(5) },
 }
 
 // BroadcastRoomMessage 经房间 Send 广播一条 Message（含房间日志记录）。
