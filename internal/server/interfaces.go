@@ -15,6 +15,9 @@ type Session interface {
 	ID() string
 	// TrySend 尝试向客户端发送一条命令；无活跃连接时静默忽略。
 	TrySend(cmd protocol.ServerCommand)
+	// TrySendFrame 尝试向客户端发送一条预编码的二进制帧（广播优化用）。
+	// 实现应处理 frame 的所有权（需要则拷贝，不需要则复用）。
+	TrySendFrame(frame []byte)
 	// Close 关闭会话。
 	Close()
 }

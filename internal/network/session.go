@@ -108,6 +108,24 @@ func (s *Session) TrySend(cmd protocol.ServerCommand) {
 	if err != nil {
 		return
 	}
+	s.trySendFrame(frame)
+}
+
+// TrySendFrame 尝试发送预编码的二进制帧（广播优化用）。
+func (s *Session) TrySendFrame(frame []byte) {
+	select {
+	case <-s.done:
+		return
+	default:
+	}
+	// frame 可能被复用，拷贝一份以保证安全
+	f := make([]byte, len(frame))
+	copy(f, frame)
+	s.trySendFrame(f)
+}
+
+// trySendFrame 把帧入队发送缓冲；满则异步关闭。
+func (s *Session) trySendFrame(frame []byte) {
 	select {
 	case s.sendCh <- frame:
 	default:

@@ -25,6 +25,20 @@ func (m *mockSession) TrySend(cmd protocol.ServerCommand) {
 	m.sent = append(m.sent, cmd)
 	m.mu.Unlock()
 }
+func (m *mockSession) TrySendFrame(frame []byte) {
+	// 把预编码的帧解码回 ServerCommand，加到 sent 列表（测试断言用）。
+	res := protocol.TryDecodeFrame(frame, 0)
+	if res.Kind != protocol.FrameOK {
+		return
+	}
+	cmd, err := protocol.DecodePacket(res.Payload, protocol.DecodeServerCommand)
+	if err != nil || cmd == nil {
+		return
+	}
+	m.mu.Lock()
+	m.sent = append(m.sent, cmd)
+	m.mu.Unlock()
+}
 func (m *mockSession) Close() {}
 
 // testHarness 持有共享用户表与捕获的广播，便于断言。
