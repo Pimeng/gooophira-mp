@@ -5,8 +5,16 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      - internal/**
+      - go.mod
+      - go.sum
   pull_request:
     branches: [main]
+    paths:
+      - internal/**
+      - go.mod
+      - go.sum
   workflow_dispatch: {}
 
 concurrency:
