@@ -28,8 +28,14 @@ const (
 	heartbeatTimeout = time.Duration(protocol.HeartbeatDisconnectTimeoutMS) * time.Millisecond
 	maxFrameSize     = 4 * 1024 * 1024
 	readChunk        = 4096
-	sendChanBuffer   = 1024
+	sendChanBuffer   = 256
 )
+
+// frameWriterPool 是 BinaryWriter（预留 5 字节 LEB128(u32) 头部）的对象池，
+// 用于复用 encodeServerFrame 中的编码缓冲区，减少热路径上的分配。
+var frameWriterPool = &sync.Pool{
+	New: func() any { return protocol.NewFrameWriter(5) },
+}
 
 // dangleWindowNonPlaying 是非对局态断线后保留房间、等待重连的窗口（对应 TS DANGLE_WINDOW_MS）。
 // 为 atomic.Int64 便于测试安全调短（避免并发 data race）。对局态断线用 config.playing_reconnect_grace（0=立即移除）。
@@ -313,8 +319,10 @@ func (s *Session) readLoop() {
 				return
 			}
 			cmd, derr := protocol.DecodePacket(res.Payload, protocol.DecodeClientCommand)
-			// Remaining 是 buf 的子切片；拷出以免下轮 append 覆盖。
-			buf = append([]byte(nil), res.Remaining...)
+			// Remaining 是 buf 的子切片；拷到 buf 头部以复用底层数组，避免每次重新分配。
+			remaining := len(res.Remaining)
+			copy(buf, res.Remaining)
+			buf = buf[:remaining]
 			if derr != nil {
 				return
 			}
@@ -327,7 +335,7 @@ func (s *Session) readLoop() {
 // Touches/Judges 是 Playing 阶段高频命令，无房间间依赖，可用分段锁并行。
 func isRoomOnlyCmd(cmd protocol.ClientCommand) bool {
 	switch cmd.(type) {
-	case protocol.CmdTouches, protocol.CmdJudges:
+	case protocol.CmdTouches, protocol.CmdJudges, protocol.CmdPlayed:
 		return true
 	}
 	return false
@@ -355,7 +363,7 @@ func (s *Session) onCommand(cmd protocol.ClientCommand) {
 		}
 	}
 	// 已认证：持锁调度命令。
-	// Touches/Judges 仅持 room.Mu（分段锁，房间间并行），其余命令持 state.Mu（全局串行）。
+	// Touches/Judges/Played 仅持 room.Mu（分段锁，房间间并行），其余命令持 state.Mu（全局串行）。
 	var resp protocol.ServerCommand
 	var has bool
 	if isRoomOnlyCmd(cmd) {
@@ -364,6 +372,11 @@ func (s *Session) onCommand(cmd protocol.ClientCommand) {
 			room.Mu.Lock()
 			resp, has = s.hub.ProcessClientCommand(s.user, cmd)
 			room.Mu.Unlock()
+		} else {
+			// room 为空（房间已解散/用户已离开）时改用 state.Mu 处理，确保给客户端返回响应。
+			s.state.Mu.Lock()
+			resp, has = s.hub.ProcessClientCommand(s.user, cmd)
+			s.state.Mu.Unlock()
 		}
 	} else {
 		s.state.Mu.Lock()
@@ -387,7 +400,10 @@ func (s *Session) handleAuthenticate(token string) {
 		return
 	}
 
+	// 两阶段认证：降低 state.Mu 持有时间。
+	// 阶段 1 — 快速检查 + 判断新用户还是重连，尽量减少锁内操作。
 	s.state.Mu.Lock()
+
 	// 维护模式：拒绝新连接，但放行已在线用户重连，让其回原房间完成对局。
 	if s.state.Maintenance {
 		if _, online := s.state.Users[info.ID]; !online {
@@ -401,58 +417,97 @@ func (s *Session) handleAuthenticate(token string) {
 		}
 	}
 
-	// 顶号 / 重连：复用已存在的同 id 用户（保留其房间），把旧会话踢下线。
 	var stale server.Session
-	user := s.state.Users[info.ID]
-	if user != nil {
-		if user.Session != nil && user.Session != server.Session(s) {
-			stale = user.Session
-		}
-		user.SetSession(s) // 先重绑到新会话——旧会话随后 Close 时 cleanup 会因此短路、保留房间
-	} else {
-		user = server.NewUser(info.ID, info.Name, info.Language, s.state)
-		user.SetSession(s)
-		s.state.Users[info.ID] = user
-	}
-	s.user = user
-
+	var user *server.User
 	var roomState *protocol.ClientRoomState
-	var restoreChartID *int32 // 非 nil：需在认证后延迟把客户端从 SelectChart 修回 WaitingForReady。
-	if user.Room != nil {
-		cs := user.Room.ClientState(user, func(id int) *server.User { return s.state.Users[id] })
-		// 断线重连修正：房间处于 WaitForReady 且已选谱时，先在响应里伪装成 SelectChart 让客户端载入谱面
-		// 上下文，随后延迟换回 WaitingForReady；否则客户端缺谱面会进入异常状态而反复断线重连（对齐原版）。
-		if _, wfr := user.Room.State.(server.StateWaitForReady); wfr && user.Room.Chart != nil {
-			cid := int32(user.Room.Chart.ID)
-			cs.State = protocol.RoomStateSelectChart{ID: &cid}
-			restoreChartID = &cid
+	var restoreChartID *int32
+
+	existing := s.state.Users[info.ID]
+	if existing != nil {
+		// ---- 重连路径：全程持锁（需读取/修改 Session、Room 等状态） ----
+		if existing.Session != nil && existing.Session != server.Session(s) {
+			stale = existing.Session
 		}
-		roomState = &cs
+		existing.SetSession(s) // 先重绑到新会话——旧会话随后 Close 时 cleanup 会因此短路、保留房间
+		user = existing
+		s.user = user
+
+		// 断线重连：构建客户端房间状态
+		if user.Room != nil {
+			cs := user.Room.ClientState(user, func(id int) *server.User { return s.state.Users[id] })
+			if _, wfr := user.Room.State.(server.StateWaitForReady); wfr && user.Room.Chart != nil {
+				cid := int32(user.Room.Chart.ID)
+				cs.State = protocol.RoomStateSelectChart{ID: &cid}
+				restoreChartID = &cid
+			}
+			roomState = &cs
+		}
+		me := user.ToInfo()
+		monitor := user.Monitor
+		s.state.Mu.Unlock()
+
+		// 踢旧会话（锁外）。此时 user.Session 已指向新会话，旧会话 cleanup 将短路，不会退房。
+		if stale != nil {
+			stale.Close()
+		}
+
+		s.TrySend(protocol.SrvAuthenticate{Result: protocol.Ok(protocol.AuthInfo{Me: me, Room: roomState})})
+
+		// 重连进 WaitForReady：延迟两步把客户端状态修回。
+		if restoreChartID != nil {
+			cid := *restoreChartID
+			time.AfterFunc(20*time.Millisecond, func() {
+				user.TrySend(protocol.SrvChangeState{State: protocol.RoomStateSelectChart{ID: &cid}})
+				time.AfterFunc(20*time.Millisecond, func() {
+					user.TrySend(protocol.SrvChangeState{State: protocol.RoomStateWaitingForReady{}})
+				})
+			})
+		}
+
+		s.logAuthSuccess(user, monitor)
+		go s.sendWelcome(user)
+		return
 	}
+
+	// ---- 新用户路径：快速解锁，将 NewUser 分配移出锁外 ----
+	s.state.Mu.Unlock()
+
+	user = server.NewUser(info.ID, info.Name, info.Language, s.state)
+	user.SetSession(s)
+
+	// 阶段 2 — 重新持锁完成注册（双检避免竞态）
+	s.state.Mu.Lock()
+	if existing := s.state.Users[info.ID]; existing != nil {
+		// 极低概率的竞态：另一个连接在我们 unlock→relock 间注册了同 ID 用户。
+		var stale server.Session
+		if existing.Session != nil && existing.Session != server.Session(s) {
+			stale = existing.Session
+		}
+		s.state.Mu.Unlock()
+		// 让 existing 接管此会话，丢弃我们刚创建的 user（未被注册，GC 回收）。
+		existing.SetSession(s)
+		s.user = existing
+		// 踢旧会话（锁外）。
+		if stale != nil {
+			stale.Close()
+		}
+		me := existing.ToInfo()
+		monitor := existing.Monitor
+		s.TrySend(protocol.SrvAuthenticate{Result: protocol.Ok(protocol.AuthInfo{Me: me, Room: nil})})
+		s.logAuthSuccess(existing, monitor)
+		go s.sendWelcome(existing)
+		return
+	}
+	s.state.Users[info.ID] = user
+	s.user = user
 	me := user.ToInfo()
 	monitor := user.Monitor
 	s.state.Mu.Unlock()
 
-	// 踢旧会话（锁外）。此时 user.Session 已指向新会话，旧会话 cleanup 将短路，不会退房。
-	if stale != nil {
-		stale.Close()
-	}
+	s.TrySend(protocol.SrvAuthenticate{Result: protocol.Ok(protocol.AuthInfo{Me: me, Room: nil})})
 
-	s.TrySend(protocol.SrvAuthenticate{Result: protocol.Ok(protocol.AuthInfo{Me: me, Room: roomState})})
-
-	// 重连进 WaitForReady：延迟两步把客户端状态修回（先 SelectChart 注入谱面，再 WaitingForReady）。
-	if restoreChartID != nil {
-		cid := *restoreChartID
-		time.AfterFunc(20*time.Millisecond, func() {
-			user.TrySend(protocol.SrvChangeState{State: protocol.RoomStateSelectChart{ID: &cid}})
-			time.AfterFunc(20*time.Millisecond, func() {
-				user.TrySend(protocol.SrvChangeState{State: protocol.RoomStateWaitingForReady{}})
-			})
-		})
-	}
-
-	s.logAuthSuccess(user, monitor) // 认证成功日志（对齐原版 log-auth-ok / log-player-join）
-	go s.sendWelcome(user)          // 欢迎消息（含一言 HTTP 拉取）异步发送，不阻塞命令循环
+	s.logAuthSuccess(user, monitor)
+	go s.sendWelcome(user)
 }
 
 // logAuthSuccess 记录认证成功：DEBUG 级 log-auth-ok 与 INFO 级 log-player-join（对齐原版）。
@@ -530,14 +585,20 @@ func (s *Session) failAuth(reasonKey string) {
 	s.Close()
 }
 
-// encodeServerFrame 把服务端命令编码为「长度前缀 + body」帧。
+// encodeServerFrame 把服务端命令编码为「长度前缀 + body」帧（复用对象池中的编码器）。
 func encodeServerFrame(cmd protocol.ServerCommand) (frame []byte, err error) {
+	w := frameWriterPool.Get().(*protocol.BinaryWriter)
+	defer frameWriterPool.Put(w)
 	defer func() {
 		if rec := recover(); rec != nil {
 			err = errEncode
 		}
 	}()
-	w := protocol.NewBinaryWriter()
+	w.Reset()
 	protocol.EncodeServerCommand(w, cmd)
-	return protocol.FrameWithLengthPrefix(w.ToBuffer()), nil
+	fb := w.ToFrameBuffer()
+	// fb 引用 w 的内部缓冲区；拷出后再归还，避免 writeLoop 使用时被覆写。
+	frame = make([]byte, len(fb))
+	copy(frame, fb)
+	return frame, nil
 }
