@@ -60,7 +60,7 @@ func (h *Hub) forwardTouches(room *Room, userID int, frames []protocol.TouchFram
 		h.Monitor.BufferTouches(room, room.MonitorIDs(), userID, frames)
 		return
 	}
-	h.broadcastToMonitors(room, protocol.SrvTouches{Player: int32(userID), Frames: frames})
+	h.broadcastToMonitors(room, protocol.SrvTouches{Player: int32FromInt(userID), Frames: frames})
 }
 
 func (h *Hub) forwardJudges(room *Room, userID int, judges []protocol.JudgeEvent) {
@@ -68,7 +68,7 @@ func (h *Hub) forwardJudges(room *Room, userID int, judges []protocol.JudgeEvent
 		h.Monitor.BufferJudges(room, room.MonitorIDs(), userID, judges)
 		return
 	}
-	h.broadcastToMonitors(room, protocol.SrvJudges{Player: int32(userID), Judges: judges})
+	h.broadcastToMonitors(room, protocol.SrvJudges{Player: int32FromInt(userID), Judges: judges})
 }
 
 func (h *Hub) shouldRecord(room *Room) bool {
@@ -237,7 +237,7 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 				"userId": fmt.Sprintf("%d", user.ID),
 				"chart":  chart.Name,
 			})
-			h.BroadcastRoomMessage(room, protocol.MsgSelectChart{User: int32(user.ID), Name: chart.Name, ID: int32(chart.ID)})
+			h.BroadcastRoomMessage(room, protocol.MsgSelectChart{User: int32FromInt(user.ID), Name: chart.Name, ID: int32FromInt(chart.ID)})
 			room.OnStateChange(lc)
 			room.NotifyWebSocket(lc)
 			return nil
@@ -255,7 +255,7 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			room.ResetGameTime(func(id int) *User { return h.State.Users[id] })
 			lc := h.MakeRoomLifecycle(room)
 			room.logRoomMark(lc, "log-room-request-start", map[string]string{"user": user.Name})
-			h.BroadcastRoomMessage(room, protocol.MsgGameStart{User: int32(user.ID)})
+			h.BroadcastRoomMessage(room, protocol.MsgGameStart{User: int32FromInt(user.ID)})
 			room.State = StateWaitForReady{Started: map[int]struct{}{user.ID: {}}}
 			room.OnStateChange(lc)
 			room.NotifyWebSocket(lc)
@@ -281,7 +281,7 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			}
 			st.Started[user.ID] = struct{}{}
 			room.logRoomInfo(h.MakeRoomLifecycle(room), "log-room-ready", map[string]string{"user": user.Name})
-			h.BroadcastRoomMessage(room, protocol.MsgReady{User: int32(user.ID)})
+			h.BroadcastRoomMessage(room, protocol.MsgReady{User: int32FromInt(user.ID)})
 			room.NotifyWebSocket(h.MakeRoomLifecycle(room))
 			h.CheckRoomAllReady(room)
 			return nil
@@ -307,13 +307,13 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			lc := h.MakeRoomLifecycle(room)
 			if room.HostID == user.ID {
 				room.logRoomMark(lc, "log-room-cancel-game", map[string]string{"user": user.Name})
-				h.BroadcastRoomMessage(room, protocol.MsgCancelGame{User: int32(user.ID)})
+				h.BroadcastRoomMessage(room, protocol.MsgCancelGame{User: int32FromInt(user.ID)})
 				room.State = StateSelectChart{}
 				room.OnStateChange(lc)
 				room.NotifyWebSocket(lc)
 			} else {
 				room.logRoomInfo(lc, "log-room-cancel-ready", map[string]string{"user": user.Name})
-				h.BroadcastRoomMessage(room, protocol.MsgCancelReady{User: int32(user.ID)})
+				h.BroadcastRoomMessage(room, protocol.MsgCancelReady{User: int32FromInt(user.ID)})
 				room.NotifyWebSocket(lc)
 			}
 			return nil
@@ -340,7 +340,7 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 				"user": user.Name, "score": strconv.Itoa(record.Score), "acc": fmt.Sprintf("%v", record.Accuracy),
 			})
 			h.BroadcastRoomMessage(room, protocol.MsgPlayed{
-				User: int32(user.ID), Score: int32(record.Score),
+				User: int32FromInt(user.ID), Score: int32FromInt(record.Score),
 				Accuracy: float32(record.Accuracy), FullCombo: record.FullCombo,
 			})
 			st, ok := room.State.(StatePlaying)
@@ -380,7 +380,7 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			}
 			st.Aborted[user.ID] = struct{}{}
 			room.logRoomMark(h.MakeRoomLifecycle(room), "log-room-abort", map[string]string{"user": user.Name})
-			h.BroadcastRoomMessage(room, protocol.MsgAbort{User: int32(user.ID)})
+			h.BroadcastRoomMessage(room, protocol.MsgAbort{User: int32FromInt(user.ID)})
 			room.NotifyWebSocket(h.MakeRoomLifecycle(room))
 			h.CheckRoomAllReady(room)
 			return nil

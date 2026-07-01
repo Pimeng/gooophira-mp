@@ -106,7 +106,7 @@ func (r *Room) Send(lc *RoomLifecycle, msg protocol.Message) {
 
 // SendAs 以某用户身份向房间广播聊天。
 func (r *Room) SendAs(lc *RoomLifecycle, user *User, content string) {
-	r.Send(lc, protocol.MsgChat{User: int32(user.ID), Content: content})
+	r.Send(lc, protocol.MsgChat{User: int32FromInt(user.ID), Content: content})
 }
 
 func (r *Room) nameOf(lc *RoomLifecycle, id int) string {
@@ -172,7 +172,7 @@ func (r *Room) ResetGameTime(usersByID func(id int) *User) {
 // OnUserLeave 处理用户离开房间：广播、移除成员、必要时转移房主，并检查就绪/结算。
 // 返回房间是否应被解散（已无任何成员）。
 func (r *Room) OnUserLeave(lc *RoomLifecycle, user *User) bool {
-	r.Send(lc, protocol.MsgLeaveRoom{User: int32(user.ID), Name: user.Name})
+	r.Send(lc, protocol.MsgLeaveRoom{User: int32FromInt(user.ID), Name: user.Name})
 	user.Room = nil
 
 	if user.Monitor {
