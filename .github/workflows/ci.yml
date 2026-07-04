@@ -81,8 +81,9 @@ jobs:
           | xargs -P $(nproc) -L 1 sh -c '
             goos="$1"; goarch="$2"; name="$3"
             ext=""; [ "$goos" = "windows" ] && ext=".exe"
-            echo "▶ 编译 $goos/$goarch → $name"
-            GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags "-s -w" -o "phira-mp$ext" ./cmd/server
-            ls -lh "phira-mp$ext"
-            rm -f "phira-mp$ext"
+            out="phira-mp-$name$ext"
+            echo "▶ 编译 $goos/$goarch → $out"
+            GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags "-s -w" -o "$out" ./cmd/server
+            ls -lh "$out"
+            rm -f "$out"
           ' _
