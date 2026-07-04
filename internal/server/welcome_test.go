@@ -31,10 +31,13 @@ func TestAvailableRoomsText_Filtering(t *testing.T) {
 	if !strings.Contains(text, "r1 (1/8)") {
 		t.Errorf("should list r1: %q", text)
 	}
+	if !strings.Contains(text, "waiting (1/8)") {
+		t.Errorf("should list waiting room: %q", text)
+	}
 	if !strings.Contains(text, "zplaying (2/8)") {
 		t.Errorf("should list playing room: %q", text)
 	}
-	for _, bad := range []string{"_priv", "locked", "full", "waiting"} {
+	for _, bad := range []string{"_priv", "locked", "full"} {
 		if strings.Contains(text, bad) {
 			t.Errorf("should NOT list %q room: %q", bad, text)
 		}

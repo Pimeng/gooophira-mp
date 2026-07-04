@@ -1,7 +1,7 @@
 
 create-id-occupied = ID комнаты уже занят
 
-join-game-ongoing = Игра уже идёт
+error-logged-in-elsewhere = Аккаунт вошёл с другого устройства, это соединение закрыто
 join-room-full = Комната заполнена
 join-room-locked = Комната заблокирована
 join-cant-monitor = Доступ запрещён. Вы не можете наблюдать за этой комнатой.

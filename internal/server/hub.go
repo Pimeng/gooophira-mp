@@ -2,7 +2,7 @@ package server
 
 import (
 	"errors"
-	"math/rand/v2"
+	"sort"
 	"sync"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
@@ -36,11 +36,21 @@ func NewHub(state *ServerState, phira PhiraAPI) *Hub {
 	return &Hub{State: state, Phira: phira}
 }
 
-func pickRandom(ids []int) (int, bool) {
+// pickNextHost 对齐 jphira-mp 的 PlayerManager.transferHostToNextPlayer：
+// 按用户 ID 升序排序，选出 ID 大于 oldHostID 的最小者；若没有则回环到最小 ID。
+// 完全确定性，用于离线房主转移与 cycle 轮转两种场景。
+func pickNextHost(ids []int, oldHostID int) (int, bool) {
 	if len(ids) == 0 {
 		return 0, false
 	}
-	return ids[rand.IntN(len(ids))], true
+	sorted := append([]int(nil), ids...)
+	sort.Ints(sorted)
+	for _, id := range sorted {
+		if id > oldHostID {
+			return id, true
+		}
+	}
+	return sorted[0], true
 }
 
 // 派发与房间操作相关的错误（message 即 l10n key，errToStr 时按用户语言本地化）。
@@ -145,7 +155,7 @@ func (h *Hub) MakeRoomLifecycle(room *Room) *RoomLifecycle {
 		UsersByID:           func(id int) *User { return h.State.Users[id] },
 		Broadcast:           func(cmd protocol.ServerCommand) { h.BroadcastRoom(room, cmd) },
 		BroadcastToMonitors: func(cmd protocol.ServerCommand) { h.broadcastToMonitors(room, cmd) },
-		PickRandomUserID:    pickRandom,
+		PickNextHostID:      pickNextHost,
 		Lang:                h.State.ServerLang,
 		Logger:              h.State.Logger,
 		DisbandRoom:         h.DisbandRoom,

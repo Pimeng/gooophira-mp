@@ -1,7 +1,7 @@
 
 create-id-occupied = 房間 ID 已被佔用
 
-join-game-ongoing = 遊戲正在進行中
+error-logged-in-elsewhere = 帳號在其他地方登入，此連線已被中斷
 join-room-full = 房間已滿
 join-room-locked = 房間已鎖定
 join-cant-monitor = 權限不足，無法觀戰此房間

@@ -1,7 +1,7 @@
 
 create-id-occupied = 방 ID가 이미 사용 중입니다
 
-join-game-ongoing = 게임이 진행 중입니다
+error-logged-in-elsewhere = 계정이 다른 곳에서 로그인되어 이 연결이 해제되었습니다
 join-room-full = 방이 가득 찼습니다
 join-room-locked = 방이 잠겨 있습니다
 join-cant-monitor = 권한이 없습니다. 이 방을 관전할 수 없습니다.

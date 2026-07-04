@@ -1,7 +1,7 @@
 
 create-id-occupied = Room ID is occupied
 
-join-game-ongoing = Game is ongoing
+error-logged-in-elsewhere = Account logged in elsewhere, this connection has been closed
 join-room-full = Room is full
 join-room-locked = Room is locked
 join-cant-monitor = Permission denied. You can't monitor this room.

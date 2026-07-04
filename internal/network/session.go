@@ -506,6 +506,10 @@ func (s *Session) handleAuthenticate(token string) {
 
 		// 踢旧会话（锁外）。此时 user.Session 已指向新会话，旧会话 cleanup 将短路，不会退房。
 		if stale != nil {
+			stale.TrySend(protocol.SrvMessage{Message: protocol.MsgChat{
+				User:    0,
+				Content: l10n.TL(s.state.ServerLang, "error-logged-in-elsewhere", nil),
+			}})
 			stale.Close()
 		}
 
@@ -546,6 +550,10 @@ func (s *Session) handleAuthenticate(token string) {
 		s.user = existing
 		// 踢旧会话（锁外）。
 		if stale != nil {
+			stale.TrySend(protocol.SrvMessage{Message: protocol.MsgChat{
+				User:    0,
+				Content: l10n.TL(s.state.ServerLang, "error-logged-in-elsewhere", nil),
+			}})
 			stale.Close()
 		}
 		me := existing.ToInfo()

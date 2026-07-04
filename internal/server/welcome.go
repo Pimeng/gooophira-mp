@@ -48,7 +48,7 @@ func (s *ServerState) BuildWelcomeText(user *User, hitokoto *Hitokoto) string {
 }
 
 // availableRoomsText 返回可加入房间列表的本地化文本。
-// 过滤：排除 `_` 前缀、已锁定、非 SelectChart/Playing、已满员的房间；按 id 升序。
+// 过滤：排除 `_` 前缀、已锁定、非 SelectChart/WaitForReady/Playing、已满员的房间；按 id 升序。
 func (s *ServerState) availableRoomsText(lang *l10n.Language) string {
 	type entry struct {
 		id    string
@@ -62,9 +62,9 @@ func (s *ServerState) availableRoomsText(lang *l10n.Language) string {
 			continue
 		}
 		switch room.State.(type) {
-		case StateSelectChart, StatePlaying:
+		case StateSelectChart, StateWaitForReady, StatePlaying:
 		default:
-			continue // WaitForReady 不列出
+			continue
 		}
 		count := room.UserCount()
 		if count >= room.MaxUsers {

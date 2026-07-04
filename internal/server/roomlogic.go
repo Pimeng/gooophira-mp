@@ -22,7 +22,7 @@ type RoomLifecycle struct {
 	UsersByID           func(id int) *User
 	Broadcast           func(cmd protocol.ServerCommand)
 	BroadcastToMonitors func(cmd protocol.ServerCommand)
-	PickRandomUserID    func(ids []int) (int, bool)
+	PickNextHostID      func(ids []int, oldHostID int) (int, bool)
 	Lang                *l10n.Language
 	Logger              Logger
 	DisbandRoom         func(room *Room)
@@ -187,7 +187,7 @@ func (r *Room) OnUserLeave(lc *RoomLifecycle, user *User) bool {
 		if len(r.users) == 0 {
 			return true
 		}
-		newHost, ok := lc.PickRandomUserID(r.UserIDs())
+		newHost, ok := lc.PickNextHostID(r.UserIDs(), user.ID)
 		if !ok {
 			return true
 		}
@@ -427,11 +427,14 @@ func (r *Room) broadcastGameSummary(lc *RoomLifecycle, st StatePlaying) {
 	r.Send(lc, protocol.MsgChat{User: 0, Content: summary})
 }
 
-// rotateCycleHost 在 cycle 模式下把房主轮换到加入顺序的下一位。
+// rotateCycleHost 在 cycle 模式下把房主轮换到下一位。对齐 jphira-mp 的
+// transferHostToNextPlayer：按 ID 升序找大于当前房主 ID 的最小者，没有则回环到最小 ID。
 func (r *Room) rotateCycleHost(lc *RoomLifecycle) {
-	idx := max(0, slices.Index(r.users, r.HostID))
-	newHost := r.users[(idx+1)%len(r.users)]
 	oldHost := r.HostID
+	newHost, ok := lc.PickNextHostID(r.UserIDs(), oldHost)
+	if !ok {
+		return
+	}
 	r.HostID = newHost
 	r.logRoomInfo(lc, "log-room-host-changed-cycle", map[string]string{
 		"old": fmt.Sprintf("%d", oldHost), "next": fmt.Sprintf("%d", newHost),
@@ -451,7 +454,6 @@ func (r *Room) rotateCycleHost(lc *RoomLifecycle) {
 var (
 	ErrNotWhitelisted   = fmt.Errorf("room-not-whitelisted")
 	ErrJoinRoomLocked   = fmt.Errorf("join-room-locked")
-	ErrJoinGameOngoing  = fmt.Errorf("join-game-ongoing")
 	ErrJoinCantMonitor  = fmt.Errorf("join-cant-monitor")
 	ErrNoChartSelected  = fmt.Errorf("start-no-chart-selected")
 	ErrRoomInvalidState = fmt.Errorf("room-invalid-state")
@@ -466,9 +468,6 @@ func (r *Room) ValidateJoin(user *User, monitor bool) error {
 	}
 	if r.Locked {
 		return ErrJoinRoomLocked
-	}
-	if _, isWait := r.State.(StateWaitForReady); !monitor && isWait {
-		return ErrJoinGameOngoing
 	}
 	if monitor && !user.CanMonitor() {
 		return ErrJoinCantMonitor

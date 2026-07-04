@@ -328,6 +328,15 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			if err != nil {
 				return err
 			}
+			// 已完成（成绩已交 / 中断 / 迟到加入自动标记）则静默成功，避免重复取数、广播与计入。
+			if st, ok := room.State.(StatePlaying); ok {
+				if _, done := st.Results[user.ID]; done {
+					return nil
+				}
+				if _, aborted := st.Aborted[user.ID]; aborted {
+					return nil
+				}
+			}
 			record, err := h.FetchRecord(user, int(c.ID))
 			if err != nil {
 				return err
@@ -349,12 +358,6 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			st, ok := room.State.(StatePlaying)
 			if !ok {
 				return nil
-			}
-			if _, aborted := st.Aborted[user.ID]; aborted {
-				return errGameAborted
-			}
-			if _, done := st.Results[user.ID]; done {
-				return errRecordUploaded
 			}
 			st.Results[user.ID] = record
 			if h.shouldRecord(room) {

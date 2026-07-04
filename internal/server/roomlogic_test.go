@@ -79,11 +79,8 @@ func (h *testHarness) lifecycle() *RoomLifecycle {
 		UsersByID:           func(id int) *User { return h.users[id] },
 		Broadcast:           func(cmd protocol.ServerCommand) { h.broadcasts = append(h.broadcasts, cmd) },
 		BroadcastToMonitors: func(cmd protocol.ServerCommand) {},
-		PickRandomUserID: func(ids []int) (int, bool) {
-			if len(ids) == 0 {
-				return 0, false
-			}
-			return ids[0], true // 确定性：取第一个
+		PickNextHostID: func(ids []int, oldHostID int) (int, bool) {
+			return pickNextHost(ids, oldHostID)
 		},
 		Lang: h.state.ServerLang,
 	}
@@ -180,10 +177,10 @@ func TestValidateJoin(t *testing.T) {
 	}
 	r.Locked = false
 
-	// 游戏等待就绪时普通玩家不能加入
+	// 游戏等待就绪时普通玩家也可加入（WaitForReady 是预游戏状态）
 	r.State = StateWaitForReady{Started: map[int]struct{}{}}
-	if err := r.ValidateJoin(player, false); err != ErrJoinGameOngoing {
-		t.Errorf("player join during WaitForReady should be ErrJoinGameOngoing, got %v", err)
+	if err := r.ValidateJoin(player, false); err != nil {
+		t.Errorf("player join during WaitForReady should pass, got %v", err)
 	}
 	// 观战者可以
 	if err := r.ValidateJoin(mon, true); err != nil {

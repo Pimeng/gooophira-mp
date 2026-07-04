@@ -1,7 +1,7 @@
 
 create-id-occupied = ルームIDは既に使用されています
 
-join-game-ongoing = ゲームが進行中です
+error-logged-in-elsewhere = アカウントが別の場所でログインされたため、この接続は切断されました
 join-room-full = ルームが満員です
 join-room-locked = ルームがロックされています
 join-cant-monitor = 権限がありません。このルームを観戦できません。
