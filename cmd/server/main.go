@@ -95,6 +95,7 @@ func main() {
 	}
 
 	// Redis 缓存（启用时谱面/记录/token 缓存转为多实例共享）。startup-only：仅启动时初始化。
+	cache.SetLogger(logger)
 	if err := cache.InitRedis(cfg.Redis); err != nil {
 		logger.Warn(l10n.TL(lang, "log-redis-fallback", map[string]string{"error": err.Error()}))
 	} else if cache.RedisEnabled() {
@@ -220,17 +221,8 @@ func main() {
 				}
 				durationSec := time.Since(st.StartedAt).Seconds()
 				go func() {
-					mr, err := statsStore.RecordMatch(roomID, chartID, chartName, userIDs, results, userNames, durationSec)
-					if err != nil {
+					if _, err := statsStore.RecordMatch(roomID, chartID, chartName, userIDs, results, userNames, durationSec); err != nil {
 						logger.Warn("stats write failed: " + err.Error())
-						return
-					}
-					// 同步 Redis 排行榜（使用事务内计算好的聚合值，免 N+1 回查）。
-					for _, r := range mr {
-						stats.SyncLeaderboard(r.UserID, r.Rating, r.PlayTimeSec, r.TotalScore)
-					}
-					if chartID != 0 && len(mr) > 0 && mr[0].ChartPop > 0 {
-						stats.SyncChartHot(chartID, mr[0].ChartPop)
 					}
 				}()
 			}

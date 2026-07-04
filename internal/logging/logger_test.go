@@ -3,6 +3,7 @@ package logging
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -62,5 +63,31 @@ func TestLogger_ConsoleOnlyWhenNoDir(t *testing.T) {
 	l.Close()
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
 		t.Error("no file should be written when logsDir is empty")
+	}
+}
+
+// logLineRe 锁住行格式：时间不裹方括号，LEVEL 保留方括号。
+// 即 `YYYY-MM-DD HH:MM:SS.mmm [LEVEL] message`。
+var logLineRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} \[(INFO|MARK|WARN|ERRO|DEBU)\] .+`)
+
+func TestLogger_LineFormat(t *testing.T) {
+	dir := t.TempDir()
+	l := New("DEBUG", dir)
+	l.Info("info line")
+	l.Warn("warn line")
+	l.Close()
+
+	data, err := os.ReadFile(todayLog(dir))
+	if err != nil {
+		t.Fatalf("read log file: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) == 0 {
+		t.Fatal("no log lines written")
+	}
+	for _, line := range lines {
+		if !logLineRe.MatchString(line) {
+			t.Errorf("line format mismatch (want 'YYYY-MM-DD HH:MM:SS.mmm [LEVEL] msg'): %q", line)
+		}
 	}
 }

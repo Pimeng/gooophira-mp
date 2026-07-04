@@ -1,6 +1,6 @@
 // Package logging 提供 server.Logger 的标准输出实现，日志格式与配色对齐原版。
 //
-// 行格式：`[YYYY-MM-DD HH:MM:SS.mmm] [LEVEL] message`；按级别配色（终端且未设 NO_COLOR 时）；
+// 行格式：`YYYY-MM-DD HH:MM:SS.mmm [LEVEL] message`；按级别配色（终端且未设 NO_COLOR 时）；
 // WARN/ERROR 走 stderr，其余 stdout。同时写入 `<logsDir>/<date>.log`（按日轮转，追加）。
 //
 // 旧日志 gzip 压缩 + 总容量上限见 maintenance.go。SetOnLog 旁路供 GUI 控制台缓冲。
@@ -180,7 +180,7 @@ func (l *Logger) log(level Level, msg string) {
 	if fn := l.onLog.Load(); fn != nil {
 		(*fn)(level.label(), msg) // 旁路到 GUI 控制台缓冲
 	}
-	line := fmt.Sprintf("[%s] [%s] %s", time.Now().Format("2006-01-02 15:04:05.000"), level.label(), msg)
+	line := fmt.Sprintf("%s [%s] %s", time.Now().Format("2006-01-02 15:04:05.000"), level.label(), msg)
 
 	out := os.Stdout
 	if level == LevelWarn || level == LevelError {

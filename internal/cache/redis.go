@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
@@ -27,6 +28,37 @@ type silentRedisLogger struct{}
 func (silentRedisLogger) Printf(context.Context, string, ...any) {}
 
 func init() { redis.SetLogger(silentRedisLogger{}) }
+
+// Logger 是 cache 包需要的最小日志接口（*logging.Logger 满足）。
+type Logger interface {
+	Warn(msg string)
+}
+
+var logger Logger
+
+// SetLogger 设置缓存包的日志器，用于报告 Redis 操作错误。
+// 未设置时错误按 cache 既定策略静默降级（不输出）。
+func SetLogger(l Logger) { logger = l }
+
+var lastRedisErrLog atomic.Int64
+
+const redisErrLogIntervalMs = 30_000 // 30s 限频，避免 Redis 故障时刷屏
+
+// reportRedisErr 限频报告 Redis 操作错误：首次必报，之后 30s 窗口内重复静默。
+// 业务侧仍按未命中降级，不阻塞主流程。
+func reportRedisErr(ctx string, err error) {
+	if err == nil || logger == nil {
+		return
+	}
+	now := time.Now().UnixMilli()
+	last := lastRedisErrLog.Load()
+	if now-last < redisErrLogIntervalMs {
+		return
+	}
+	if lastRedisErrLog.CompareAndSwap(last, now) {
+		logger.Warn(fmt.Sprintf("redis: %s: %v", ctx, err))
+	}
+}
 
 // InitRedis 按配置建立 Redis 连接：enabled=false（或 cfg 为 nil）则断开既有连接、转回本地缓存。
 // 连接成功后把所有已注册缓存的内存数据迁移进 Redis。REDIS 为 startup-only，仅启动时调用一次。

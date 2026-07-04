@@ -51,14 +51,12 @@ func Open(path string) (*Store, error) {
 
 func (s *Store) Close() error { return s.db.Close() }
 
-// RecordMatchResult 是 RecordMatch 返回的每位玩家的更新后聚合值，
-// 供调用方直接同步 Redis 排行榜，避免 N+1 回查。
+// RecordMatchResult 是 RecordMatch 返回的每位玩家的更新后聚合值。
 type RecordMatchResult struct {
 	UserID      int
 	Rating      float64
 	PlayTimeSec int
 	TotalScore  int
-	ChartPop    float64 // 谱面更新后的 popularity（仅 chartID != 0 时有值）
 }
 
 // RecordMatch 在一笔事务中写入 match + match_results + ELO rating 更新，
@@ -135,11 +133,11 @@ func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
 			return nil, fmt.Errorf("stats: upsert player_stats user=%d: %w", uid, err)
 		}
 
-		// users 名字缓存
+		// users 名字缓存：空 name 不覆盖（玩家离线时 userNames 缺该条目）
 		name := userNames[uid]
 		if _, err := tx.Exec(
 			`INSERT INTO users(id,name,last_seen) VALUES(?,?,?)
-			 ON CONFLICT(id) DO UPDATE SET name=excluded.name, last_seen=excluded.last_seen`,
+			 ON CONFLICT(id) DO UPDATE SET name=COALESCE(NULLIF(excluded.name, ''), users.name), last_seen=excluded.last_seen`,
 			uid, name, now,
 		); err != nil {
 			return nil, fmt.Errorf("stats: upsert user %d: %w", uid, err)
@@ -153,7 +151,6 @@ func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
 	}
 
 	// 5. 更新 chart_stats
-	var chartPop float64
 	if chartID != 0 {
 		n := len(results)
 		passCount := 0
@@ -191,10 +188,6 @@ func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
 		); err != nil {
 			return nil, fmt.Errorf("stats: upsert chart_stats chart=%d: %w", chartID, err)
 		}
-		// 读回更新后的 popularity
-		if err := tx.QueryRow("SELECT popularity FROM chart_stats WHERE chart_id=?", chartID).Scan(&chartPop); err != nil {
-			chartPop = float64(n) // fallback
-		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -208,11 +201,6 @@ func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
 			out[i].PlayTimeSec = pt
 		}
 	}
-	if chartID != 0 {
-		for i := range out {
-			out[i].ChartPop = chartPop
-		}
-	}
 	return out, nil
 }
 
@@ -223,7 +211,7 @@ func (s *Store) loadRatings(tx *sql.Tx, userIDs []int) map[int]float64 {
 		ratings[uid] = eloBaseRating
 	}
 	// 批量读取已有记录
-	rows, err := tx.Query(`SELECT user_id, rating FROM player_stats WHERE user_id IN (` + placeholders(len(userIDs)) + `)`, intsToAny(userIDs)...)
+	rows, err := tx.Query(`SELECT user_id, rating FROM player_stats WHERE user_id IN (`+placeholders(len(userIDs))+`)`, intsToAny(userIDs)...)
 	if err != nil {
 		return ratings
 	}

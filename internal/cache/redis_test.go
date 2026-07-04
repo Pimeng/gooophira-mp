@@ -2,6 +2,7 @@ package cache
 
 import (
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -100,5 +101,36 @@ func TestRedis_MigrateOnConnect(t *testing.T) {
 	// 迁移后应能从 Redis 读到原本地数据。
 	if v, ok := c.Get(10); !ok || v != "local-value" {
 		t.Errorf("pre-existing local entry should migrate to Redis, got %v %v", v, ok)
+	}
+}
+
+type captureLogger struct{ warns atomic.Int32 }
+
+func (cl *captureLogger) Warn(string) { cl.warns.Add(1) }
+
+// TestRedis_ErrorsReportedToLogger 验证 Redis 故障时操作错误被报告到 logger，
+// 而健康操作不触发告警。
+func TestRedis_ErrorsReportedToLogger(t *testing.T) {
+	mr := startMiniRedis(t)
+
+	cl := &captureLogger{}
+	SetLogger(cl)
+	t.Cleanup(func() { SetLogger(nil) })
+
+	c := NewInt[string](Options{Name: "rtest-errlog", TTL: time.Hour})
+	c.Set(1, "v")
+	if got := cl.warns.Load(); got != 0 {
+		t.Fatalf("healthy ops should not warn, got %d", got)
+	}
+
+	// 关闭 miniredis 模拟 Redis 故障。
+	mr.Close()
+
+	c.Set(2, "v2")
+	c.Get(1)
+	c.Delete(1)
+
+	if got := cl.warns.Load(); got == 0 {
+		t.Error("expected Redis failures to be reported to logger")
 	}
 }

@@ -293,6 +293,36 @@ func TestOpenEmptyPath(t *testing.T) {
 	}
 }
 
+// TestRecordMatchEmptyNameDoesNotOverwrite 验证 userNames 缺失（玩家离线）时，
+// users.name 不会被空串覆盖已有名字。
+func TestRecordMatchEmptyNameDoesNotOverwrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	// 第一次：写入玩家 1001 的名字
+	r1 := map[int]config.RecordData{1001: {Player: 1001, Score: 100, Accuracy: 0.9}}
+	s.RecordMatch("r1", 0, "", []int{1001}, r1, map[int]string{1001: "Alice"}, 30)
+
+	var name string
+	s.db.QueryRow("SELECT name FROM users WHERE id=1001").Scan(&name)
+	if name != "Alice" {
+		t.Fatalf("first match: name=%q, want Alice", name)
+	}
+
+	// 第二次：玩家已离线，userNames 不含 1001（name 为空串）
+	r2 := map[int]config.RecordData{1001: {Player: 1001, Score: 200, Accuracy: 0.95}}
+	s.RecordMatch("r2", 0, "", []int{1001}, r2, nil, 45)
+
+	s.db.QueryRow("SELECT name FROM users WHERE id=1001").Scan(&name)
+	if name != "Alice" {
+		t.Errorf("empty name overwrote: got %q, want Alice", name)
+	}
+}
+
 func TestMissingProfile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	s, err := Open(path)
@@ -306,7 +336,7 @@ func TestMissingProfile(t *testing.T) {
 	}
 }
 
-func intPtr(i int) *int  { return &i }
+func intPtr(i int) *int { return &i }
 func mathAbs(f float64) float64 {
 	if f < 0 {
 		return -f

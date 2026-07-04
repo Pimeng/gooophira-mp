@@ -6,6 +6,7 @@ package cache
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -149,10 +150,14 @@ func (c *Cache[K, V]) redisGet(rc *redis.Client, key K) (V, bool) {
 	defer cancel()
 	data, err := rc.Get(ctx, c.redisKey(key)).Bytes()
 	if err != nil {
-		return zero, false // 未命中或网络错误：降级为 miss
+		if !errors.Is(err, redis.Nil) {
+			reportRedisErr("get "+c.name, err)
+		}
+		return zero, false
 	}
 	var stored storedEntry[V]
-	if json.Unmarshal(data, &stored) != nil {
+	if err := json.Unmarshal(data, &stored); err != nil {
+		reportRedisErr("unmarshal "+c.name, err)
 		return zero, false
 	}
 	if c.expired(stored.CachedAt) {
@@ -179,6 +184,7 @@ func (c *Cache[K, V]) Set(key K, value V) {
 func (c *Cache[K, V]) redisSet(rc *redis.Client, key K, value V) {
 	b, err := json.Marshal(storedEntry[V]{Value: value, CachedAt: nowMS()})
 	if err != nil {
+		reportRedisErr("marshal "+c.name, err)
 		return
 	}
 	ctx, cancel := redisCtx()
@@ -187,7 +193,9 @@ func (c *Cache[K, V]) redisSet(rc *redis.Client, key K, value V) {
 	if c.ttl > 0 {
 		exp = c.ttl
 	}
-	_ = rc.Set(ctx, c.redisKey(key), b, exp).Err()
+	if err := rc.Set(ctx, c.redisKey(key), b, exp).Err(); err != nil {
+		reportRedisErr("set "+c.name, err)
+	}
 }
 
 // evictIfNeeded 在超出内存上限时按采样 LRU 淘汰一条（调用方持锁）。
@@ -252,7 +260,9 @@ func (c *Cache[K, V]) Delete(key K) {
 	if rc := getRedis(); rc != nil {
 		ctx, cancel := redisCtx()
 		defer cancel()
-		_ = rc.Del(ctx, c.redisKey(key)).Err()
+		if err := rc.Del(ctx, c.redisKey(key)).Err(); err != nil {
+			reportRedisErr("del "+c.name, err)
+		}
 		return
 	}
 	c.mu.Lock()
@@ -284,10 +294,13 @@ func (c *Cache[K, V]) redisClear(rc *redis.Client) {
 	for {
 		keys, next, err := rc.Scan(ctx, cursor, pattern, 100).Result()
 		if err != nil {
+			reportRedisErr("scan "+c.name, err)
 			return
 		}
 		if len(keys) > 0 {
-			_ = rc.Del(ctx, keys...).Err()
+			if err := rc.Del(ctx, keys...).Err(); err != nil {
+				reportRedisErr("clear "+c.name, err)
+			}
 		}
 		cursor = next
 		if cursor == 0 {
@@ -401,5 +414,7 @@ func (c *Cache[K, V]) migrateToRedis() {
 		}
 		pipe.Set(ctx, c.redisKey(k), b, exp)
 	}
-	_, _ = pipe.Exec(ctx)
+	if _, err := pipe.Exec(ctx); err != nil {
+		reportRedisErr("migrate "+c.name, err)
+	}
 }
