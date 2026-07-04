@@ -62,8 +62,8 @@ type ReplayRecorder interface {
 // MonitorBuffer 聚合实时游戏数据（Touches/Judges）后批量转发给观战者，
 // 避免高频帧直接冲击网络。具体实现（50ms flush）见 Stage 4 network；测试用 mock。
 type MonitorBuffer interface {
-	BufferTouches(room *Room, monitors []int, userID int, frames []protocol.TouchFrame)
-	BufferJudges(room *Room, monitors []int, userID int, judges []protocol.JudgeEvent)
+	BufferTouches(room *Room, userID int, frames []protocol.TouchFrame)
+	BufferJudges(room *Room, userID int, judges []protocol.JudgeEvent)
 }
 
 // ConsoleOutputLine 是 CLI/GUI 控制台命令执行后捕获的一行输出。

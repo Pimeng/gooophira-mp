@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Pimeng/gooophira-mp/internal/protocol"
 	"github.com/Pimeng/gooophira-mp/internal/server"
 )
 
@@ -74,41 +75,58 @@ func (s *Service) handleRoomList(w http.ResponseWriter, _ *http.Request) {
 	s.writeRaw(w, buf)
 }
 
-// snapshotRooms 在 state.Mu 下快照房间数据（不在锁内做序列化/IO）。
+// snapshotRooms 在 state.Mu + room.Mu 下快照房间数据（不在锁内做序列化/IO）。
 func (s *Service) snapshotRooms() roomListResponse {
 	s.state.Mu.Lock()
-	defer s.state.Mu.Unlock()
-
-	resp := roomListResponse{Rooms: make([]roomEntry, 0, len(s.state.Rooms))}
+	rooms := make(map[protocol.RoomID]*server.Room, len(s.state.Rooms))
 	for id, room := range s.state.Rooms {
+		rooms[id] = room
+	}
+	s.state.Mu.Unlock()
+
+	resp := roomListResponse{Rooms: make([]roomEntry, 0, len(rooms))}
+	for id, room := range rooms {
 		roomid := string(id)
 		if len(roomid) > 0 && roomid[0] == '_' {
 			continue // 私有房间不公开
 		}
-		hostName := strconv.Itoa(room.HostID)
-		if u := s.state.Users[room.HostID]; u != nil {
+		room.Mu.Lock()
+		hostID := room.HostID
+		userIDs := room.UserIDs()
+		cycle := room.Cycle
+		locked := room.Locked
+		state := room.State
+		var chart *chartInfo
+		if room.Chart != nil {
+			chart = &chartInfo{Name: room.Chart.Name, ID: strconv.Itoa(room.Chart.ID)}
+		}
+		room.Mu.Unlock()
+
+		hostName := strconv.Itoa(hostID)
+		s.state.Mu.Lock()
+		if u := s.state.Users[hostID]; u != nil {
 			hostName = u.Name
 		}
-		players := make([]playerInfo, 0, room.UserCount())
-		for _, uid := range room.UserIDs() {
+		s.state.Mu.Unlock()
+
+		players := make([]playerInfo, 0, len(userIDs))
+		s.state.Mu.Lock()
+		for _, uid := range userIDs {
 			name := strconv.Itoa(uid)
 			if u := s.state.Users[uid]; u != nil {
 				name = u.Name
 			}
 			players = append(players, playerInfo{Name: name, ID: uid})
 		}
+		s.state.Mu.Unlock()
 		resp.Total += len(players)
 
-		var chart *chartInfo
-		if room.Chart != nil {
-			chart = &chartInfo{Name: room.Chart.Name, ID: strconv.Itoa(room.Chart.ID)}
-		}
 		resp.Rooms = append(resp.Rooms, roomEntry{
 			RoomID:  roomid,
-			Cycle:   room.Cycle,
-			Lock:    room.Locked,
-			Host:    idName{Name: hostName, ID: strconv.Itoa(room.HostID)},
-			State:   roomStateString(room.State),
+			Cycle:   cycle,
+			Lock:    locked,
+			Host:    idName{Name: hostName, ID: strconv.Itoa(hostID)},
+			State:   roomStateString(state),
 			Chart:   chart,
 			Players: players,
 		})

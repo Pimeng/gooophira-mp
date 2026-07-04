@@ -88,6 +88,10 @@ type Room struct {
 	users    []int
 	monitors []int
 
+	// monitorUsers 是 monitors 的 user 指针缓存，供 touches/judges 热路径直接广播使用，
+	// 避免访问全局 state.Users 引入额外锁竞争。
+	monitorUsers map[int]*User
+
 	// Chart 当前选中的谱面（nil = 未选）。
 	Chart *config.Chart
 
@@ -103,6 +107,7 @@ func NewRoom(id protocol.RoomID, hostID, maxUsers int, replayEligible bool) *Roo
 		HostID:         hostID,
 		State:          StateSelectChart{},
 		users:          []int{hostID},
+		monitorUsers:   make(map[int]*User),
 	}
 }
 
@@ -158,6 +163,15 @@ func (r *Room) PlayingState() (StatePlaying, bool) {
 
 // MonitorIDs 返回观战者 id（加入顺序，副本）。
 func (r *Room) MonitorIDs() []int { return append([]int(nil), r.monitors...) }
+
+// MonitorUsers 返回当前观战者 user 指针列表（副本），供 touches/judges 热路径广播使用。
+func (r *Room) MonitorUsers() []*User {
+	out := make([]*User, 0, len(r.monitorUsers))
+	for _, u := range r.monitorUsers {
+		out = append(out, u)
+	}
+	return out
+}
 
 // AllParticipantIDs 返回所有参与者 id（玩家 + 观战者，副本）。
 func (r *Room) AllParticipantIDs() []int {

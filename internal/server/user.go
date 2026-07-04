@@ -25,8 +25,8 @@ type User struct {
 	// Server 是全局状态引用。
 	Server *ServerState
 
-	// mu 保护 Session、dangleToken、DangleDeadline 的并发访问。
-	mu sync.Mutex
+	// Mu 保护 Session、dangleToken、DangleDeadline 的并发访问。
+	Mu sync.RWMutex
 
 	// Session 是当前关联会话（nil = 离线/断线）。
 	Session Session
@@ -71,18 +71,18 @@ func (u *User) CanMonitor() bool {
 
 // SetSession 设置/清除关联会话；设置新会话时清除 dangling 状态。
 func (u *User) SetSession(session Session) {
-	u.mu.Lock()
+	u.Mu.Lock()
 	u.Session = session
 	u.dangleToken = nil
 	u.DangleDeadline = nil
-	u.mu.Unlock()
+	u.Mu.Unlock()
 }
 
 // TrySend 尝试向用户发送命令；无活跃会话时静默忽略。
 func (u *User) TrySend(cmd protocol.ServerCommand) {
-	u.mu.Lock()
+	u.Mu.Lock()
 	s := u.Session
-	u.mu.Unlock()
+	u.Mu.Unlock()
 	if s == nil {
 		return
 	}
@@ -91,9 +91,9 @@ func (u *User) TrySend(cmd protocol.ServerCommand) {
 
 // TrySendFrame 尝试向用户发送预编码的二进制帧；无活跃会话时静默忽略。
 func (u *User) TrySendFrame(frame []byte) {
-	u.mu.Lock()
+	u.Mu.Lock()
 	s := u.Session
-	u.mu.Unlock()
+	u.Mu.Unlock()
 	if s == nil {
 		return
 	}

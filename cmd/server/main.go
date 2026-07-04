@@ -135,7 +135,7 @@ func main() {
 	hub := server.NewHub(state, phira.NewClient(phiraEndpoint))
 
 	// 观战数据聚合缓冲：高频 Touches/Judges 按 ~50ms 窗口合并后批量转发观战者。
-	monitorBuf := server.NewMonitorBuffer(state)
+	monitorBuf := server.NewMonitorBuffer()
 	hub.Monitor = monitorBuf
 
 	// 回放录制：录制器注入全局状态（供 dispatch 的 Append*/SetRecordID），并通过

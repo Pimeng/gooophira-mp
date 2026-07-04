@@ -43,6 +43,7 @@ func (r *Room) AddUser(user *User, monitor bool) bool {
 	if monitor {
 		if !slices.Contains(r.monitors, user.ID) {
 			r.monitors = append(r.monitors, user.ID)
+			r.monitorUsers[user.ID] = user
 		}
 		return true
 	}
@@ -177,6 +178,7 @@ func (r *Room) OnUserLeave(lc *RoomLifecycle, user *User) bool {
 
 	if user.Monitor {
 		r.monitors = removeInt(r.monitors, user.ID)
+		delete(r.monitorUsers, user.ID)
 	} else {
 		r.users = removeInt(r.users, user.ID)
 	}
@@ -346,7 +348,15 @@ func (r *Room) notifyDanglingReconnect(lc *RoomLifecycle, st *StatePlaying) {
 			continue
 		}
 		unfinished = append(unfinished, id)
-		if u := lc.UsersByID(id); u == nil || u.Session == nil {
+		u := lc.UsersByID(id)
+		if u == nil {
+			dangling = append(dangling, id)
+			continue
+		}
+		u.Mu.RLock()
+		sessionMissing := u.Session == nil
+		u.Mu.RUnlock()
+		if sessionMissing {
 			dangling = append(dangling, id)
 		}
 	}
@@ -368,12 +378,15 @@ func (r *Room) notifyDanglingReconnect(lc *RoomLifecycle, st *StatePlaying) {
 		}
 		st.ReconnectNotified[id] = struct{}{}
 		seconds := 0
+		u.Mu.RLock()
 		if u.DangleDeadline != nil {
 			remain := (*u.DangleDeadline - time.Now().UnixMilli())
 			seconds = max(1, int(math.Ceil(float64(remain)/1000)))
 		}
+		name := u.Name
+		u.Mu.RUnlock()
 		r.Send(lc, protocol.MsgChat{User: 0, Content: l10n.TL(lc.Lang, "chat-waiting-reconnect",
-			map[string]string{"user": u.Name, "seconds": fmt.Sprintf("%d", seconds)})})
+			map[string]string{"user": name, "seconds": fmt.Sprintf("%d", seconds)})})
 	}
 }
 

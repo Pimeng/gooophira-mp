@@ -204,7 +204,11 @@ func (s *Session) cleanup() {
 // dangleGrace 返回该用户断线后的保留窗口：对局态用配置宽限（0=立即），否则非对局窗口。
 func (s *Session) dangleGrace(u *server.User) time.Duration {
 	if u.Room != nil {
-		if _, playing := u.Room.State.(server.StatePlaying); playing {
+		room := u.Room
+		room.Mu.Lock()
+		_, playing := room.State.(server.StatePlaying)
+		room.Mu.Unlock()
+		if playing {
 			return time.Duration(s.state.Config.EffectivePlayingReconnectGrace()) * time.Second
 		}
 	}
@@ -215,7 +219,11 @@ func (s *Session) dangleGrace(u *server.User) time.Duration {
 func (s *Session) removeUser(u *server.User) {
 	if u.Room != nil {
 		room := u.Room
-		if room.OnUserLeave(s.hub.MakeRoomLifecycle(room), u) {
+		lc := s.hub.MakeRoomLifecycle(room)
+		room.Mu.Lock()
+		shouldDrop := room.OnUserLeave(lc, u)
+		room.Mu.Unlock()
+		if shouldDrop {
 			delete(s.state.Rooms, room.ID)
 		}
 	}
@@ -351,9 +359,10 @@ func (s *Session) readLoop() {
 
 // isRoomOnlyCmd 判断命令是否仅需房间级锁（不需要全局 state.Mu）。
 // Touches/Judges 是 Playing 阶段高频命令，无房间间依赖，可用分段锁并行。
+// CmdPlayed 会广播并触发全局结算，仍需全局锁。
 func isRoomOnlyCmd(cmd protocol.ClientCommand) bool {
 	switch cmd.(type) {
-	case protocol.CmdTouches, protocol.CmdJudges, protocol.CmdPlayed:
+	case protocol.CmdTouches, protocol.CmdJudges:
 		return true
 	}
 	return false
@@ -452,12 +461,15 @@ func (s *Session) handleAuthenticate(token string) {
 
 		// 断线重连：构建客户端房间状态
 		if user.Room != nil {
-			cs := user.Room.ClientState(user, func(id int) *server.User { return s.state.Users[id] })
-			if _, wfr := user.Room.State.(server.StateWaitForReady); wfr && user.Room.Chart != nil {
-				cid := int32(user.Room.Chart.ID)
+			room := user.Room
+			room.Mu.Lock()
+			cs := room.ClientState(user, func(id int) *server.User { return s.state.Users[id] })
+			if _, wfr := room.State.(server.StateWaitForReady); wfr && room.Chart != nil {
+				cid := int32(room.Chart.ID)
 				cs.State = protocol.RoomStateSelectChart{ID: &cid}
 				restoreChartID = &cid
 			}
+			room.Mu.Unlock()
 			roomState = &cs
 		}
 		me := user.ToInfo()

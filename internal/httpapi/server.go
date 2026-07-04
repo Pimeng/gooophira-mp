@@ -193,7 +193,13 @@ func (s *Service) applyCORS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, o := range s.state.Config.EffectiveCorsOrigins() {
-		if o == "*" || o == origin {
+		if o == "*" {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Token")
+			return
+		}
+		if o == origin {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
