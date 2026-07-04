@@ -109,12 +109,14 @@ func (u *Uploader) uploadNow(userID, chartID int, timestamp int64) {
 		return
 	}
 
+	// 先删本地文件再写 meta：上传已成功，本地文件可安全删除。
+	// 调换顺序是为了避免「meta 已写、文件未删」的窗口被观察者（测试或状态查询）看到。
+	if err := os.Remove(path); err != nil {
+		u.warn(fmt.Sprintf("failed to delete local replay for user %d: %v", userID, err))
+	}
 	show := u.storeMetaAndCheckShow(userID, chartID, timestamp, res.ScoreID)
 	if show {
 		_ = client.SetVisibility(res.ScoreID, true)
-	}
-	if err := os.Remove(path); err != nil {
-		u.warn(fmt.Sprintf("failed to delete local replay for user %d: %v", userID, err))
 	}
 	u.info(fmt.Sprintf("auto upload completed for user %d, chart %d, scoreId %d", userID, chartID, res.ScoreID))
 }
