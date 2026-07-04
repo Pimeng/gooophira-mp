@@ -253,6 +253,7 @@ func (s *ServerState) ApplyRuntimePatch(res config.RuntimePatchResult) (changed,
 }
 
 // CleanupUserData 清理指定用户的自动上传配置与元数据（用户完全退出时调用）。
+// 调用方必须持 Mu。
 func (s *ServerState) CleanupUserData(userID int) {
 	delete(s.AutoUploadConfigs, userID)
 	delete(s.UploadedReplayMeta, userID)

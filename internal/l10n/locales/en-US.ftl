@@ -40,6 +40,7 @@ cli-invalid-http-service = Invalid HTTP service flag
 cli-invalid-http-port = Invalid HTTP port number
 cli-invalid-room-max-users = Invalid ROOM_MAX_USERS
 cli-invalid-monitors = Invalid MONITORS
+cli-invalid-protocol-hack-delay = PROTOCOL_HACK_DELAY must be a non-negative integer (milliseconds)
 
 label-monitor-suffix = (monitor)
 replay-recorder-name = Replay Recorder
@@ -166,6 +167,7 @@ log-disconnect = Disconnected. id={ $id }{ $who }
 log-disconnect-user = , user="{ $user }"
 
 log-user-disconnect-playing = "{ $user }" disconnected during play, force leave room "{ $room }"
+log-user-join-late = "{ $user }" joined room "{ $room }" mid-play, auto-marked as completed
 log-room-recycled = Room "{ $room }" recycled (empty)
 log-user-dangle = "{ $user }" disconnected, waiting for reconnect
 log-user-dangle-timeout-remove = "{ $user }" reconnect timeout, removed and left room "{ $room }"

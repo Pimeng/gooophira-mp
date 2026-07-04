@@ -165,7 +165,7 @@ func (r *Room) formatMessageForLog(msg protocol.Message, lc *RoomLifecycle) stri
 func (r *Room) ResetGameTime(usersByID func(id int) *User) {
 	for _, id := range r.users {
 		if u := usersByID(id); u != nil {
-			u.GameTime = math.Inf(-1)
+			u.SetGameTime(math.Inf(-1))
 		}
 	}
 }
@@ -288,8 +288,8 @@ func (r *Room) startPlaying(lc *RoomLifecycle) {
 	r.Send(lc, protocol.MsgStartPlaying{})
 	r.ResetGameTime(lc.UsersByID)
 	r.State = StatePlaying{
-		Results: make(map[int]config.RecordData),
-		Aborted: make(map[int]struct{}),
+		Results:   make(map[int]config.RecordData),
+		Aborted:   make(map[int]struct{}),
 		StartedAt: time.Now(),
 	}
 	r.OnStateChange(lc)
@@ -339,6 +339,8 @@ func (r *Room) checkPlaying(lc *RoomLifecycle, st StatePlaying) {
 
 // notifyDanglingReconnect 在「其他玩家都已完成、仅剩断线挂起玩家未完成」时，向房间播报
 // 一次「正在等待重连 + 剩余倒计时」提示（每名挂起玩家仅播报一次）。
+//
+// 调用方须持 state.Mu。
 func (r *Room) notifyDanglingReconnect(lc *RoomLifecycle, st *StatePlaying) {
 	var unfinished, dangling []int
 	for _, id := range r.users {
@@ -353,8 +355,9 @@ func (r *Room) notifyDanglingReconnect(lc *RoomLifecycle, st *StatePlaying) {
 			dangling = append(dangling, id)
 			continue
 		}
+		sessionMissing := false
 		u.Mu.RLock()
-		sessionMissing := u.Session == nil
+		sessionMissing = u.Session == nil
 		u.Mu.RUnlock()
 		if sessionMissing {
 			dangling = append(dangling, id)
@@ -365,8 +368,6 @@ func (r *Room) notifyDanglingReconnect(lc *RoomLifecycle, st *StatePlaying) {
 	}
 	if st.ReconnectNotified == nil {
 		st.ReconnectNotified = make(map[int]struct{})
-		// 回写到房间状态（st 是值拷贝）。
-		r.State = *st
 	}
 	for _, id := range dangling {
 		if _, done := st.ReconnectNotified[id]; done {
@@ -377,16 +378,10 @@ func (r *Room) notifyDanglingReconnect(lc *RoomLifecycle, st *StatePlaying) {
 			continue
 		}
 		st.ReconnectNotified[id] = struct{}{}
-		seconds := 0
-		u.Mu.RLock()
-		if u.DangleDeadline != nil {
-			remain := (*u.DangleDeadline - time.Now().UnixMilli())
-			seconds = max(1, int(math.Ceil(float64(remain)/1000)))
-		}
-		name := u.Name
-		u.Mu.RUnlock()
+		remainMs := u.dangleDeadlineMs(time.Now().UnixMilli())
+		seconds := max(1, int(math.Ceil(float64(remainMs)/1000)))
 		r.Send(lc, protocol.MsgChat{User: 0, Content: l10n.TL(lc.Lang, "chat-waiting-reconnect",
-			map[string]string{"user": name, "seconds": fmt.Sprintf("%d", seconds)})})
+			map[string]string{"user": u.Name, "seconds": fmt.Sprintf("%d", seconds)})})
 	}
 }
 
@@ -482,9 +477,20 @@ func (r *Room) ValidateJoin(user *User, monitor bool) error {
 }
 
 // HandleJoin 处理加入副作用：游戏进行中加入的普通玩家自动计入已完成，不影响本局结束判定。
-func (r *Room) HandleJoin(user *User) {
-	if st, ok := r.State.(StatePlaying); ok && !user.Monitor {
+// 调用方须持 room.Mu。lc 用于在副作用发生时输出本地化日志，调用方应传入
+// 房间对应的 RoomLifecycle（一般由 Hub.MakeRoomLifecycle(room) 提供）。
+func (r *Room) HandleJoin(lc *RoomLifecycle, user *User) {
+	st, ok := r.State.(StatePlaying)
+	if !ok || user.Monitor {
+		return
+	}
+	if _, already := st.Aborted[user.ID]; !already {
 		st.Aborted[user.ID] = struct{}{}
+		// 显式日志：admin 路径与控制台可观察到「中途加入、计入已中止」事件，
+		// 避免静默改变本局结束条件。原版通过 l10n 消息 "log-user-join-late" 表达。
+		r.logRoomInfo(lc, "log-user-join-late", map[string]string{
+			"user": user.Name, "room": string(r.ID),
+		})
 	}
 }
 

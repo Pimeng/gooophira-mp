@@ -48,7 +48,8 @@ func (s *Service) routeAdminUsers(w http.ResponseWriter, r *http.Request, lang *
 	return false
 }
 
-// userView 是单个用户的管理视图（字段名对齐 TS）。
+// userView 是单个用户的管理视图（字段名对齐 TS）。Session 由 u.IsConnected
+// 内部加锁读取；调用方仅需持 state.Mu 保护 u / banned 的快照。
 func userView(u *server.User, banned bool) map[string]any {
 	room := any(nil)
 	if u.Room != nil {
@@ -58,7 +59,7 @@ func userView(u *server.User, banned bool) map[string]any {
 		"id":        u.ID,
 		"name":      u.Name,
 		"monitor":   u.Monitor,
-		"connected": u.Session != nil,
+		"connected": u.IsConnected(),
 		"room":      room,
 		"banned":    banned,
 	}

@@ -151,6 +151,11 @@ func (r *Room) CheckHost(user *User) error {
 	return nil
 }
 
+// IsHost 报告 user 是否为房间房主（无锁版——只读快照，适用于协议补偿等非关键路径）。
+func (r *Room) IsHost(user *User) bool {
+	return user != nil && r.HostID == user.ID
+}
+
 // UserIDs 返回普通玩家 id（加入顺序，副本）。
 func (r *Room) UserIDs() []int { return append([]int(nil), r.users...) }
 

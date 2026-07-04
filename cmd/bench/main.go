@@ -77,21 +77,21 @@ func parseFlags() benchConfig {
 // ---------- 结果指标 ----------
 
 type latencyStats struct {
-	Count  int           `json:"count"`
-	Min    time.Duration `json:"min"`
-	Max    time.Duration `json:"max"`
-	Mean   time.Duration `json:"mean"`
-	P50    time.Duration `json:"p50"`
-	P90    time.Duration `json:"p90"`
-	P99    time.Duration `json:"p99"`
-	StdDev time.Duration `json:"stddev"`
-	Zero   int64          `json:"zero_count"`  // 落在 0ns 的样本数（时钟分辨不足导致）
-	Buckets []histoBucket  `json:"buckets"`    // 桶分布
+	Count   int           `json:"count"`
+	Min     time.Duration `json:"min"`
+	Max     time.Duration `json:"max"`
+	Mean    time.Duration `json:"mean"`
+	P50     time.Duration `json:"p50"`
+	P90     time.Duration `json:"p90"`
+	P99     time.Duration `json:"p99"`
+	StdDev  time.Duration `json:"stddev"`
+	Zero    int64         `json:"zero_count"` // 落在 0ns 的样本数（时钟分辨不足导致）
+	Buckets []histoBucket `json:"buckets"`    // 桶分布
 }
 
 type histoBucket struct {
-	Label string `json:"label"`  // e.g. "1-100ns"
-	Count int64  `json:"count"`
+	Label string  `json:"label"` // e.g. "1-100ns"
+	Count int64   `json:"count"`
 	Pct   float64 `json:"pct"`
 }
 
@@ -347,10 +347,11 @@ type benchSession struct {
 	sentCmds []protocol.ServerCommand
 }
 
-func (s *benchSession) ID() string                                 { return s.id }
-func (s *benchSession) TrySend(cmd protocol.ServerCommand)          { s.sentCmds = append(s.sentCmds, cmd) }
-func (s *benchSession) TrySendFrame(frame []byte)                   {} // bench 不依赖帧路径
-func (s *benchSession) Close()                                      {}
+func (s *benchSession) ID() string                         { return s.id }
+func (s *benchSession) TrySend(cmd protocol.ServerCommand) { s.sentCmds = append(s.sentCmds, cmd) }
+func (s *benchSession) TrySendFrame(frame []byte)          {} // bench 不依赖帧路径
+func (s *benchSession) TrySendFrameOwned(frame []byte)     {} // bench 不依赖帧路径
+func (s *benchSession) Close()                             {}
 
 type benchClient struct {
 	user   *server.User

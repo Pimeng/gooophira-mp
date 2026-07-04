@@ -302,7 +302,7 @@ func (c *Console) cmdUserInfo(args []string) {
 	if u.Room != nil {
 		room = string(u.Room.ID)
 	}
-	gameTime := u.GameTime
+	gameTime := u.GameTime()
 	lang := "unknown"
 	if u.Lang != nil {
 		lang = u.Lang.Tag

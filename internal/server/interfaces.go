@@ -18,6 +18,9 @@ type Session interface {
 	// TrySendFrame 尝试向客户端发送一条预编码的二进制帧（广播优化用）。
 	// 实现应处理 frame 的所有权（需要则拷贝，不需要则复用）。
 	TrySendFrame(frame []byte)
+	// TrySendFrameOwned 尝试发送调用方拥有所有权的帧；不再拷贝。调用方须保证
+	// frame 在 sendCh 读取前不会被复用或修改。
+	TrySendFrameOwned(frame []byte)
 	// Close 关闭会话。
 	Close()
 }

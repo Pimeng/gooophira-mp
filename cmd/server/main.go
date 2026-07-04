@@ -37,11 +37,14 @@ import (
 const (
 	defaultPort     = 12346
 	defaultHTTPPort = 12347
+	// defaultConfigPath 是配置文件默认路径，被 -config/-c 共用；常量集中避免复制粘贴
+	// 不一致（曾因两处默认值漂移导致 -c 实际指向老路径）。
+	defaultConfigPath = "server_config.yml"
 )
 
 func main() {
-	configPath := flag.String("config", "server_config.yml", "配置文件路径（YAML）")
-	flag.StringVar(configPath, "c", "server_config.yml", "配置文件路径（YAML）（-config 的别名）")
+	configPath := flag.String("config", defaultConfigPath, "配置文件路径（YAML）")
+	flag.StringVar(configPath, "c", defaultConfigPath, "配置文件路径（YAML）（-config 的别名）")
 	// 校验类参数用字符串接收（默认空 = 未传），便于非法时按启动期语言本地化报错——
 	// 对齐 TS main 的 requireParse。实际取值在 applyCLIOverrides 经 flag.Visit + f.Value 读取。
 	portFlag := flag.String("port", "", "TCP 监听端口（覆盖配置中的 PORT）")
@@ -52,7 +55,10 @@ func main() {
 	flag.String("room-max-users", "", "房间最大用户数（覆盖配置中的 ROOM_MAX_USERS）")
 	flag.String("server-name", "", "服务器名称（覆盖配置中的 SERVER_NAME）")
 	flag.String("monitors", "", "观战权限用户 ID 列表，逗号分隔（覆盖配置中的 MONITORS）")
-	flag.Bool("gui", false, "启动时打开服务端 GUI 控制台窗口（覆盖配置中的 GUI）")
+	// GUI 走字符串标志：可显式传 "-gui=false" 关闭（flag.Bool 默认值不可被显式赋值）。
+	// applyCLIOverrides 用 ParseBool 严格校验非法值并按 lang 本地化报错。
+	flag.String("gui", "", "启动时打开服务端 GUI 控制台窗口 true/false（覆盖配置中的 GUI）")
+	flag.String("protocol-hack-delay", "", "ProtocolHack 客户端补偿延迟（5ms 默认；单位 ms；0=关闭）")
 	flag.Parse()
 
 	// 首次运行未找到配置文件时自动生成默认配置（本地示例 > 内置模板），当次即加载生效——
@@ -400,10 +406,18 @@ func applyCLIOverrides(cfg *config.ServerConfig, lang *l10n.Language) {
 			}
 			cfg.Monitors = v
 		case "gui":
-			// 布尔标志：出现即覆盖（-gui 为 true，-gui=false 显式关闭）。
+			// 字符串标志：传 "-gui=true" 或 "-gui=false" 显式覆盖；未传则沿用配置值。
+			// 之前用 flag.Bool 时无法在命令行显式关闭（"出现即覆盖"行为与文档冲突）。
 			if v, ok := config.ParseBool(raw); ok {
 				cfg.GUI = &v
 			}
+		case "protocol-hack-delay":
+			v, ok := config.ParseInteger(raw)
+			if !ok {
+				fail("cli-invalid-protocol-hack-delay")
+				return
+			}
+			server.SetProtocolHackDelay(time.Duration(v) * time.Millisecond)
 		}
 	})
 }

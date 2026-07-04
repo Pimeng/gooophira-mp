@@ -40,6 +40,7 @@ cli-invalid-http-service = HTTP サービスフラグが不正です
 cli-invalid-http-port = HTTP ポート番号が不正です
 cli-invalid-room-max-users = ROOM_MAX_USERS が不正です
 cli-invalid-monitors = MONITORS が不正です
+cli-invalid-protocol-hack-delay = PROTOCOL_HACK_DELAY は非負の整数（ミリ秒）で指定してください
 
 label-monitor-suffix = （観戦者）
 replay-recorder-name = リプレイレコーダー
@@ -166,6 +167,7 @@ log-disconnect = 切断しました。id={ $id }{ $who }
 log-disconnect-user = 、user=「{ $user }」
 
 log-user-disconnect-playing = 「{ $user }」がプレイ中に切断し、ルーム「{ $room }」から強制退出しました
+log-user-join-late = 「{ $user }」がプレイ中にルーム「{ $room }」に参加したため、本局は完了扱いにしました
 log-room-recycled = ルーム「{ $room }」を回収しました（空）
 log-user-dangle = 「{ $user }」が切断し、再接続を待機しています
 log-user-dangle-timeout-remove = 「{ $user }」の再接続がタイムアウトし、削除してルーム「{ $room }」から退出しました

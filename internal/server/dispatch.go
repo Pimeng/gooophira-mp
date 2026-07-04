@@ -107,13 +107,11 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 		if room == nil {
 			return nil, false
 		}
-		st, can := playingStateFor(room, user.ID)
-		if !can {
+		if _, can := playingStateFor(room, user.ID); !can {
 			return nil, false
 		}
-		_ = st
 		if len(c.Frames) > 0 {
-			user.GameTime = float64(c.Frames[len(c.Frames)-1].Time)
+			user.SetGameTime(float64(c.Frames[len(c.Frames)-1].Time))
 		}
 		// DEBUG 帧日志：先短路判断等级，避免热路径上无谓的格式化与分配。
 		if lg := h.State.Logger; lg != nil && lg.DebugEnabled() {
@@ -177,11 +175,13 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			if !shouldDrop {
 				room.RefreshLive(h.State.ReplayEnabled)
 			}
-			room.Mu.Unlock()
+			// 删除房间前完成 recycle 日志与 h.State.Rooms 的清理：调用方可能仅持 room.Mu
+			// （见 session.go:isRoomOnlyCmd 路径），后续锁外操作会引发数据竞争。
 			if shouldDrop {
 				room.logRoomInfo(lc, "log-room-recycled", nil)
 				delete(h.State.Rooms, room.ID)
 			}
+			room.Mu.Unlock()
 			return nil
 		})}, true
 

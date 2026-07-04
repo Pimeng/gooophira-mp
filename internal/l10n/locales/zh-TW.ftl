@@ -40,6 +40,7 @@ cli-invalid-http-service = HTTP_SERVICE 不合法
 cli-invalid-http-port = HTTP 連接埠號碼不合法
 cli-invalid-room-max-users = ROOM_MAX_USERS 不合法
 cli-invalid-monitors = MONITORS 不合法
+cli-invalid-protocol-hack-delay = PROTOCOL_HACK_DELAY 必須是非負整數（毫秒）
 
 label-monitor-suffix = （觀戰者）
 replay-recorder-name = 回放錄製器
@@ -166,6 +167,7 @@ log-disconnect = 連線中斷，連線ID：{ $id } { $who }
 log-disconnect-user = ，「{ $user }」
 
 log-user-disconnect-playing = 「{ $user }」 對局中斷線，強制退出房間 「{ $room }」
+log-user-join-late = 「{ $user }」 在對局進行中加入房間 「{ $room }」，自動計入本局已完成
 log-room-recycled = 房間 「{ $room }」 已回收（無玩家）
 log-user-dangle = 「{ $user }」 斷線，進入掛起等待重連
 log-user-dangle-timeout-remove = 「{ $user }」 掛起逾時，移除使用者並退出房間 「{ $room }」

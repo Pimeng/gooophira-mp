@@ -4,7 +4,6 @@ import (
 	"errors"
 	"math/rand/v2"
 	"sync"
-	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
@@ -82,14 +81,15 @@ func (h *Hub) BroadcastRoom(room *Room, cmd protocol.ServerCommand) {
 	if len(ids) == 0 {
 		return
 	}
-	// 预编码一次帧，通过 TrySendFrame 广播给所有用户
+	// 预编码一次帧，通过 TrySendFrameOwned 广播给所有用户（encodeServerCommandFrame
+	// 输出的是新建切片，调用方拥有所有权，可省一次 copy）。
 	frame := encodeServerCommandFrame(cmd)
 	if frame == nil {
 		return
 	}
 	for _, id := range ids {
 		if u := h.State.Users[id]; u != nil {
-			u.TrySendFrame(frame)
+			u.TrySendFrameOwned(frame)
 		}
 	}
 }
@@ -104,12 +104,12 @@ func (h *Hub) broadcastToMonitors(room *Room, cmd protocol.ServerCommand) {
 		return
 	}
 	for _, u := range users {
-		u.TrySendFrame(frame)
+		u.TrySendFrameOwned(frame)
 	}
 }
 
 // encodeServerCommandFrame 编码一条服务端命令为二进制帧（用于广播预编码优化）。
-// 返回的帧可安全传递给 TrySendFrame（会被拷贝）。
+// 返回的帧为新建切片（已从对象池拷贝出），调用方拥有所有权，可直接走 TrySendFrameOwned。
 func encodeServerCommandFrame(cmd protocol.ServerCommand) []byte {
 	w := serverFrameWriterPool.Get().(*protocol.BinaryWriter)
 	defer serverFrameWriterPool.Put(w)
@@ -153,6 +153,27 @@ func (h *Hub) MakeRoomLifecycle(room *Room) *RoomLifecycle {
 		OnGameEnd:           h.OnGameEnd,
 		WSService:           h.State.WSService,
 	}
+}
+
+// clientRoomStateForJoin 构造「加入房间时」客户端可见的房间状态：
+//   - 默认直接返回房间当前状态；
+//   - ProtocolHack：若非 SelectChart 但已有谱面，伪装成 SelectChart 让客户端先获知谱面 ID。
+//
+// 三处共用（ProcessJoinRoom、session.handleAuthenticate 的 WaitForReady 重连、RefreshLive 后），
+// 集中避免行为漂移。调用方须持 room.Mu。
+func (r *Room) clientRoomStateForJoin() protocol.RoomState {
+	st := r.ClientRoomState()
+	if _, isSelect := r.State.(StateSelectChart); !isSelect && r.Chart != nil {
+		cid := int32(r.Chart.ID)
+		st = protocol.RoomStateSelectChart{ID: &cid}
+	}
+	return st
+}
+
+// ClientRoomStateForJoin 是 clientRoomStateForJoin 的可导出包装，供 network 包等
+// 跨包调用方使用。语义与调用条件保持一致（调用方须持 room.Mu）。
+func (h *Hub) ClientRoomStateForJoin(room *Room) protocol.RoomState {
+	return room.clientRoomStateForJoin()
 }
 
 // RequireRoom 返回用户所在房间，不在任何房间则返回 errNoRoom。
@@ -215,22 +236,22 @@ func (h *Hub) ProcessCreateRoom(user *User, id protocol.RoomID) error {
 // sendFakeMonitorJoin 向目标用户发送回放假观战者加入通知（OnJoinRoom + JoinRoom）。
 // 客户端检测到观战者后会上报 Touches/Judges，供录制器采集。对应 TS Session.sendFakeMonitorJoin。
 //
-// ⚠️ 必须延迟到当前命令处理完成后发送（模仿 TS setImmediate）：客户端收到 OnJoinRoom
-// 时房间必须已初始化完毕，否则客户端不会把假观战者加入其内部用户列表，导致不会上报
-// Touches/Judges，回放文件将只有元数据而无任何帧。
+// 实现走 ProtocolHack.forceSyncInfo：默认延迟 5ms（可经 -protocol-hack-delay 调整），
+// 模仿 TS setImmediate 语义：客户端收到 OnJoinRoom 时房间必须已初始化完毕，否则客户端
+// 不会把假观战者加入其内部用户列表。
 func (h *Hub) sendFakeMonitorJoin(targetUser *User, room *Room) {
 	if !h.State.ReplayEnabled || !room.ReplayEligible {
 		return
 	}
-	// 对齐 TS sendFakeMonitorJoin：延迟到下一轮事件循环，确保 CreateRoom/JoinRoom
-	// 的响应已先被客户端处理完毕。同时再验证用户仍在此房间（可能在延迟期间离开）。
+	// 仅在用户仍在此房间时发送；已离开或已换房则跳过。
 	roomID := room.ID
 	state := h.State
-	time.AfterFunc(20*time.Millisecond, func() {
-		// 仅在用户仍在此房间时发送；已离开或已换房则跳过。
-		// targetUser.Room 的写入由 state.Mu 或 room.Mu 保护，读取需要同步。
+	// 锁定到发送时刻的房间 ID 与 user 指针快照，避免延迟期间 room 被换或 user 被注销导致
+	// 误发送到错误目标。ProtocolHack 内部仍会走标准 TrySend 路径，无活跃会话则 no-op。
+	snapshot := targetUser
+	h.NewProtocolHack().schedule(func() {
 		state.Mu.Lock()
-		currentRoom := targetUser.Room
+		currentRoom := snapshot.Room
 		state.Mu.Unlock()
 		if currentRoom == nil || currentRoom.ID != roomID {
 			return
@@ -240,8 +261,8 @@ func (h *Hub) sendFakeMonitorJoin(targetUser *User, room *Room) {
 		}
 		name := l10n.TL(state.ServerLang, "replay-recorder-name", nil)
 		fake := state.ReplayRecorder.FakeMonitorInfo(name)
-		targetUser.TrySend(protocol.SrvOnJoinRoom{Info: fake})
-		targetUser.TrySend(protocol.SrvMessage{
+		snapshot.TrySend(protocol.SrvOnJoinRoom{Info: fake})
+		snapshot.TrySend(protocol.SrvMessage{
 			Message: protocol.MsgJoinRoom{User: fake.ID, Name: fake.Name},
 		})
 	})
@@ -282,11 +303,11 @@ func (h *Hub) ProcessJoinRoom(user *User, id protocol.RoomID, monitor bool) (pro
 	}
 	user.Monitor = monitor
 	user.Room = room
-	room.HandleJoin(user)
+	lc := h.MakeRoomLifecycle(room)
+	room.HandleJoin(lc, user)
 	room.RefreshLive(h.State.ReplayEnabled)
 
 	// 对齐原版：加入房间输出 MARK 级控制台日志（观战者带后缀）。
-	lc := h.MakeRoomLifecycle(room)
 	room.logRoomMark(lc, "log-room-joined", map[string]string{
 		"user": user.Name, "suffix": h.monitorSuffix(monitor),
 	})
@@ -303,11 +324,7 @@ func (h *Hub) ProcessJoinRoom(user *User, id protocol.RoomID, monitor bool) (pro
 	}
 
 	// ProtocolHack：非选谱态但已有谱面时，响应里伪装成 SelectChart 让客户端先获知谱面 ID。
-	respState := room.ClientRoomState()
-	if _, isSelect := room.State.(StateSelectChart); !isSelect && room.Chart != nil {
-		cid := int32(room.Chart.ID)
-		respState = protocol.RoomStateSelectChart{ID: &cid}
-	}
+	respState := room.clientRoomStateForJoin()
 	room.Mu.Unlock()
 
 	return protocol.JoinRoomResponse{State: respState, Users: users, Live: room.IsLive()}, nil

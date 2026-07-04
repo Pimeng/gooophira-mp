@@ -40,6 +40,7 @@ cli-invalid-http-service = Неверный флаг HTTP-службы
 cli-invalid-http-port = Неверный номер HTTP-порта
 cli-invalid-room-max-users = Неверный ROOM_MAX_USERS
 cli-invalid-monitors = Неверный MONITORS
+cli-invalid-protocol-hack-delay = PROTOCOL_HACK_DELAY должен быть неотрицательным целым числом (мс)
 
 label-monitor-suffix = (наблюдатель)
 replay-recorder-name = Запись повтора
@@ -166,6 +167,7 @@ log-disconnect = Отключено. id={ $id }{ $who }
 log-disconnect-user = , user=«{ $user }»
 
 log-user-disconnect-playing = «{ $user }» отключился во время игры, принудительный выход из комнаты «{ $room }»
+log-user-join-late = «{ $user }» присоединился к комнате «{ $room }» во время игры, засчитано как завершивший
 log-room-recycled = Комната «{ $room }» освобождена (пуста)
 log-user-dangle = «{ $user }» отключился, ожидание переподключения
 log-user-dangle-timeout-remove = Тайм-аут переподключения «{ $user }», удалён и покинул комнату «{ $room }»

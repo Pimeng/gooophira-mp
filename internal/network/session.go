@@ -111,27 +111,51 @@ func (s *Session) TrySend(cmd protocol.ServerCommand) {
 	s.trySendFrame(frame)
 }
 
-// TrySendFrame 尝试发送预编码的二进制帧（广播优化用）。
+// TrySendFrame 尝试发送预编码的二进制帧（广播优化用）。为防止调用方把池化缓冲区
+// 传给发送循环后又复用，此处拷贝一份；调用方若已自行拷贝（如 encodeServerCommandFrame
+// 的输出）可改用 TrySendFrameOwned 节省一次分配。
 func (s *Session) TrySendFrame(frame []byte) {
 	select {
 	case <-s.done:
 		return
 	default:
 	}
-	// frame 可能被复用，拷贝一份以保证安全
 	f := make([]byte, len(frame))
 	copy(f, frame)
 	s.trySendFrame(f)
 }
 
+// TrySendFrameOwned 尝试发送「调用方拥有所有权」的二进制帧——不再拷贝。调用方必须
+// 保证 frame 在 sendCh 读取前不会被复用或修改。当前仅 encodeServerCommandFrame 输出的
+// 「新建切片」符合此契约；其他来源请用 TrySendFrame。
+func (s *Session) TrySendFrameOwned(frame []byte) {
+	select {
+	case <-s.done:
+		return
+	default:
+	}
+	s.trySendFrame(frame)
+}
+
 // trySendFrame 把帧入队发送缓冲；满则异步关闭。
+//
+// 满缓冲的关闭路径有两个选择：
+//   - 同步 close：在持锁广播路径上会与 cleanup 抢锁导致自死锁——注释解释了为什么 go 出去。
+//   - 异步 close：go s.Close() 在多慢消费者下会爆发 goroutine 风暴（N 个慢连接就有 N 个 close goroutine）。
+//
+// 折中：用 select+done 短路掉已经被关闭 / 已经在清理的会话。Close 内部有 closeOnce
+// 幂等保护，并发安全。
 func (s *Session) trySendFrame(frame []byte) {
+	select {
+	case <-s.done:
+		return
+	default:
+	}
 	select {
 	case s.sendCh <- frame:
 	default:
-		// 发送缓冲溢出：慢消费者，断开。必须异步关闭——TrySend 可能在持有
-		// state.Mu 的广播路径中被调用，而 Close→cleanup 会再次抢锁，同 goroutine
-		// 同步关闭将自死锁。go 出去等当前命令处理释放锁后再清理。
+		// 慢消费者：异步关闭。closeOnce 防止重复清理；s.done 由 Close 关闭，
+		// 即便下个广播再调用此处也会被 done 分支短路。
 		go s.Close()
 	}
 }
@@ -196,7 +220,8 @@ func (s *Session) cleanup() {
 	}
 	// 否则标记 dangling，保留房间/用户一段时间，等待同账号重连（重连时 SetSession 清 token）。
 	s.logLocalized("INFO", "log-user-dangle", map[string]string{"user": u.Name})
-	token := u.MarkDangle()
+	deadline := time.Now().Add(grace).UnixMilli()
+	token := u.MarkDangle(&deadline)
 	s.state.Mu.Unlock()
 	time.AfterFunc(grace, func() { s.processDangle(u, token) })
 }
@@ -460,13 +485,16 @@ func (s *Session) handleAuthenticate(token string) {
 		s.user = user
 
 		// 断线重连：构建客户端房间状态
+		var room *server.Room
 		if user.Room != nil {
-			room := user.Room
+			room = user.Room
 			room.Mu.Lock()
 			cs := room.ClientState(user, func(id int) *server.User { return s.state.Users[id] })
+			// ProtocolHack：WaitForReady 态但已选谱 → 伪装为 SelectChart 让客户端先获知谱面 ID，
+			// 随后 session 在延迟 20ms 后再切回 WaitingForReady。
 			if _, wfr := room.State.(server.StateWaitForReady); wfr && room.Chart != nil {
+				cs.State = s.hub.ClientRoomStateForJoin(room)
 				cid := int32(room.Chart.ID)
-				cs.State = protocol.RoomStateSelectChart{ID: &cid}
 				restoreChartID = &cid
 			}
 			room.Mu.Unlock()
@@ -483,15 +511,11 @@ func (s *Session) handleAuthenticate(token string) {
 
 		s.TrySend(protocol.SrvAuthenticate{Result: protocol.Ok(protocol.AuthInfo{Me: me, Room: roomState})})
 
-		// 重连进 WaitForReady：延迟两步把客户端状态修回。
-		if restoreChartID != nil {
-			cid := *restoreChartID
-			time.AfterFunc(20*time.Millisecond, func() {
-				user.TrySend(protocol.SrvChangeState{State: protocol.RoomStateSelectChart{ID: &cid}})
-				time.AfterFunc(20*time.Millisecond, func() {
-					user.TrySend(protocol.SrvChangeState{State: protocol.RoomStateWaitingForReady{}})
-				})
-			})
+		// 重连进 WaitForReady：通过 ProtocolHack 把客户端状态修回。
+		// 两次延迟：第一次让客户端把构造的 SelectChart 落地，第二次切回 WaitingForReady。
+		if restoreChartID != nil && room != nil {
+			ph := s.hub.NewProtocolHack()
+			ph.FixClientRoomState(room, user)
 		}
 
 		s.logAuthSuccess(user, monitor)
@@ -514,6 +538,9 @@ func (s *Session) handleAuthenticate(token string) {
 			stale = existing.Session
 		}
 		s.state.Mu.Unlock()
+		// 关键：丢弃的 user 仍持有 s 的引用（user.SetSession(s) 已建立反向指针），
+		// 显式断开该引用避免 user 存活期间 s 不会 GC；user 之后会被 GC 回收。
+		user.SetSession(nil)
 		// 让 existing 接管此会话，丢弃我们刚创建的 user（未被注册，GC 回收）。
 		existing.SetSession(s)
 		s.user = existing

@@ -127,8 +127,12 @@ func (s *ServerState) lang(u *User) string {
 func (s *ServerState) buildAdminRoom(id protocol.RoomID, room *Room) AdminRoomData {
 	host := s.Users[room.HostID]
 	hostName := strconv.Itoa(room.HostID)
+	hostConnected := false
 	if host != nil {
 		hostName = host.Name
+		host.Mu.RLock()
+		hostConnected = host.Session != nil
+		host.Mu.RUnlock()
 	}
 
 	stateView := AdminRoomState{Type: adminStateString(room.State)}
@@ -149,8 +153,14 @@ func (s *ServerState) buildAdminRoom(id protocol.RoomID, room *Room) AdminRoomDa
 	users := make([]AdminUserView, 0, room.UserCount())
 	for _, uid := range room.UserIDs() {
 		u := s.Users[uid]
+		connected := false
+		if u != nil {
+			u.Mu.RLock()
+			connected = u.Session != nil
+			u.Mu.RUnlock()
+		}
 		uv := AdminUserView{
-			ID: uid, Name: nameOrID(u, uid), Connected: u != nil && u.Session != nil,
+			ID: uid, Name: nameOrID(u, uid), Connected: connected,
 			IsHost: uid == room.HostID, GameTime: gameTimeJSON(gameTimeOf(u)), Language: s.lang(u),
 		}
 		if st, ok := room.State.(StatePlaying); ok {
@@ -170,8 +180,14 @@ func (s *ServerState) buildAdminRoom(id protocol.RoomID, room *Room) AdminRoomDa
 	monitors := make([]AdminMonitorView, 0, room.MonitorCount())
 	for _, mid := range room.MonitorIDs() {
 		u := s.Users[mid]
+		connected := false
+		if u != nil {
+			u.Mu.RLock()
+			connected = u.Session != nil
+			u.Mu.RUnlock()
+		}
 		monitors = append(monitors, AdminMonitorView{
-			ID: mid, Name: nameOrID(u, mid), Connected: u != nil && u.Session != nil, Language: s.lang(u),
+			ID: mid, Name: nameOrID(u, mid), Connected: connected, Language: s.lang(u),
 		})
 	}
 
@@ -196,7 +212,7 @@ func (s *ServerState) buildAdminRoom(id protocol.RoomID, room *Room) AdminRoomDa
 	return AdminRoomData{
 		RoomID: string(id), MaxUsers: room.MaxUsers, CurrentUsers: len(users), CurrentMonitors: len(monitors),
 		ReplayEligible: room.ReplayEligible, Live: room.Live, Locked: room.Locked, Cycle: room.Cycle,
-		Host:  AdminHost{ID: room.HostID, Name: hostName, Connected: host != nil && host.Session != nil},
+		Host:  AdminHost{ID: room.HostID, Name: hostName, Connected: hostConnected},
 		State: stateView, Chart: chart, Contest: contest, Users: users, Monitors: monitors, RecentLogs: recent,
 	}
 }
@@ -215,21 +231,24 @@ func (s *ServerState) BuildAdminRooms() []AdminRoomData {
 
 // RoomUpdateUser 是房间增量推送里的玩家。
 type RoomUpdateUser struct {
-	ID      int    `json:"id"`
-	Name    string `json:"name"`
-	IsReady bool   `json:"is_ready"`
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	IsReady   bool   `json:"is_ready"`
+	Connected bool   `json:"connected"`
 }
 
 // RoomUpdateMonitor 是房间增量推送里的观战者。
 type RoomUpdateMonitor struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	Connected bool   `json:"connected"`
 }
 
 // RoomUpdateHost 是房间增量推送里的房主。
 type RoomUpdateHost struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	Connected bool   `json:"connected"`
 }
 
 // RoomUpdateData 是 WebSocket room_update 推送的数据。
@@ -253,18 +272,43 @@ func (s *ServerState) BuildRoomUpdate(id protocol.RoomID) *RoomUpdateData {
 		return nil
 	}
 	host := s.Users[room.HostID]
+	hostName := nameOrID(host, room.HostID)
+	hostConnected := false
+	if host != nil {
+		host.Mu.RLock()
+		hostConnected = host.Session != nil
+		host.Mu.RUnlock()
+	}
+	// 拷贝 Started 集合：原集合是 StateWaitForReady 的内部字段（map 引用语义），
+	// 直接别名会让外部观察者修改到房间内部状态。
 	started := map[int]struct{}{}
 	if st, ok := room.State.(StateWaitForReady); ok {
-		started = st.Started
+		for id := range st.Started {
+			started[id] = struct{}{}
+		}
 	}
 	users := make([]RoomUpdateUser, 0, room.UserCount())
 	for _, uid := range room.UserIDs() {
+		u := s.Users[uid]
+		connected := false
+		if u != nil {
+			u.Mu.RLock()
+			connected = u.Session != nil
+			u.Mu.RUnlock()
+		}
 		_, ready := started[uid]
-		users = append(users, RoomUpdateUser{ID: uid, Name: nameOrID(s.Users[uid], uid), IsReady: ready})
+		users = append(users, RoomUpdateUser{ID: uid, Name: nameOrID(u, uid), IsReady: ready, Connected: connected})
 	}
 	monitors := make([]RoomUpdateMonitor, 0, room.MonitorCount())
 	for _, mid := range room.MonitorIDs() {
-		monitors = append(monitors, RoomUpdateMonitor{ID: mid, Name: nameOrID(s.Users[mid], mid)})
+		u := s.Users[mid]
+		connected := false
+		if u != nil {
+			u.Mu.RLock()
+			connected = u.Session != nil
+			u.Mu.RUnlock()
+		}
+		monitors = append(monitors, RoomUpdateMonitor{ID: mid, Name: nameOrID(u, mid), Connected: connected})
 	}
 	var chart *AdminChart
 	if room.Chart != nil {
@@ -278,7 +322,7 @@ func (s *ServerState) BuildRoomUpdate(id protocol.RoomID) *RoomUpdateData {
 	return &RoomUpdateData{
 		RoomID: string(id), State: adminStateString(room.State), Locked: room.Locked,
 		Cycle: room.Cycle, Live: room.Live, Chart: chart,
-		Host:  RoomUpdateHost{ID: room.HostID, Name: nameOrID(host, room.HostID)},
+		Host:  RoomUpdateHost{ID: room.HostID, Name: hostName, Connected: hostConnected},
 		Users: users, Monitors: monitors, RecentLogs: recent,
 	}
 }
@@ -302,9 +346,13 @@ func (s *ServerState) BuildOnlineUsers() []AdminOnlineUser {
 		if u.Room != nil {
 			room = string(u.Room.ID)
 		}
+		connected := false
+		u.Mu.RLock()
+		connected = u.Session != nil
+		u.Mu.RUnlock()
 		_, banned := s.BannedUsers[id]
 		out = append(out, AdminOnlineUser{
-			ID: id, Name: u.Name, Connected: u.Session != nil, Monitor: u.Monitor,
+			ID: id, Name: u.Name, Connected: connected, Monitor: u.Monitor,
 			Room: room, Banned: banned, Language: s.lang(u),
 		})
 	}
@@ -316,7 +364,7 @@ func gameTimeOf(u *User) float64 {
 	if u == nil {
 		return math.Inf(-1)
 	}
-	return u.GameTime
+	return u.GameTime()
 }
 
 func nameOrID(u *User, id int) string {

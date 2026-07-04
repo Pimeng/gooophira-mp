@@ -1,4 +1,4 @@
-﻿
+
 create-id-occupied = 방 ID가 이미 사용 중입니다
 
 join-game-ongoing = 게임이 진행 중입니다
@@ -40,6 +40,7 @@ cli-invalid-http-service = 잘못된 HTTP 서비스 플래그
 cli-invalid-http-port = 잘못된 HTTP 포트 번호
 cli-invalid-room-max-users = 잘못된 ROOM_MAX_USERS
 cli-invalid-monitors = 잘못된 MONITORS
+cli-invalid-protocol-hack-delay = PROTOCOL_HACK_DELAY은(는) 음이 아닌 정수(밀리초)여야 합니다
 
 label-monitor-suffix = （관전자）
 replay-recorder-name = 리플레이 레코더
@@ -166,6 +167,7 @@ log-disconnect = 연결 끊김. id={ $id }{ $who }
 log-disconnect-user = , user="{ $user }"
 
 log-user-disconnect-playing = "{ $user }"가 플레이 중 연결이 끊겨 방 "{ $room }"에서 강제 퇴장했습니다
+log-user-join-late = "{ $user }"가 플레이 중 방 "{ $room }"에 합류하여 이번 게임은 완료 처리되었습니다
 log-room-recycled = 방 "{ $room }" 회수됨 (비어 있음)
 log-user-dangle = "{ $user }"의 연결이 끊겨 재연결을 기다리는 중입니다
 log-user-dangle-timeout-remove = "{ $user }"의 재연결 시간이 초과되어 제거되고 방 "{ $room }"에서 퇴장했습니다

@@ -1,10 +1,8 @@
 # 构建镜像时排除：版本号/本地化/GUI 页面等运行期资源都经 go:embed 打进 internal/，
 # 故只需源码 + go.mod/go.sum，可安全排除以下顶层杂项（加速构建、避免 VCS stamping 报错）。
 
-# 版本控制 / CI / IDE
-.git
-.github
-.idea
+# 排除所有隐藏文件和目录
+/.*/
 
 # 运行期生成的数据目录/文件（不应进镜像）
 logs/

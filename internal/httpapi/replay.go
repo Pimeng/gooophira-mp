@@ -305,12 +305,14 @@ func (s *Service) handleAutoUploadConfig(w http.ResponseWriter, r *http.Request,
 		cfg.Show = *setShow
 	}
 	show := cfg.Show
+	shareStationConfigured := s.state.ShareStationConfigured()
+	autoUploadEnabled := s.state.Config.EffectiveReplayAutoUpload()
 	s.state.Mu.Unlock()
 
 	s.writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "userId": userID, "show": show,
-		"shareStationConfigured": s.state.ShareStationConfigured(),
-		"autoUploadEnabled":      s.state.Config.EffectiveReplayAutoUpload(),
+		"shareStationConfigured": shareStationConfigured,
+		"autoUploadEnabled":      autoUploadEnabled,
 	})
 }
 

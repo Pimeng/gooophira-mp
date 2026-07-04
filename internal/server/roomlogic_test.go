@@ -39,7 +39,8 @@ func (m *mockSession) TrySendFrame(frame []byte) {
 	m.sent = append(m.sent, cmd)
 	m.mu.Unlock()
 }
-func (m *mockSession) Close() {}
+func (m *mockSession) TrySendFrameOwned(frame []byte) { m.TrySendFrame(frame) }
+func (m *mockSession) Close()                         {}
 
 // testHarness 持有共享用户表与捕获的广播，便于断言。
 type testHarness struct {
@@ -237,8 +238,8 @@ func TestCheckAllReady_WaitToPlaying(t *testing.T) {
 		t.Error("should broadcast StartPlaying once")
 	}
 	// gameTime 应被重置为 -Inf
-	if !math.IsInf(bob.GameTime, -1) {
-		t.Errorf("bob.GameTime should reset to -Inf, got %v", bob.GameTime)
+	if !math.IsInf(bob.GameTime(), -1) {
+		t.Errorf("bob.GameTime should reset to -Inf, got %v", bob.GameTime())
 	}
 }
 
@@ -369,7 +370,7 @@ func TestHandleJoin_DuringPlayingMarksAborted(t *testing.T) {
 	r := NewRoom("room1", 1, 8, false)
 	r.State = StatePlaying{Results: map[int]config.RecordData{}, Aborted: map[int]struct{}{}}
 	late := h.addUser(2, "bob")
-	r.HandleJoin(late)
+	r.HandleJoin(h.lifecycle(), late)
 	st := r.State.(StatePlaying)
 	if _, ok := st.Aborted[2]; !ok {
 		t.Error("late-joining player during Playing should be marked aborted")
@@ -420,14 +421,14 @@ func benchDispatch(b *testing.B, h *Hub, user *User, cmd protocol.ClientCommand)
 // BenchmarkRoomLifecycle_N 基准测试完整房间生命周期，调整玩家数 N。
 // 运行: go test -bench=BenchmarkRoomLifecycle -benchmem ./internal/server/
 
-func BenchmarkRoomLifecycle_4Players(b *testing.B)   { benchmarkRoomLifecycle(b, 4) }
-func BenchmarkRoomLifecycle_8Players(b *testing.B)   { benchmarkRoomLifecycle(b, 8) }
-func BenchmarkRoomLifecycle_16Players(b *testing.B)  { benchmarkRoomLifecycle(b, 16) }
+func BenchmarkRoomLifecycle_4Players(b *testing.B)  { benchmarkRoomLifecycle(b, 4) }
+func BenchmarkRoomLifecycle_8Players(b *testing.B)  { benchmarkRoomLifecycle(b, 8) }
+func BenchmarkRoomLifecycle_16Players(b *testing.B) { benchmarkRoomLifecycle(b, 16) }
 
 func benchmarkRoomLifecycle(b *testing.B, n int) {
 	h := newHarness()
 	phira := &mockPhira{
-		charts:  map[int]config.Chart{1: {ID: 1, Name: "chart1"}},
+		charts: map[int]config.Chart{1: {ID: 1, Name: "chart1"}},
 		records: map[int]config.RecordData{
 			10: {ID: 10, Player: 1, Score: 900000, Accuracy: 0.95, Std: 0.02},
 		},
