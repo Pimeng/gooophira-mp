@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -24,6 +25,13 @@ const lruSampleSize = 5
 const diskSaveDebounce = 100 * time.Millisecond
 
 func nowMS() int64 { return time.Now().UnixMilli() }
+
+// accessCounter 是全局单调递增计数器，用于 lastAccessed（LRU 淘汰比较）。
+// 用计数器而非时间戳：Windows time.Now() 分辨率约 15ms，快速连续 Set 会产生同时间戳，
+// 导致 evictIfNeeded 淘汰结果非确定性。计数器保证每次访问严格递增，LRU 顺序确定。
+var accessCounter atomic.Int64
+
+func nextAccess() int64 { return accessCounter.Add(1) }
 
 // storedEntry 是落盘 / Redis 中的序列化条目。
 type storedEntry[V any] struct {
@@ -139,7 +147,7 @@ func (c *Cache[K, V]) memGet(key K) (V, bool) {
 		delete(c.mem, key)
 		return zero, false
 	}
-	e.lastAccessed = nowMS()
+	e.lastAccessed = nextAccess()
 	c.mem[key] = e
 	return e.value, true
 }
@@ -175,8 +183,7 @@ func (c *Cache[K, V]) Set(key K, value V) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	now := nowMS()
-	c.mem[key] = memEntry[V]{value: value, cachedAt: now, lastAccessed: now}
+	c.mem[key] = memEntry[V]{value: value, cachedAt: nowMS(), lastAccessed: nextAccess()}
 	c.evictIfNeeded()
 	c.scheduleSaveLocked()
 }
@@ -286,6 +293,29 @@ func (c *Cache[K, V]) Clear() {
 	}
 }
 
+// KeysNearExpiry 返回本地缓存中剩余 TTL <= remaining 的键（用于被动失效刷新）。
+// Redis 模式返回 nil：Redis 自带 TTL 自动过期，无需主动刷新。
+// 仅本地后端有效；remaining <= 0 时返回所有已缓存键（不论剩余 TTL）。
+func (c *Cache[K, V]) KeysNearExpiry(remaining time.Duration) []K {
+	if getRedis() != nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.mem) == 0 {
+		return nil
+	}
+	now := nowMS()
+	thresholdMS := (c.ttl - remaining).Milliseconds()
+	var keys []K
+	for k, e := range c.mem {
+		if c.ttl > 0 && now-e.cachedAt >= thresholdMS {
+			keys = append(keys, k)
+		}
+	}
+	return keys
+}
+
 func (c *Cache[K, V]) redisClear(rc *redis.Client) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -320,7 +350,6 @@ func (c *Cache[K, V]) loadFromDisk() {
 	if json.Unmarshal(data, &parsed) != nil {
 		return
 	}
-	now := nowMS()
 	for keyStr, e := range parsed {
 		if c.expired(e.CachedAt) {
 			continue
@@ -329,7 +358,7 @@ func (c *Cache[K, V]) loadFromDisk() {
 		if !ok {
 			continue
 		}
-		c.mem[key] = memEntry[V]{value: e.Value, cachedAt: e.CachedAt, lastAccessed: now}
+		c.mem[key] = memEntry[V]{value: e.Value, cachedAt: e.CachedAt, lastAccessed: nextAccess()}
 	}
 }
 
