@@ -265,7 +265,7 @@ func main() {
 		}()
 	}
 
-	host := strOr(cfg.Host, "0.0.0.0")
+	host := strOr(cfg.Host, "::")
 	port := defaultPort
 	if cfg.Port != nil {
 		port = *cfg.Port

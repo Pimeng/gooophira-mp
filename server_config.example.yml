@@ -50,8 +50,8 @@ LANG: zh-CN
 # 注意：用于 TCP 代理场景下获取真实 IP
 HAPROXY_PROTOCOL: false
 
-# 单房间最大用户数
-ROOM_MAX_USERS: 12
+# 单房间最大用户数，默认 32
+# ROOM_MAX_USERS: 32
 
 # 是否允许玩家创建新房间，默认允许
 # 可通过 CLI `roomcreation on|off` 或 API /admin/room-creation/config 在运行时切换

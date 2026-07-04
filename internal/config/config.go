@@ -12,8 +12,9 @@ import (
 // 内置默认值（对应 TS 各使用点的 `config.x ?? default`）。集中在此，唯一来源。
 const (
 	DefaultServerName               = "Phira MP"
-	DefaultRoomMaxUsers             = 8
+	DefaultRoomMaxUsers             = 32
 	DefaultPlayingReconnectGrace    = 5
+	DefaultHitokotoAPIURL           = "https://v1.hitokoto.cn/"
 	MaxPlayingReconnectGrace        = 120
 	DefaultReplayTTLDays            = 4
 	MaxReplayTTLDays                = 3650
@@ -122,6 +123,11 @@ func (c *ServerConfig) EffectiveTestAccountIDs() []int {
 
 func (c *ServerConfig) EffectiveServerName() string {
 	return strOr(c.ServerName, DefaultServerName)
+}
+
+// EffectiveHitokotoAPIURL 返回一言 API 地址：已配置且非空则用之，否则用内置默认。
+func (c *ServerConfig) EffectiveHitokotoAPIURL() string {
+	return strOr(c.HitokotoAPIURL, DefaultHitokotoAPIURL)
 }
 
 func (c *ServerConfig) EffectiveRoomMaxUsers() int { return intOr(c.RoomMaxUsers, DefaultRoomMaxUsers) }

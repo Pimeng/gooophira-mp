@@ -169,7 +169,7 @@ func (h *Hub) MakeRoomLifecycle(room *Room) *RoomLifecycle {
 //   - 默认直接返回房间当前状态；
 //   - ProtocolHack：若非 SelectChart 但已有谱面，伪装成 SelectChart 让客户端先获知谱面 ID。
 //
-// 三处共用（ProcessJoinRoom、session.handleAuthenticate 的 WaitForReady 重连、RefreshLive 后），
+// 两处共用（ProcessJoinRoom、session.handleAuthenticate 的 WaitForReady 重连），
 // 集中避免行为漂移。调用方须持 room.Mu。
 func (r *Room) clientRoomStateForJoin() protocol.RoomState {
 	st := r.ClientRoomState()

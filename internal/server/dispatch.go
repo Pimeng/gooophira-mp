@@ -8,7 +8,8 @@ import (
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
 )
 
-// 聊天内容最大长度（二次防护；协议层已限制 CmdChat ≤200 字节）。
+// 聊天内容最大长度（rune 计）。协议层已将 CmdChat.Message 截到 200 字节，
+// 本常量主要兜底服务端拼装的 chat-disabled-by-server 等本地化文案，避免异常长串。
 const maxChatLength = 500
 
 func (h *Hub) localize(user *User, key string) string {
@@ -175,8 +176,8 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			if !shouldDrop {
 				room.RefreshLive(h.State.ReplayEnabled)
 			}
-			// 删除房间前完成 recycle 日志与 h.State.Rooms 的清理：调用方可能仅持 room.Mu
-			// （见 session.go:isRoomOnlyCmd 路径），后续锁外操作会引发数据竞争。
+			// 删除房间须在 state.Mu 保护下完成（h.State.Rooms 受其约束）。
+			// CmdLeaveRoom 走非 isRoomOnlyCmd 路径，调用方持 state.Mu，故可安全 delete。
 			if shouldDrop {
 				room.logRoomInfo(lc, "log-room-recycled", nil)
 				delete(h.State.Rooms, room.ID)

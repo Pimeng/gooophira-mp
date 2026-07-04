@@ -63,7 +63,8 @@ type ReplayRecorder interface {
 }
 
 // MonitorBuffer 聚合实时游戏数据（Touches/Judges）后批量转发给观战者，
-// 避免高频帧直接冲击网络。具体实现（50ms flush）见 Stage 4 network；测试用 mock。
+// 避免高频帧直接冲击网络。具体实现 AggregatingMonitorBuffer 在本包 monitorbuffer.go，
+// 按缓冲量动态 flush（10/20/50ms）；测试用 mock。
 type MonitorBuffer interface {
 	BufferTouches(room *Room, userID int, frames []protocol.TouchFrame)
 	BufferJudges(room *Room, userID int, judges []protocol.JudgeEvent)

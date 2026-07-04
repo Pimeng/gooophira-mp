@@ -1,6 +1,6 @@
 // Package l10n 提供多语言本地化（Fluent/FTL）。
 //
-// 当前内置 zh-CN 与 en-US（其余语言后续补）。FTL 源以 go:embed 打进二进制；解析见 fluent.go。
+// 内置 zh-CN、en-US、zh-TW、ja-JP、ko-KR、ru-RU 六种语言。FTL 源以 go:embed 打进二进制；解析见 fluent.go。
 package l10n
 
 import (

@@ -208,7 +208,7 @@ func (s *Session) cleanup() {
 	_, banned := s.state.BannedUsers[u.ID]
 	grace := s.dangleGrace(u)
 	if banned || grace <= 0 {
-		// 对齐原版：封禁用户记 INFO 挂起日志；对局态宽限为 0 则记房间作用域 WARN（强制退出）。
+		// 对齐原版：封禁用户记 INFO 挂起日志；宽限为 0（对局态配置或非对局窗口）且仍在房间则记房间作用域 WARN（强制退出）。
 		if banned {
 			s.logLocalized("INFO", "log-user-dangle", map[string]string{"user": u.Name})
 		} else if u.Room != nil {
@@ -596,8 +596,8 @@ func (s *Session) logAuthSuccess(user *server.User, monitor bool) {
 // sendWelcome 拉取一言（可选）并把欢迎系统聊天发给用户。
 func (s *Session) sendWelcome(user *server.User) {
 	var hk *server.Hitokoto
-	if url := s.state.Config.HitokotoAPIURL; url != nil && *url != "" {
-		hk = fetchHitokoto(*url)
+	if url := s.state.Config.EffectiveHitokotoAPIURL(); url != "" {
+		hk = fetchHitokoto(url)
 	}
 	s.state.Mu.Lock()
 	text := s.state.BuildWelcomeText(user, hk)

@@ -1,7 +1,7 @@
 // Package httpapi 提供 HTTP 查询/管理服务（标准库 net/http）。
 //
-// 本阶段实现：服务骨架（CORS + 每 IP 限流 + 优雅关闭）与公开路由（房间列表 / 开关配置）。
-// 管理路由（/admin/*，需鉴权）与 WebSocket 实时推送在后续增量接入。
+// 含服务骨架（CORS + 每 IP 限流 + 优雅关闭）、公开路由（房间列表 / 开关配置 / 回放 / 统计）、
+// 管理路由（/admin/*，需鉴权）与 WebSocket 实时推送。
 package httpapi
 
 import (
