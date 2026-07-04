@@ -336,6 +336,189 @@ func TestMissingProfile(t *testing.T) {
 	}
 }
 
+// ---------- RecordMatch 边界 ----------
+
+// TestRecordMatch_EmptyUsers 验证空用户列表不报错且不插入 match_results。
+func TestRecordMatch_EmptyUsers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	mr, err := s.RecordMatch("room-empty", 42, "Test", []int{}, map[int]config.RecordData{}, nil, 0)
+	if err != nil {
+		t.Fatalf("RecordMatch with empty users should not error, got %v", err)
+	}
+	if len(mr) != 0 {
+		t.Errorf("expected 0 results, got %d", len(mr))
+	}
+	// match 行仍应存在（n=0）
+	var n int
+	if err := s.db.QueryRow("SELECT n FROM matches WHERE room_id='room-empty'").Scan(&n); err != nil {
+		t.Fatalf("match row should exist: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("n = %d, want 0", n)
+	}
+	// match_results 应为空
+	var count int
+	s.db.QueryRow("SELECT COUNT(*) FROM match_results WHERE match_id IN (SELECT id FROM matches WHERE room_id='room-empty')").Scan(&count)
+	if count != 0 {
+		t.Errorf("match_results count = %d, want 0", count)
+	}
+}
+
+// TestRecordMatch_SinglePlayerELOUnchanged 验证单人房时 ELO 不变（无配对计算）。
+func TestRecordMatch_SinglePlayerELOUnchanged(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	uid := 5001
+	results := map[int]config.RecordData{
+		uid: {ID: 1, Player: uid, Score: 900000, Accuracy: 0.95},
+	}
+	mr, err := s.RecordMatch("room-single", 0, "", []int{uid}, results, map[int]string{uid: "Solo"}, 60)
+	if err != nil {
+		t.Fatalf("RecordMatch: %v", err)
+	}
+	if len(mr) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(mr))
+	}
+	// 单人时 ELO 应保持基础值（1500），无配对增量
+	if mr[0].Rating != eloBaseRating {
+		t.Errorf("single player ELO should stay at base %v, got %v", eloBaseRating, mr[0].Rating)
+	}
+	// rank 应为 1
+	var rank int
+	s.db.QueryRow("SELECT rank FROM match_results WHERE user_id=?", uid).Scan(&rank)
+	if rank != 1 {
+		t.Errorf("single player rank = %d, want 1", rank)
+	}
+}
+
+// TestRecordMatch_TiedScoresSameRank 验证同分数的玩家共享相同 rank。
+func TestRecordMatch_TiedScoresSameRank(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	// 三个玩家同分数 → 都应是 rank=1
+	uid1, uid2, uid3 := 6001, 6002, 6003
+	results := map[int]config.RecordData{
+		uid1: {ID: 1, Player: uid1, Score: 500000, Accuracy: 0.9},
+		uid2: {ID: 2, Player: uid2, Score: 500000, Accuracy: 0.9},
+		uid3: {ID: 3, Player: uid3, Score: 500000, Accuracy: 0.9},
+	}
+	userIDs := []int{uid1, uid2, uid3}
+	names := map[int]string{uid1: "A", uid2: "B", uid3: "C"}
+
+	if _, err := s.RecordMatch("room-tied", 0, "", userIDs, results, names, 30); err != nil {
+		t.Fatalf("RecordMatch: %v", err)
+	}
+	for _, uid := range userIDs {
+		var rank int
+		if err := s.db.QueryRow("SELECT rank FROM match_results WHERE user_id=?", uid).Scan(&rank); err != nil {
+			t.Fatalf("query rank for %d: %v", uid, err)
+		}
+		if rank != 1 {
+			t.Errorf("tied player %d rank = %d, want 1", uid, rank)
+		}
+	}
+}
+
+// TestRecordMatch_NilUserNamesDoesNotPanic 验证 userNames 为 nil map 不 panic。
+func TestRecordMatch_NilUserNamesDoesNotPanic(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	uid := 7001
+	results := map[int]config.RecordData{
+		uid: {ID: 1, Player: uid, Score: 100, Accuracy: 0.5},
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			t.Errorf("RecordMatch with nil userNames should not panic, got %v", rec)
+		}
+	}()
+	if _, err := s.RecordMatch("room-nilnames", 0, "", []int{uid}, results, nil, 10); err != nil {
+		t.Fatalf("RecordMatch: %v", err)
+	}
+	// users.name 应为空字符串（首次写入，nil map 返回零值）
+	var name string
+	s.db.QueryRow("SELECT name FROM users WHERE id=?", uid).Scan(&name)
+	if name != "" {
+		t.Errorf("nil userNames should write empty name, got %q", name)
+	}
+}
+
+// TestRecordMatch_RepeatedMatchAccumulatesGames 验证同一玩家多次对局 games 累加。
+func TestRecordMatch_RepeatedMatchAccumulatesGames(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	uid := 8001
+	results := map[int]config.RecordData{
+		uid: {ID: 1, Player: uid, Score: 100, Accuracy: 0.5},
+	}
+	// 连续记录 3 局
+	for i := 0; i < 3; i++ {
+		if _, err := s.RecordMatch("room-rep", 0, "", []int{uid}, results, map[int]string{uid: "Rep"}, 20); err != nil {
+			t.Fatalf("RecordMatch iter %d: %v", i, err)
+		}
+	}
+	var games int
+	s.db.QueryRow("SELECT games FROM player_stats WHERE user_id=?", uid).Scan(&games)
+	if games != 3 {
+		t.Errorf("after 3 matches, games = %d, want 3", games)
+	}
+	// 总游戏时间应累加为 60
+	var playTime int
+	s.db.QueryRow("SELECT play_time_sec FROM player_stats WHERE user_id=?", uid).Scan(&playTime)
+	if playTime != 60 {
+		t.Errorf("after 3 matches * 20s, play_time_sec = %d, want 60", playTime)
+	}
+}
+
+// TestRecordMatch_DurationZero 验证 durationSec=0 不报错。
+func TestRecordMatch_DurationZero(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	uid := 9001
+	results := map[int]config.RecordData{
+		uid: {ID: 1, Player: uid, Score: 100, Accuracy: 0.5},
+	}
+	if _, err := s.RecordMatch("room-zero-dur", 0, "", []int{uid}, results, map[int]string{uid: "Z"}, 0); err != nil {
+		t.Fatalf("RecordMatch with duration=0 should not error: %v", err)
+	}
+	var playTime int
+	s.db.QueryRow("SELECT play_time_sec FROM player_stats WHERE user_id=?", uid).Scan(&playTime)
+	if playTime != 0 {
+		t.Errorf("duration=0 → play_time_sec = %d, want 0", playTime)
+	}
+}
+
 func intPtr(i int) *int { return &i }
 func mathAbs(f float64) float64 {
 	if f < 0 {
