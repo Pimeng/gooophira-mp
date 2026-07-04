@@ -1,6 +1,3 @@
-// Package cache 提供带 TTL 的通用缓存：默认本地（内存采样 LRU + 防抖落盘），
-// 配置启用 Redis 时切换为进程级共享的 Redis 后端（多实例间共享缓存）。
-// 对应 TS server/utils/cache.ts。
 package cache
 
 import (

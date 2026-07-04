@@ -358,7 +358,7 @@ func (h *Hub) DisbandRoom(room *Room) {
 
 // ---------- Phira 取数 ----------
 
-// FetchChart 取谱面（TODO stage-4: 加 chartCache）。
+// FetchChart 取谱面（TODO: stage-4 加 chartCache）。
 func (h *Hub) FetchChart(user *User, id int) (config.Chart, error) {
 	if h.Phira == nil {
 		return config.Chart{}, errors.New("chart-fetch-failed")
@@ -366,7 +366,7 @@ func (h *Hub) FetchChart(user *User, id int) (config.Chart, error) {
 	return h.Phira.FetchChart(id)
 }
 
-// FetchRecord 取成绩（TODO stage-4: 加 recordCache）。
+// FetchRecord 取成绩（TODO: stage-4 加 recordCache）。
 func (h *Hub) FetchRecord(user *User, id int) (config.RecordData, error) {
 	if h.Phira == nil {
 		return config.RecordData{}, errors.New("record-fetch-failed")

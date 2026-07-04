@@ -1,7 +1,6 @@
-// Package protocol implements the binary wire protocol shared between the Phira
-// multiplayer client and server: length-prefixed framing, a typed binary
-// reader/writer, IEEE-754 half-precision conversion, UUID handling, and the
-// full ClientCommand/ServerCommand/Message codec.
+// Package protocol 实现 Phira 多人客户端与服务端之间的二进制线路协议：长度前缀帧
+// 编解码、带类型的二进制读写器、IEEE-754 半精度浮点转换、UUID 处理，以及完整的
+// ClientCommand/ServerCommand/Message 编解码。
 package protocol
 
 import "math"

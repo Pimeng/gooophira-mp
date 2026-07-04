@@ -1,6 +1,5 @@
 package protocol
 
-// 客户端 <-> 服务端通信协议：命令、消息、房间状态及其二进制编解码。
 // tag 字节与字段顺序必须与 TS 端（src/common/commands.ts）逐字节一致。
 
 // 心跳相关时间常量。
