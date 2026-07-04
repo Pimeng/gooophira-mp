@@ -190,6 +190,7 @@ func (h *Hub) MakeRoomLifecycle(room *Room) *RoomLifecycle {
 		OnEnterPlaying:      h.OnEnterPlaying,
 		OnGameEnd:           h.OnGameEnd,
 		WSService:           h.State.WSService,
+		SystemChatUserID:    h.State.SystemChatUserID,
 	}
 }
 
@@ -287,7 +288,7 @@ func (h *Hub) sendReplayRecorderHint(user *User, lang *l10n.Language, name strin
 	if hint == "" || hint == key {
 		return
 	}
-	user.TrySend(protocol.SrvMessage{Message: protocol.MsgChat{User: 0, Content: hint}})
+	user.TrySend(protocol.SrvMessage{Message: protocol.MsgChat{User: h.State.SystemChatUserID(), Content: hint}})
 }
 
 // sendLateJoinHint 向迟到加入者（对局进行中加入的非观战者）发送系统聊天提示：告知其
@@ -307,8 +308,9 @@ func (h *Hub) sendLateJoinHint(user *User, lang *l10n.Language) {
 		return
 	}
 	snapshot := user
+	sysID := h.State.SystemChatUserID()
 	h.NewProtocolHack().schedule(func() {
-		snapshot.TrySend(protocol.SrvMessage{Message: protocol.MsgChat{User: 0, Content: hint}})
+		snapshot.TrySend(protocol.SrvMessage{Message: protocol.MsgChat{User: sysID, Content: hint}})
 	})
 }
 

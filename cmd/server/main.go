@@ -155,10 +155,12 @@ func main() {
 	// 回放录制：录制器注入全局状态（供 dispatch 的 Append*/SetRecordID），并通过
 	// OnEnterPlaying/OnGameEnd 钩子驱动每局的开始/落盘。
 	recorder := replay.NewRecorder(cfg.EffectiveReplayBaseDir(), logger)
-	// 配置假观战者用户 ID：设为真实 Phira 用户 ID 后，客户端可凭此 ID 拉取真实头像/昵称。
-	if fid := cfg.EffectiveReplayFakeMonitorUserID(); fid > 0 {
-		recorder.SetFakeMonitorID(int32(fid))
-		logger.Mark(l10n.TL(lang, "log-replay-fake-monitor-id", map[string]string{"id": strconv.Itoa(fid)}))
+	// SYSTEM_USER_ID 同时用作回放假观战者用户 ID 与所有系统聊天消息发送者 ID：
+	// 设为真实 Phira 用户 ID 后，客户端可凭此 ID 拉取真实头像/昵称，让假观战者与所有
+	// 系统消息（欢迎语、回放/迟到提示、管理员广播、维护通知、本局结算等）共用同一身份。
+	if sid := cfg.EffectiveSystemUserID(); sid > 0 {
+		recorder.SetFakeMonitorID(int32(sid))
+		logger.Mark(l10n.TL(lang, "log-replay-fake-monitor-id", map[string]string{"id": strconv.Itoa(sid)}))
 	}
 	state.ReplayRecorder = recorder
 

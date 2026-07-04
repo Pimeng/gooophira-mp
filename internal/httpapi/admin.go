@@ -177,9 +177,10 @@ func (s *Service) handleAdminBroadcast(w http.ResponseWriter, r *http.Request, l
 		rooms = append(rooms, room)
 	}
 	s.state.Mu.Unlock()
+	sysID := s.state.SystemChatUserID()
 	for _, room := range rooms {
 		room.Mu.Lock()
-		s.hub.BroadcastRoomMessage(room, protocol.MsgChat{User: 0, Content: body.Message})
+		s.hub.BroadcastRoomMessage(room, protocol.MsgChat{User: sysID, Content: body.Message})
 		room.Mu.Unlock()
 	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"ok": true, "rooms": len(rooms)})

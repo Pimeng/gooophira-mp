@@ -627,8 +627,9 @@ func (s *Session) sendWelcome(user *server.User) {
 	}
 	s.state.Mu.Lock()
 	text := s.state.BuildWelcomeText(user, hk)
+	sysID := s.state.SystemChatUserID()
 	s.state.Mu.Unlock()
-	user.TrySend(protocol.SrvMessage{Message: protocol.MsgChat{User: 0, Content: text}})
+	user.TrySend(protocol.SrvMessage{Message: protocol.MsgChat{User: sysID, Content: text}})
 }
 
 // fetchHitokoto 拉取一言；失败返回 nil（欢迎消息照常发，只是不带一言）。

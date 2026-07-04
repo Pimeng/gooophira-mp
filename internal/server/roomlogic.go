@@ -29,6 +29,9 @@ type RoomLifecycle struct {
 	OnEnterPlaying      func(room *Room)
 	OnGameEnd           func(room *Room)
 	WSService           WsBroadcaster
+	// SystemChatUserID 返回系统聊天消息发送者的 User ID（未配置 SYSTEM_USER_ID 时为 0）。
+	// 用于 chat-waiting-reconnect、本局结算等系统消息的发送者标识。
+	SystemChatUserID func() int32
 }
 
 func removeInt(s []int, v int) []int {
@@ -391,7 +394,7 @@ func (r *Room) notifyDanglingReconnect(lc *RoomLifecycle, st *StatePlaying) {
 		st.ReconnectNotified[id] = struct{}{}
 		remainMs := u.dangleDeadlineMs(time.Now().UnixMilli())
 		seconds := max(1, int(math.Ceil(float64(remainMs)/1000)))
-		r.Send(lc, protocol.MsgChat{User: 0, Content: l10n.TL(lc.Lang, "chat-waiting-reconnect",
+		r.Send(lc, protocol.MsgChat{User: lc.SystemChatUserID(), Content: l10n.TL(lc.Lang, "chat-waiting-reconnect",
 			map[string]string{"user": u.Name, "seconds": fmt.Sprintf("%d", seconds)})})
 	}
 }
@@ -435,7 +438,7 @@ func (r *Room) broadcastGameSummary(lc *RoomLifecycle, st StatePlaying) {
 		"name": r.nameOf(lc, bestStdID), "id": fmt.Sprintf("%d", bestStdID), "std": fmt.Sprintf("%d", int(math.Round(bestStd*1000))),
 	})
 	summary := tl("chat-game-summary", map[string]string{"scoreText": scoreText, "accText": accText, "stdText": stdText})
-	r.Send(lc, protocol.MsgChat{User: 0, Content: summary})
+	r.Send(lc, protocol.MsgChat{User: lc.SystemChatUserID(), Content: summary})
 }
 
 // rotateCycleHost 在 cycle 模式下把房主轮换到下一位。对齐 jphira-mp 的

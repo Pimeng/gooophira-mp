@@ -82,7 +82,8 @@ func (h *testHarness) lifecycle() *RoomLifecycle {
 		PickNextHostID: func(ids []int, oldHostID int) (int, bool) {
 			return pickNextHost(ids, oldHostID)
 		},
-		Lang: h.state.ServerLang,
+		Lang:             h.state.ServerLang,
+		SystemChatUserID: h.state.SystemChatUserID,
 	}
 }
 

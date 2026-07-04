@@ -168,6 +168,13 @@ func (s *ServerState) ShareStationConfigured() bool {
 	return s.Config.ShareStationConfigured()
 }
 
+// SystemChatUserID 返回系统聊天消息发送者的 User ID（int32 形式，可直接填入 MsgChat.User）。
+// 未配置 SYSTEM_USER_ID 时返回 0（保留「系统」语义，客户端按系统消息渲染）；
+// 配置为真实 Phira 用户 ID 后，所有系统消息将以该身份发送，客户端可凭此 ID 拉取头像与昵称。
+func (s *ServerState) SystemChatUserID() int32 {
+	return int32FromInt(s.Config.EffectiveSystemUserID())
+}
+
 // ApplyConfig 应用新配置到服务器状态（热重载时调用，须持 Mu）。
 func (s *ServerState) ApplyConfig(cfg *config.ServerConfig) {
 	s.Config = cfg

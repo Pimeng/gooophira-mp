@@ -350,9 +350,10 @@ func (c *Console) cmdBroadcast(args []string) {
 		rooms = append(rooms, room)
 	}
 	c.state.Mu.Unlock()
+	sysID := c.state.SystemChatUserID()
 	for _, room := range rooms {
 		room.Mu.Lock()
-		c.hub.BroadcastRoomMessage(room, protocol.MsgChat{User: 0, Content: msg})
+		c.hub.BroadcastRoomMessage(room, protocol.MsgChat{User: sysID, Content: msg})
 		room.Mu.Unlock()
 	}
 	c.printOK(c.t("cli-broadcast-sent", map[string]string{"count": strconv.Itoa(len(rooms))}))
@@ -373,7 +374,7 @@ func (c *Console) cmdRoomSay(args []string) {
 		return
 	}
 	room.Mu.Lock()
-	c.hub.BroadcastRoomMessage(room, protocol.MsgChat{User: 0, Content: msg})
+	c.hub.BroadcastRoomMessage(room, protocol.MsgChat{User: c.state.SystemChatUserID(), Content: msg})
 	room.Mu.Unlock()
 	c.printOK(c.t("cli-room-message-sent", map[string]string{"room": args[0]}))
 }
@@ -387,9 +388,10 @@ func (c *Console) cmdDisband(args []string) {
 	c.state.Mu.Lock()
 	room := c.state.Rooms[rid]
 	if room != nil {
+		sysID := c.state.SystemChatUserID()
 		for _, id := range room.AllParticipantIDs() {
 			if u := c.state.Users[id]; u != nil {
-				u.TrySend(protocol.SrvMessage{Message: protocol.MsgChat{User: 0, Content: c.t("room-disbanded-by-admin", nil)}})
+				u.TrySend(protocol.SrvMessage{Message: protocol.MsgChat{User: sysID, Content: c.t("room-disbanded-by-admin", nil)}})
 			}
 		}
 		c.hub.DisbandRoom(room)

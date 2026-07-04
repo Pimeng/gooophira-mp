@@ -403,12 +403,12 @@ func TestForceSyncHost_HostSendsChangeHostTrue(t *testing.T) {
 
 // ---------- 回放录制器提示聊天 ----------
 
-// findHintChat 在 sent 中查找系统聊天（MsgChat User=0）。
+// findHintChat 在 sent 中查找系统聊天（MsgChat，不限 User）。
 // 返回 (内容, 是否找到)。
 func findHintChat(sent []protocol.ServerCommand) (string, bool) {
 	for _, cmd := range sent {
 		if sm, ok := cmd.(protocol.SrvMessage); ok {
-			if chat, ok := sm.Message.(protocol.MsgChat); ok && chat.User == 0 {
+			if chat, ok := sm.Message.(protocol.MsgChat); ok {
 				return chat.Content, true
 			}
 		}
