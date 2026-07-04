@@ -151,7 +151,7 @@ SHARE_STATION:
   TOKEN: "your_share_station_token_here"
 
 # Redis 缓存配置
-# 启用后，所有本地缓存（谱面缓存、一言缓存等）将迁移到 Redis，不再使用本地内存和磁盘缓存
+# 启用后，本地缓存（玩家鉴权 token、成绩记录等）将迁移到 Redis，多实例共享并按 TTL 过期
 REDIS:
   # 是否启用 Redis 缓存，默认 false
   ENABLED: false

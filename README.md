@@ -227,7 +227,7 @@ stop, shutdown                优雅关闭
 
 ### Redis 共享缓存
 
-多实例部署时启用 Redis，使谱面认证 token（30s）和成绩记录（1h）在实例间共享。
+多实例部署时启用 Redis，使玩家鉴权 token（6h）和成绩记录（1h）在实例间共享。
 
 配置示例：
 ```yaml
