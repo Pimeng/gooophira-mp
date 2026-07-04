@@ -171,8 +171,13 @@ func (r *Room) ResetGameTime(usersByID func(id int) *User) {
 }
 
 // OnUserLeave 处理用户离开房间：广播、移除成员、必要时转移房主，并检查就绪/结算。
-// 返回房间是否应被解散（已无任何成员）。
-func (r *Room) OnUserLeave(lc *RoomLifecycle, user *User) bool {
+// 返回 (shouldDrop, disband)：
+//   - shouldDrop：房间已空（无任何成员），调用方直接 delete(state.Rooms) 即可；
+//   - disband：比赛 AutoDisband 触发，调用方须在释放 room.Mu 后调 Hub.DisbandRoom
+//     以广播离场、转移房主、EmitEvent（直接 delete 会留下悬空引用）。
+//
+// 两者互斥：shouldDrop=true 时房间已空，CheckAllReady 不会进 checkPlaying，disband 必为 false。
+func (r *Room) OnUserLeave(lc *RoomLifecycle, user *User) (shouldDrop bool, disband bool) {
 	r.Send(lc, protocol.MsgLeaveRoom{User: int32FromInt(user.ID), Name: user.Name})
 	user.Room = nil
 
@@ -185,11 +190,11 @@ func (r *Room) OnUserLeave(lc *RoomLifecycle, user *User) bool {
 
 	if r.HostID == user.ID {
 		if len(r.users) == 0 {
-			return true
+			return true, false
 		}
 		newHost, ok := lc.PickNextHostID(r.UserIDs(), user.ID)
 		if !ok {
-			return true
+			return true, false
 		}
 		r.HostID = newHost
 		r.logRoomInfo(lc, "log-room-host-changed-offline", map[string]string{
@@ -202,8 +207,8 @@ func (r *Room) OnUserLeave(lc *RoomLifecycle, user *User) bool {
 	}
 
 	r.NotifyWebSocket(lc)
-	r.CheckAllReady(lc)
-	return r.IsEmpty()
+	disband = r.CheckAllReady(lc)
+	return r.IsEmpty(), disband
 }
 
 func (r *Room) logRoomInfo(lc *RoomLifecycle, key string, args map[string]string) {
@@ -242,13 +247,17 @@ func joinIntIDs(ids []int, sep string) string {
 // CheckAllReady 推进房间状态机：
 //   - WaitForReady：全员就绪（且非比赛手动开始）则进入 Playing；
 //   - Playing：全员完成（成绩或中止）则结算并回到 SelectChart（含比赛自动解散 / cycle 轮换）。
-func (r *Room) CheckAllReady(lc *RoomLifecycle) {
+//
+// 返回 disband=true 表示比赛 AutoDisband 触发，调用方须在释放 room.Mu 后调 Hub.DisbandRoom
+// 完成剩余成员踢出与事件外发（直接 delete 会留下悬空引用）。
+func (r *Room) CheckAllReady(lc *RoomLifecycle) (disband bool) {
 	switch st := r.State.(type) {
 	case StateWaitForReady:
 		r.checkWaitForReady(lc, st)
 	case StatePlaying:
-		r.checkPlaying(lc, st)
+		return r.checkPlaying(lc, st)
 	}
+	return false
 }
 
 func (r *Room) checkWaitForReady(lc *RoomLifecycle, st StateWaitForReady) {
@@ -296,7 +305,7 @@ func (r *Room) startPlaying(lc *RoomLifecycle) {
 	r.NotifyWebSocket(lc)
 }
 
-func (r *Room) checkPlaying(lc *RoomLifecycle, st StatePlaying) {
+func (r *Room) checkPlaying(lc *RoomLifecycle, st StatePlaying) (disband bool) {
 	finished := true
 	for _, id := range r.users {
 		_, hasResult := st.Results[id]
@@ -308,7 +317,7 @@ func (r *Room) checkPlaying(lc *RoomLifecycle, st StatePlaying) {
 	}
 	if !finished {
 		r.notifyDanglingReconnect(lc, &st)
-		return
+		return false
 	}
 
 	if len(st.Results) > 0 {
@@ -324,9 +333,10 @@ func (r *Room) checkPlaying(lc *RoomLifecycle, st StatePlaying) {
 	}
 	r.State = StateSelectChart{}
 
-	if r.Contest != nil && r.Contest.AutoDisband && lc.DisbandRoom != nil {
-		lc.DisbandRoom(r)
-		return
+	// 比赛 AutoDisband：不再在此调 lc.DisbandRoom（会自死锁，因调用方持 room.Mu）。
+	// 返回 true 让调用方在 room.Mu 释放后执行 DisbandRoom。
+	if r.Contest != nil && r.Contest.AutoDisband {
+		return true
 	}
 
 	if r.IsCycle() && len(r.users) > 1 {
@@ -335,6 +345,7 @@ func (r *Room) checkPlaying(lc *RoomLifecycle, st StatePlaying) {
 
 	r.OnStateChange(lc)
 	r.NotifyWebSocket(lc)
+	return false
 }
 
 // notifyDanglingReconnect 在「其他玩家都已完成、仅剩断线挂起玩家未完成」时，向房间播报

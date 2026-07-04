@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"math"
@@ -63,19 +64,20 @@ type RecordMatchResult struct {
 // 增量更新 player_stats（含 play_time_sec / total_score）与 chart_stats（含 popularity）。
 //
 // userNames 是 userID → 名字（来自服务器状态，可为空 map）。
+// ctx 控制取消：服务器关闭时 ctx 取消会让进行中的 SQL 立即返回。
 // 返回每位参与玩家的更新后 rating / play_time / total_score。
-func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
+func (s *Store) RecordMatch(ctx context.Context, roomID string, chartID int, chartName string,
 	userIDs []int, results map[int]config.RecordData, userNames map[int]string,
 	durationSec float64) ([]RecordMatchResult, error) {
 
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("stats: begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
 	// 1. 插入 match 行
-	res, err := tx.Exec(
+	res, err := tx.ExecContext(ctx,
 		`INSERT INTO matches(room_id, chart_id, chart_name, duration_sec, n) VALUES(?,?,?,?,?)`,
 		roomID, chartID, chartName, durationSec, len(userIDs),
 	)
@@ -88,7 +90,7 @@ func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
 	}
 
 	// 2. 读取当前 rating 用于 ELO 计算
-	oldRatings := s.loadRatings(tx, userIDs)
+	oldRatings := s.loadRatings(ctx, tx, userIDs)
 
 	// 3. 按 score desc 计算排名 + pairwise ELO 增量
 	ranked := rankByScore(userIDs, results)
@@ -104,7 +106,7 @@ func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
 		if rd.FullCombo {
 			fc = 1
 		}
-		if _, err := tx.Exec(
+		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO match_results(match_id,user_id,score,accuracy,perfect,good,bad,miss,max_combo,full_combo,std,std_score,rank)
 			 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			matchID, uid, rd.Score, rd.Accuracy,
@@ -116,7 +118,7 @@ func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
 
 		// player_stats upsert（含 ELO rating 增量）
 		newRating := oldRatings[uid] + eloDeltas[uid]
-		if _, err := tx.Exec(
+		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO player_stats(user_id,games,wins,sum_acc,best_score,total_score,play_time_sec,rating,updated_at)
 			 VALUES(?,1,?,?,?,?,?,?,?)
 			 ON CONFLICT(user_id) DO UPDATE SET
@@ -135,7 +137,7 @@ func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
 
 		// users 名字缓存：空 name 不覆盖（玩家离线时 userNames 缺该条目）
 		name := userNames[uid]
-		if _, err := tx.Exec(
+		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO users(id,name,last_seen) VALUES(?,?,?)
 			 ON CONFLICT(id) DO UPDATE SET name=COALESCE(NULLIF(excluded.name, ''), users.name), last_seen=excluded.last_seen`,
 			uid, name, now,
@@ -168,7 +170,7 @@ func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
 			ELSE ?
 		END`
 		decayLambda := -math.Ln2 / float64(popularityHalfLifeDays)
-		if _, err := tx.Exec(
+		if _, err := tx.ExecContext(ctx,
 			fmt.Sprintf(
 				`INSERT INTO chart_stats(chart_id,chart_name,plays,sum_acc,pass_rate,last_played_at,popularity,updated_at)
 				 VALUES(?,?,?,?,?,?,?,?)
@@ -177,8 +179,8 @@ func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
 				   plays          = plays + excluded.plays,
 				   sum_acc        = sum_acc + excluded.sum_acc,
 				   pass_rate      = CASE WHEN plays + excluded.plays > 0
-				                     THEN CAST((pass_rate * plays + ?) AS REAL) / (plays + excluded.plays)
-				                     ELSE 0 END,
+					                     THEN CAST((pass_rate * plays + ?) AS REAL) / (plays + excluded.plays)
+					                     ELSE 0 END,
 				   last_played_at = excluded.last_played_at,
 				   popularity     = %s,
 				   updated_at     = excluded.updated_at`, decayExpr),
@@ -197,7 +199,7 @@ func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
 	// 事务提交后回查 play_time_sec 累加值（仅需一次批量查询）
 	for i := range out {
 		var pt int
-		if err := s.db.QueryRow("SELECT play_time_sec FROM player_stats WHERE user_id=?", out[i].UserID).Scan(&pt); err == nil {
+		if err := s.db.QueryRowContext(ctx, "SELECT play_time_sec FROM player_stats WHERE user_id=?", out[i].UserID).Scan(&pt); err == nil {
 			out[i].PlayTimeSec = pt
 		}
 	}
@@ -205,13 +207,13 @@ func (s *Store) RecordMatch(roomID string, chartID int, chartName string,
 }
 
 // loadRatings 从 player_stats 读取当前 rating（新玩家默认 1500）。
-func (s *Store) loadRatings(tx *sql.Tx, userIDs []int) map[int]float64 {
+func (s *Store) loadRatings(ctx context.Context, tx *sql.Tx, userIDs []int) map[int]float64 {
 	ratings := make(map[int]float64, len(userIDs))
 	for _, uid := range userIDs {
 		ratings[uid] = eloBaseRating
 	}
 	// 批量读取已有记录
-	rows, err := tx.Query(`SELECT user_id, rating FROM player_stats WHERE user_id IN (`+placeholders(len(userIDs))+`)`, intsToAny(userIDs)...)
+	rows, err := tx.QueryContext(ctx, `SELECT user_id, rating FROM player_stats WHERE user_id IN (`+placeholders(len(userIDs))+`)`, intsToAny(userIDs)...)
 	if err != nil {
 		return ratings
 	}

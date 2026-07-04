@@ -20,6 +20,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -412,13 +413,13 @@ func (c *benchClient) performGameCycle(roomID protocol.RoomID, mc *metricsCollec
 
 type benchMockPhira struct{}
 
-func (b *benchMockPhira) FetchUserInfo(token string) (server.PhiraUserInfo, error) {
+func (b *benchMockPhira) FetchUserInfo(ctx context.Context, token string) (server.PhiraUserInfo, error) {
 	return server.PhiraUserInfo{}, nil
 }
-func (b *benchMockPhira) FetchChart(id int) (config.Chart, error) {
+func (b *benchMockPhira) FetchChart(ctx context.Context, id int) (config.Chart, error) {
 	return config.Chart{ID: id, Name: fmt.Sprintf("chart-%d", id)}, nil
 }
-func (b *benchMockPhira) FetchRecord(id int) (config.RecordData, error) {
+func (b *benchMockPhira) FetchRecord(ctx context.Context, id int) (config.RecordData, error) {
 	return config.RecordData{ID: id, Player: id, Score: 900000, Accuracy: 0.95, Std: 0.02}, nil
 }
 

@@ -50,8 +50,6 @@ type testHarness struct {
 }
 
 func newHarness(monitors ...int) *testHarness {
-	chartCache.Clear()
-	recordCache.Clear()
 	cfg := &config.ServerConfig{Monitors: monitors}
 	st := NewServerState(cfg, nil, "test", "", "")
 	return &testHarness{users: map[int]*User{}, state: st}
@@ -298,6 +296,48 @@ func TestCheckAllReady_PlayingNotFinished(t *testing.T) {
 	}
 }
 
+// TestCheckAllReady_ContestAutoDisband_NoDeadlock 是 DisbandRoom 自死锁修复的回归测试。
+// 旧实现：checkPlaying 在持 room.Mu 时调 lc.DisbandRoom，而 DisbandRoom 内部又 room.Mu.Lock()
+// → 自死锁。新实现：checkPlaying 返回 disband=true，不直接调 DisbandRoom。
+// 此测试用 lifecycle 不设置 DisbandRoom 字段（即 nil），若旧实现复现会因 nil 调用 panic，
+// 新实现则正常返回 disband=true。
+func TestCheckAllReady_ContestAutoDisband_NoDeadlock(t *testing.T) {
+	h := newHarness()
+	r := NewRoom("room1", 1, 8, false)
+	r.Contest = &Contest{Whitelist: map[int]struct{}{1: {}, 2: {}}, ManualStart: true, AutoDisband: true}
+	bob := h.addUser(2, "bob")
+	alice := h.addUser(1, "alice")
+	r.AddUser(bob, false)
+	r.AddUser(alice, false)
+
+	// 双方均 finished（alice 交成绩，bob 中止）
+	r.State = StatePlaying{
+		Results: map[int]config.RecordData{1: {Score: 900000, Accuracy: 0.95, Std: 0.030}},
+		Aborted: map[int]struct{}{2: {}},
+	}
+
+	// 在持 room.Mu 的情况下调 OnUserLeave（模拟 removeUser/CmdLeaveRoom 的真实路径）。
+	// 旧实现会在 checkPlaying → lc.DisbandRoom → room.Mu.Lock() 自死锁，测试会卡死或超时。
+	r.Mu.Lock()
+	shouldDrop, disband := r.OnUserLeave(h.lifecycle(), alice)
+	r.Mu.Unlock()
+
+	if shouldDrop {
+		t.Error("shouldDrop=false expected: bob still in room")
+	}
+	if !disband {
+		t.Fatal("disband=true expected: Contest.AutoDisband triggered")
+	}
+	// 房间状态应已切回 SelectChart（checkPlaying 内已切换）
+	if _, ok := r.State.(StateSelectChart); !ok {
+		t.Fatalf("state should be SelectChart after game end, got %T", r.State)
+	}
+	// 应广播 GameEnd
+	if countMsg[protocol.MsgGameEnd](h) != 1 {
+		t.Error("should broadcast GameEnd once")
+	}
+}
+
 // ---------- 房主转移 ----------
 
 func TestOnUserLeave_HostTransfer(t *testing.T) {
@@ -308,7 +348,7 @@ func TestOnUserLeave_HostTransfer(t *testing.T) {
 	host.Room, bob.Room = r, r
 	r.AddUser(bob, false)
 
-	disband := r.OnUserLeave(h.lifecycle(), host)
+	disband, _ := r.OnUserLeave(h.lifecycle(), host)
 	if disband {
 		t.Fatal("room should not disband while bob remains")
 	}
@@ -335,7 +375,8 @@ func TestOnUserLeave_LastUserDisbands(t *testing.T) {
 	r := NewRoom("room1", 1, 8, false)
 	host := h.addUser(1, "alice")
 	host.Room = r
-	if !r.OnUserLeave(h.lifecycle(), host) {
+	shouldDrop, _ := r.OnUserLeave(h.lifecycle(), host)
+	if !shouldDrop {
 		t.Fatal("room should disband when last user leaves")
 	}
 }

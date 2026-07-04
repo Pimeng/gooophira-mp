@@ -172,7 +172,7 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			room.logRoomMark(lc, "log-room-left", map[string]string{
 				"user": user.Name, "suffix": h.monitorSuffix(user.Monitor),
 			})
-			shouldDrop := room.OnUserLeave(lc, user)
+			shouldDrop, disband := room.OnUserLeave(lc, user)
 			if !shouldDrop {
 				room.RefreshLive(h.State.ReplayEnabled)
 			}
@@ -183,6 +183,11 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 				delete(h.State.Rooms, room.ID)
 			}
 			room.Mu.Unlock()
+			// 比赛 AutoDisband：room.Mu 释放后再调 DisbandRoom（避免重入自死锁）。
+			// 调用方持 state.Mu，DisbandRoom 内部 room.Mu.Lock() 安全。
+			if disband {
+				h.DisbandRoom(room)
+			}
 			return nil
 		})}, true
 
@@ -263,7 +268,9 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			room.State = StateWaitForReady{Started: map[int]struct{}{user.ID: {}}}
 			room.OnStateChange(lc)
 			room.NotifyWebSocket(lc)
-			h.CheckRoomAllReady(room)
+			if h.CheckRoomAllReady(room) {
+				h.DisbandRoom(room)
+			}
 			return nil
 		})}, true
 
@@ -287,7 +294,9 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			room.logRoomInfo(h.MakeRoomLifecycle(room), "log-room-ready", map[string]string{"user": user.Name})
 			h.BroadcastRoomMessage(room, protocol.MsgReady{User: int32FromInt(user.ID)})
 			room.NotifyWebSocket(h.MakeRoomLifecycle(room))
-			h.CheckRoomAllReady(room)
+			if h.CheckRoomAllReady(room) {
+				h.DisbandRoom(room)
+			}
 			return nil
 		})}, true
 
@@ -365,7 +374,9 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 				h.State.ReplayRecorder.SetRecordID(room.ID, user.ID, record.ID)
 			}
 			room.NotifyWebSocket(h.MakeRoomLifecycle(room))
-			h.CheckRoomAllReady(room)
+			if h.CheckRoomAllReady(room) {
+				h.DisbandRoom(room)
+			}
 			return nil
 		})}, true
 
@@ -389,7 +400,9 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			room.logRoomMark(h.MakeRoomLifecycle(room), "log-room-abort", map[string]string{"user": user.Name})
 			h.BroadcastRoomMessage(room, protocol.MsgAbort{User: int32FromInt(user.ID)})
 			room.NotifyWebSocket(h.MakeRoomLifecycle(room))
-			h.CheckRoomAllReady(room)
+			if h.CheckRoomAllReady(room) {
+				h.DisbandRoom(room)
+			}
 			return nil
 		})}, true
 

@@ -495,8 +495,14 @@ func (c *Console) abortPlayingAndCheck(u *server.User) {
 	st.Aborted[u.ID] = struct{}{}
 	c.hub.BroadcastRoomMessage(room, protocol.MsgAbort{User: int32(u.ID)})
 	room.NotifyWebSocket(c.hub.MakeRoomLifecycle(room))
-	c.hub.CheckRoomAllReady(room)
+	disband := c.hub.CheckRoomAllReady(room)
 	room.Mu.Unlock()
+	// 比赛 AutoDisband：room.Mu 释放后再持 state.Mu 调 DisbandRoom（避免重入自死锁）。
+	if disband {
+		c.state.Mu.Lock()
+		c.hub.DisbandRoom(room)
+		c.state.Mu.Unlock()
+	}
 }
 
 func (c *Console) cmdBan(args []string) {

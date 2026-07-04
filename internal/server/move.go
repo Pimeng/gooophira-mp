@@ -27,7 +27,12 @@ func (h *Hub) MoveUser(user *User, toRoom *Room, monitor bool) error {
 		return errJoinRoomFull
 	}
 	// 先入目标，再退源（与 TS 顺序一致）；源房间空则解散。
-	if from.OnUserLeave(h.MakeRoomLifecycle(from), user) {
+	// 源房间已校验为 SelectChart，OnUserLeave 不会进 checkPlaying，故 disband 恒 false。
+	// 但仍须持 from.Mu（OnUserLeave 假设调用方持锁，原代码遗漏，此处补上）。
+	from.Mu.Lock()
+	shouldDrop, _ := from.OnUserLeave(h.MakeRoomLifecycle(from), user)
+	from.Mu.Unlock()
+	if shouldDrop {
 		delete(h.State.Rooms, from.ID)
 	}
 	user.Monitor = monitor

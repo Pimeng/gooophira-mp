@@ -1,6 +1,7 @@
 package phira
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,7 +24,7 @@ func TestClient_TokenCacheHit(t *testing.T) {
 
 	c := NewClient(srv.URL)
 	for range 3 {
-		info, err := c.FetchUserInfo("tok-abc")
+		info, err := c.FetchUserInfo(context.Background(), "tok-abc")
 		if err != nil || info.ID != 42 || info.Name != "alice" {
 			t.Fatalf("FetchUserInfo = %+v, %v", info, err)
 		}
@@ -45,7 +46,7 @@ func TestClient_RecordCacheHit(t *testing.T) {
 
 	c := NewClient(srv.URL)
 	for range 3 {
-		rec, err := c.FetchRecord(7)
+		rec, err := c.FetchRecord(context.Background(), 7)
 		if err != nil || rec.ID != 7 || rec.Score != 1000000 {
 			t.Fatalf("FetchRecord = %+v, %v", rec, err)
 		}
@@ -67,7 +68,7 @@ func TestClient_TokenCacheErrorNotCached(t *testing.T) {
 	c := NewClient(srv.URL)
 	// 两次失败都应真正发起 HTTP（失败结果不缓存）。
 	for range 2 {
-		if _, err := c.FetchUserInfo("bad"); err == nil {
+		if _, err := c.FetchUserInfo(context.Background(), "bad"); err == nil {
 			t.Fatal("expected auth error")
 		}
 	}

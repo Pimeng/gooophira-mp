@@ -101,7 +101,7 @@ REPLAY_ENABLED: false
 # 关闭后，即使用户在客户端开启了自动上传偏好，服务端也不会执行上传
 REPLAY_AUTO_UPLOAD: false
 
-# 观战用户 ID
+# 观战用户 ID（示例值，生产环境替换为实际的管理员用户 ID 列表）
 MONITORS:
   - 2
 

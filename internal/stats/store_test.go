@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -41,7 +42,7 @@ func TestRecordMatch(t *testing.T) {
 	userIDs := []int{1001, 1002, 1003}
 	names := map[int]string{1001: "Alice", 1002: "Bob", 1003: "Carol"}
 
-	mr, err := s.RecordMatch("room-abc", 42, "Test Chart", userIDs, results, names, 120.5)
+	mr, err := s.RecordMatch(context.Background(), "room-abc", 42, "Test Chart", userIDs, results, names, 120.5)
 	if err != nil {
 		t.Fatalf("RecordMatch: %v", err)
 	}
@@ -102,13 +103,13 @@ func TestRecordMatchMultiple(t *testing.T) {
 		1001: {Player: 1001, Score: 100, Accuracy: 0.95},
 		1002: {Player: 1002, Score: 90, Accuracy: 0.90},
 	}
-	s.RecordMatch("r1", 1, "C1", []int{1001, 1002}, r1, nil, 60)
+	s.RecordMatch(context.Background(), "r1", 1, "C1", []int{1001, 1002}, r1, nil, 60)
 
 	r2 := map[int]config.RecordData{
 		1001: {Player: 1001, Score: 200, Accuracy: 0.98},
 		1002: {Player: 1002, Score: 180, Accuracy: 0.92},
 	}
-	s.RecordMatch("r2", 1, "C1", []int{1001, 1002}, r2, nil, 90)
+	s.RecordMatch(context.Background(), "r2", 1, "C1", []int{1001, 1002}, r2, nil, 90)
 
 	var games, playTime int
 	s.db.QueryRow("SELECT games, play_time_sec FROM player_stats WHERE user_id=1001").Scan(&games, &playTime)
@@ -136,7 +137,7 @@ func TestELORating(t *testing.T) {
 		1001: {Player: 1001, Score: 100, Accuracy: 0.9},
 		1002: {Player: 1002, Score: 90, Accuracy: 0.8},
 	}
-	mr, err := s.RecordMatch("r1", 0, "", []int{1001, 1002}, r, nil, 30)
+	mr, err := s.RecordMatch(context.Background(), "r1", 0, "", []int{1001, 1002}, r, nil, 30)
 	if err != nil {
 		t.Fatalf("RecordMatch: %v", err)
 	}
@@ -163,7 +164,7 @@ func TestPlayerProfile(t *testing.T) {
 	r := map[int]config.RecordData{
 		1001: {Player: 1001, Score: 900000, Accuracy: 0.98},
 	}
-	s.RecordMatch("r1", 0, "", []int{1001}, r, map[int]string{1001: "Alice"}, 45)
+	s.RecordMatch(context.Background(), "r1", 0, "", []int{1001}, r, map[int]string{1001: "Alice"}, 45)
 
 	p, err := s.GetPlayerProfile(1001)
 	if err != nil {
@@ -185,9 +186,9 @@ func TestLeaderboard(t *testing.T) {
 	}
 	defer s.Close()
 
-	s.RecordMatch("r1", 0, "", []int{1001}, map[int]config.RecordData{1001: {Player: 1001, Score: 100, Accuracy: 0.9}}, nil, 30)
-	s.RecordMatch("r2", 0, "", []int{1002}, map[int]config.RecordData{1002: {Player: 1002, Score: 200, Accuracy: 0.95}}, nil, 60)
-	s.RecordMatch("r3", 0, "", []int{1002}, map[int]config.RecordData{1002: {Player: 1002, Score: 150, Accuracy: 0.9}}, nil, 40)
+	s.RecordMatch(context.Background(), "r1", 0, "", []int{1001}, map[int]config.RecordData{1001: {Player: 1001, Score: 100, Accuracy: 0.9}}, nil, 30)
+	s.RecordMatch(context.Background(), "r2", 0, "", []int{1002}, map[int]config.RecordData{1002: {Player: 1002, Score: 200, Accuracy: 0.95}}, nil, 60)
+	s.RecordMatch(context.Background(), "r3", 0, "", []int{1002}, map[int]config.RecordData{1002: {Player: 1002, Score: 150, Accuracy: 0.9}}, nil, 40)
 
 	lb, err := s.GetLeaderboardByPlayTime(10)
 	if err != nil {
@@ -206,11 +207,11 @@ func TestRecentMatches(t *testing.T) {
 	}
 	defer s.Close()
 
-	s.RecordMatch("r1", 42, "Alpha", []int{1001}, map[int]config.RecordData{1001: {Player: 1001, Score: 100, Accuracy: 0.9}}, nil, 30)
+	s.RecordMatch(context.Background(), "r1", 42, "Alpha", []int{1001}, map[int]config.RecordData{1001: {Player: 1001, Score: 100, Accuracy: 0.9}}, nil, 30)
 	time.Sleep(1 * time.Second)
-	s.RecordMatch("r2", 43, "Beta", []int{1001}, map[int]config.RecordData{1001: {Player: 1001, Score: 200, Accuracy: 0.95}}, nil, 45)
+	s.RecordMatch(context.Background(), "r2", 43, "Beta", []int{1001}, map[int]config.RecordData{1001: {Player: 1001, Score: 200, Accuracy: 0.95}}, nil, 45)
 	time.Sleep(1 * time.Second)
-	s.RecordMatch("r3", 42, "Alpha", []int{1002}, map[int]config.RecordData{1002: {Player: 1002, Score: 300, Accuracy: 0.99}}, nil, 60)
+	s.RecordMatch(context.Background(), "r3", 42, "Alpha", []int{1002}, map[int]config.RecordData{1002: {Player: 1002, Score: 300, Accuracy: 0.99}}, nil, 60)
 
 	recent, err := s.GetRecentMatches(1001, 10)
 	if err != nil {
@@ -236,8 +237,8 @@ func TestChartPopularity(t *testing.T) {
 	}
 	defer s.Close()
 
-	s.RecordMatch("r1", 42, "Hot Chart", []int{1001}, map[int]config.RecordData{1001: {Player: 1001, Score: 100, Accuracy: 0.9}}, nil, 30)
-	s.RecordMatch("r2", 42, "Hot Chart", []int{1001}, map[int]config.RecordData{1001: {Player: 1001, Score: 200, Accuracy: 0.95}}, nil, 45)
+	s.RecordMatch(context.Background(), "r1", 42, "Hot Chart", []int{1001}, map[int]config.RecordData{1001: {Player: 1001, Score: 100, Accuracy: 0.9}}, nil, 30)
+	s.RecordMatch(context.Background(), "r2", 42, "Hot Chart", []int{1001}, map[int]config.RecordData{1001: {Player: 1001, Score: 200, Accuracy: 0.95}}, nil, 45)
 
 	cp, err := s.GetChartStats(42)
 	if err != nil {
@@ -261,7 +262,7 @@ func TestCleanupDetail(t *testing.T) {
 	}
 	defer s.Close()
 
-	s.RecordMatch("r1", 0, "", []int{1001}, map[int]config.RecordData{1001: {Player: 1001, Score: 100, Accuracy: 0.95}}, nil, 30)
+	s.RecordMatch(context.Background(), "r1", 0, "", []int{1001}, map[int]config.RecordData{1001: {Player: 1001, Score: 100, Accuracy: 0.95}}, nil, 30)
 
 	// 0 = keep forever
 	s.CleanupDetail(0)
@@ -305,7 +306,7 @@ func TestRecordMatchEmptyNameDoesNotOverwrite(t *testing.T) {
 
 	// 第一次：写入玩家 1001 的名字
 	r1 := map[int]config.RecordData{1001: {Player: 1001, Score: 100, Accuracy: 0.9}}
-	s.RecordMatch("r1", 0, "", []int{1001}, r1, map[int]string{1001: "Alice"}, 30)
+	s.RecordMatch(context.Background(), "r1", 0, "", []int{1001}, r1, map[int]string{1001: "Alice"}, 30)
 
 	var name string
 	s.db.QueryRow("SELECT name FROM users WHERE id=1001").Scan(&name)
@@ -315,7 +316,7 @@ func TestRecordMatchEmptyNameDoesNotOverwrite(t *testing.T) {
 
 	// 第二次：玩家已离线，userNames 不含 1001（name 为空串）
 	r2 := map[int]config.RecordData{1001: {Player: 1001, Score: 200, Accuracy: 0.95}}
-	s.RecordMatch("r2", 0, "", []int{1001}, r2, nil, 45)
+	s.RecordMatch(context.Background(), "r2", 0, "", []int{1001}, r2, nil, 45)
 
 	s.db.QueryRow("SELECT name FROM users WHERE id=1001").Scan(&name)
 	if name != "Alice" {
@@ -347,7 +348,7 @@ func TestRecordMatch_EmptyUsers(t *testing.T) {
 	}
 	defer s.Close()
 
-	mr, err := s.RecordMatch("room-empty", 42, "Test", []int{}, map[int]config.RecordData{}, nil, 0)
+	mr, err := s.RecordMatch(context.Background(), "room-empty", 42, "Test", []int{}, map[int]config.RecordData{}, nil, 0)
 	if err != nil {
 		t.Fatalf("RecordMatch with empty users should not error, got %v", err)
 	}
@@ -383,7 +384,7 @@ func TestRecordMatch_SinglePlayerELOUnchanged(t *testing.T) {
 	results := map[int]config.RecordData{
 		uid: {ID: 1, Player: uid, Score: 900000, Accuracy: 0.95},
 	}
-	mr, err := s.RecordMatch("room-single", 0, "", []int{uid}, results, map[int]string{uid: "Solo"}, 60)
+	mr, err := s.RecordMatch(context.Background(), "room-single", 0, "", []int{uid}, results, map[int]string{uid: "Solo"}, 60)
 	if err != nil {
 		t.Fatalf("RecordMatch: %v", err)
 	}
@@ -421,7 +422,7 @@ func TestRecordMatch_TiedScoresSameRank(t *testing.T) {
 	userIDs := []int{uid1, uid2, uid3}
 	names := map[int]string{uid1: "A", uid2: "B", uid3: "C"}
 
-	if _, err := s.RecordMatch("room-tied", 0, "", userIDs, results, names, 30); err != nil {
+	if _, err := s.RecordMatch(context.Background(), "room-tied", 0, "", userIDs, results, names, 30); err != nil {
 		t.Fatalf("RecordMatch: %v", err)
 	}
 	for _, uid := range userIDs {
@@ -453,7 +454,7 @@ func TestRecordMatch_NilUserNamesDoesNotPanic(t *testing.T) {
 			t.Errorf("RecordMatch with nil userNames should not panic, got %v", rec)
 		}
 	}()
-	if _, err := s.RecordMatch("room-nilnames", 0, "", []int{uid}, results, nil, 10); err != nil {
+	if _, err := s.RecordMatch(context.Background(), "room-nilnames", 0, "", []int{uid}, results, nil, 10); err != nil {
 		t.Fatalf("RecordMatch: %v", err)
 	}
 	// users.name 应为空字符串（首次写入，nil map 返回零值）
@@ -479,7 +480,7 @@ func TestRecordMatch_RepeatedMatchAccumulatesGames(t *testing.T) {
 	}
 	// 连续记录 3 局
 	for i := 0; i < 3; i++ {
-		if _, err := s.RecordMatch("room-rep", 0, "", []int{uid}, results, map[int]string{uid: "Rep"}, 20); err != nil {
+		if _, err := s.RecordMatch(context.Background(), "room-rep", 0, "", []int{uid}, results, map[int]string{uid: "Rep"}, 20); err != nil {
 			t.Fatalf("RecordMatch iter %d: %v", i, err)
 		}
 	}
@@ -509,7 +510,7 @@ func TestRecordMatch_DurationZero(t *testing.T) {
 	results := map[int]config.RecordData{
 		uid: {ID: 1, Player: uid, Score: 100, Accuracy: 0.5},
 	}
-	if _, err := s.RecordMatch("room-zero-dur", 0, "", []int{uid}, results, map[int]string{uid: "Z"}, 0); err != nil {
+	if _, err := s.RecordMatch(context.Background(), "room-zero-dur", 0, "", []int{uid}, results, map[int]string{uid: "Z"}, 0); err != nil {
 		t.Fatalf("RecordMatch with duration=0 should not error: %v", err)
 	}
 	var playTime int

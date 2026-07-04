@@ -21,6 +21,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -376,7 +377,7 @@ var clientFrameWriterPool = &sync.Pool{
 // mockPhira 实现 server.PhiraAPI，将 token "bench-N" 映射到用户 ID=N。
 type mockPhira struct{}
 
-func (m *mockPhira) FetchUserInfo(token string) (server.PhiraUserInfo, error) {
+func (m *mockPhira) FetchUserInfo(ctx context.Context, token string) (server.PhiraUserInfo, error) {
 	// token 格式: "bench-N" → 用户 ID=N
 	id := 0
 	if strings.HasPrefix(token, "bench-") {
@@ -389,11 +390,11 @@ func (m *mockPhira) FetchUserInfo(token string) (server.PhiraUserInfo, error) {
 	}, nil
 }
 
-func (m *mockPhira) FetchChart(id int) (config.Chart, error) {
+func (m *mockPhira) FetchChart(ctx context.Context, id int) (config.Chart, error) {
 	return config.Chart{ID: id, Name: fmt.Sprintf("chart-%d", id)}, nil
 }
 
-func (m *mockPhira) FetchRecord(id int) (config.RecordData, error) {
+func (m *mockPhira) FetchRecord(ctx context.Context, id int) (config.RecordData, error) {
 	return config.RecordData{ID: id, Player: id, Score: 900000, Accuracy: 0.95, Std: 0.02}, nil
 }
 

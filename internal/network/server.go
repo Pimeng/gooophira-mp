@@ -32,6 +32,9 @@ type Server struct {
 	activeConns int32
 	done        chan struct{}
 	closeOnce   sync.Once
+	// sessions 跟踪所有活跃会话，供 Close 时主动关闭（触发 cleanup 走立即移除路径，
+	// 避免 dangleTimer 在进程退出后触发访问不稳定状态）。
+	sessions sync.Map
 }
 
 // Listen 在 addr 上监听 TCP 并开始接受连接。
@@ -64,8 +67,10 @@ func (s *Server) acceptLoop() {
 			continue
 		}
 		sess := newSession(conn, s.state, s.hub)
+		s.sessions.Store(sess, struct{}{})
 		go func() {
 			defer atomic.AddInt32(&s.activeConns, -1)
+			defer s.sessions.Delete(sess)
 			sess.run()
 		}()
 	}
@@ -116,10 +121,26 @@ func (s *Server) debug(msg string) {
 // Addr 返回实际监听地址（端口为 0 时可用于获取系统分配的端口）。
 func (s *Server) Addr() net.Addr { return s.listener.Addr() }
 
-// Close 停止接受新连接并结束后台清理。
+// Close 停止接受新连接、结束后台清理，并主动关闭所有活跃会话。
+// 主动关闭会话触发 cleanup 走立即移除路径（closing 标志），避免 dangleTimer
+// 在进程退出后触发访问不稳定状态。
 func (s *Server) Close() error {
-	s.closeOnce.Do(func() { close(s.done) })
-	return s.listener.Close()
+	s.closeOnce.Do(func() {
+		close(s.done)
+		s.listener.Close()
+		s.closeAllSessions()
+	})
+	return nil
+}
+
+// closeAllSessions 遍历所有活跃会话调用 closeForShutdown。
+func (s *Server) closeAllSessions() {
+	s.sessions.Range(func(key, _ any) bool {
+		if sess, ok := key.(*Session); ok {
+			sess.closeForShutdown()
+		}
+		return true
+	})
 }
 
 // hostOf 取地址的主机部分（去掉端口）；解析失败时回退原始字符串。

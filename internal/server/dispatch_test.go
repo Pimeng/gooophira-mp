@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"compress/flate"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -20,14 +21,16 @@ type mockPhira struct {
 	records map[int]config.RecordData
 }
 
-func (m *mockPhira) FetchUserInfo(token string) (PhiraUserInfo, error) { return PhiraUserInfo{}, nil }
-func (m *mockPhira) FetchChart(id int) (config.Chart, error) {
+func (m *mockPhira) FetchUserInfo(ctx context.Context, token string) (PhiraUserInfo, error) {
+	return PhiraUserInfo{}, nil
+}
+func (m *mockPhira) FetchChart(ctx context.Context, id int) (config.Chart, error) {
 	if c, ok := m.charts[id]; ok {
 		return c, nil
 	}
 	return config.Chart{}, errors.New("chart-fetch-failed")
 }
-func (m *mockPhira) FetchRecord(id int) (config.RecordData, error) {
+func (m *mockPhira) FetchRecord(ctx context.Context, id int) (config.RecordData, error) {
 	if r, ok := m.records[id]; ok {
 		return r, nil
 	}
@@ -366,8 +369,6 @@ func TestDispatch_LeaveRoomDisbands(t *testing.T) {
 // 验证：sendFakeMonitorJoin 发送假观战者 → 客户端上报 Touches/Judges →
 // 录制器正确落盘，文件包含游戏数据。
 func TestDispatch_ReplayWithFakeMonitor(t *testing.T) {
-	chartCache.Clear()
-	recordCache.Clear()
 	dir := t.TempDir()
 	enabled := true
 	cfg := &config.ServerConfig{ReplayEnabled: &enabled, ReplayBaseDir: &dir}

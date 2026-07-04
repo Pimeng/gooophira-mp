@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,14 +18,18 @@ import (
 
 type fakeReplayPhira struct{ id int }
 
-func (f fakeReplayPhira) FetchUserInfo(token string) (server.PhiraUserInfo, error) {
+func (f fakeReplayPhira) FetchUserInfo(ctx context.Context, token string) (server.PhiraUserInfo, error) {
 	if token == "valid" {
 		return server.PhiraUserInfo{ID: f.id, Name: "u"}, nil
 	}
 	return server.PhiraUserInfo{}, errors.New("auth-failed")
 }
-func (f fakeReplayPhira) FetchChart(int) (config.Chart, error)       { return config.Chart{}, nil }
-func (f fakeReplayPhira) FetchRecord(int) (config.RecordData, error) { return config.RecordData{}, nil }
+func (f fakeReplayPhira) FetchChart(ctx context.Context, id int) (config.Chart, error) {
+	return config.Chart{}, nil
+}
+func (f fakeReplayPhira) FetchRecord(ctx context.Context, id int) (config.RecordData, error) {
+	return config.RecordData{}, nil
+}
 
 // newReplayService 建一个带回放目录与假 Phira 的服务，并写入用户 100 的一份回放。
 func newReplayService(t *testing.T) (*Service, *server.ServerState, string, int64) {

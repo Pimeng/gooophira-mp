@@ -5,6 +5,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net"
@@ -139,7 +140,13 @@ func main() {
 	defer logMaint.Stop()
 
 	phiraEndpoint := strOr(cfg.PhiraAPIEndpoint, "")
-	hub := server.NewHub(state, phira.NewClient(phiraEndpoint))
+	// rootCtx 在服务器关闭时取消（rootCancel），用于中断进行中的上游 HTTP 调用
+	// 与 stats.RecordMatch 的 SQL 操作，避免关闭后仍有悬挂请求。
+	rootCtx, rootCancel := context.WithCancel(context.Background())
+	defer rootCancel()
+	phiraClient := phira.NewClient(phiraEndpoint)
+	hub := server.NewHub(state, phiraClient)
+	hub.SetContext(rootCtx)
 
 	// 观战数据聚合缓冲：高频 Touches/Judges 按 ~50ms 窗口合并后批量转发观战者。
 	monitorBuf := server.NewMonitorBuffer()
@@ -221,7 +228,7 @@ func main() {
 				}
 				durationSec := time.Since(st.StartedAt).Seconds()
 				go func() {
-					if _, err := statsStore.RecordMatch(roomID, chartID, chartName, userIDs, results, userNames, durationSec); err != nil {
+					if _, err := statsStore.RecordMatch(rootCtx, roomID, chartID, chartName, userIDs, results, userNames, durationSec); err != nil {
 						logger.Warn("stats write failed: " + err.Error())
 					}
 				}()
@@ -315,6 +322,11 @@ func main() {
 	})
 	watcher.Start()
 	defer watcher.Stop()
+
+	// phira 缓存被动失效刷新：每 1h 取快到期键随机 Delete 几个，
+	// 下次 GetOrSet 时自然重拉。Redis 模式 KeysNearExpiry 返回 nil，自动 no-op。
+	phiraClient.StartRefresh(state, 1*time.Hour)
+	defer phiraClient.Stop()
 
 	// 关闭由「终止信号」或 CLI 的 stop 命令任一触发。
 	done := make(chan struct{})

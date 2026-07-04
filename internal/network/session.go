@@ -61,6 +61,12 @@ type Session struct {
 	sendCh    chan []byte
 	done      chan struct{}
 	closeOnce sync.Once
+
+	// closing 由 Server.Close 标记：cleanup 走立即移除路径，不再设置 dangleTimer。
+	// 避免关闭后 timer 触发访问已不稳定的状态。
+	closing atomic.Bool
+	// dangleTimer 保存 cleanup 设置的断线宽限 timer 引用，供关闭时取消。
+	dangleTimer atomic.Pointer[time.Timer]
 }
 
 // 确保 Session 满足 server.Session。
@@ -169,6 +175,18 @@ func (s *Session) Close() {
 	})
 }
 
+// closeForShutdown 由 Server.Close 调用：标记关闭中并关闭会话。
+// closing=true 让 cleanup 走立即移除路径（不设 dangleTimer），避免关闭后 timer 触发；
+// 同时取消已设置的 dangleTimer（边缘情况：cleanup 在 closing 标志前已执行）。
+// 取消 timer 后 dangling 用户不会被 processDangle 清理，但进程退出时仅内存操作，无副作用。
+func (s *Session) closeForShutdown() {
+	s.closing.Store(true)
+	if t := s.dangleTimer.Swap(nil); t != nil {
+		t.Stop()
+	}
+	s.Close()
+}
+
 // AdminDisconnect 管理员触发的断开（对应 TS session.adminDisconnect）：
 //   - preserveRoom=false：等同普通断线（dangle 重连宽限后最终移除）；
 //   - preserveRoom=true：仅断开连接并解绑会话，保留该用户在房间内（离线占位、可重连），不 dangle、不移除。
@@ -204,10 +222,10 @@ func (s *Session) cleanup() {
 	}
 	u.SetSession(nil)
 
-	// 被封禁用户或宽限为 0：不等待重连，立即移除。
+	// 被封禁用户、宽限为 0、或服务器关闭中：不等待重连，立即移除。
 	_, banned := s.state.BannedUsers[u.ID]
 	grace := s.dangleGrace(u)
-	if banned || grace <= 0 {
+	if banned || grace <= 0 || s.closing.Load() {
 		// 对齐原版：封禁用户记 INFO 挂起日志；宽限为 0（对局态配置或非对局窗口）且仍在房间则记房间作用域 WARN（强制退出）。
 		if banned {
 			s.logLocalized("INFO", "log-user-dangle", map[string]string{"user": u.Name})
@@ -223,7 +241,8 @@ func (s *Session) cleanup() {
 	deadline := time.Now().Add(grace).UnixMilli()
 	token := u.MarkDangle(&deadline)
 	s.state.Mu.Unlock()
-	time.AfterFunc(grace, func() { s.processDangle(u, token) })
+	t := time.AfterFunc(grace, func() { s.processDangle(u, token) })
+	s.dangleTimer.Store(t)
 }
 
 // dangleGrace 返回该用户断线后的保留窗口：对局态用配置宽限（0=立即），否则非对局窗口。
@@ -246,10 +265,15 @@ func (s *Session) removeUser(u *server.User) {
 		room := u.Room
 		lc := s.hub.MakeRoomLifecycle(room)
 		room.Mu.Lock()
-		shouldDrop := room.OnUserLeave(lc, u)
+		shouldDrop, disband := room.OnUserLeave(lc, u)
 		room.Mu.Unlock()
 		if shouldDrop {
 			delete(s.state.Rooms, room.ID)
+		}
+		// 比赛 AutoDisband：room.Mu 释放后再调 DisbandRoom（避免重入自死锁）。
+		// 调用方持 state.Mu，DisbandRoom 内部 room.Mu.Lock() 安全。
+		if disband {
+			s.hub.DisbandRoom(room)
 		}
 	}
 	delete(s.state.Users, u.ID)
@@ -258,6 +282,8 @@ func (s *Session) removeUser(u *server.User) {
 
 // processDangle 在宽限窗到期后检查用户是否仍 dangling（未重连），是则移除。
 func (s *Session) processDangle(u *server.User, token *server.DangleToken) {
+	// 清空 timer 引用（timer 已触发，无需再 Stop）。
+	s.dangleTimer.Store(nil)
 	s.state.Mu.Lock()
 	defer s.state.Mu.Unlock()
 	if !u.IsStillDangling(token) {
@@ -445,8 +471,8 @@ func (s *Session) handleAuthenticate(token string) {
 		s.failAuth("auth-invalid-token")
 		return
 	}
-	// Phira HTTP 认证：阻塞调用，不持锁。
-	info, err := s.hub.Phira.FetchUserInfo(token)
+	// Phira HTTP 认证：阻塞调用，不持锁。Hub 内部派生 ctx 控制超时与关闭取消。
+	info, err := s.hub.FetchUserInfo(token)
 	if err != nil {
 		s.failAuth(err.Error())
 		return

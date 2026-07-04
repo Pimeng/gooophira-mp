@@ -1,12 +1,12 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"sort"
 	"sync"
 	"time"
 
-	"github.com/Pimeng/gooophira-mp/internal/cache"
 	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
@@ -24,6 +24,9 @@ import (
 type Hub struct {
 	State *ServerState
 	Phira PhiraAPI
+	// ctx 是服务器级根 context，派生给上游 HTTP 调用（Phira API）。
+	// 关闭时取消，让进行中的请求及时返回。nil 时回退到 context.Background()。
+	ctx context.Context
 
 	// OnEnterPlaying 进入 Playing 时回调（启动回放录制）。可为 nil。
 	OnEnterPlaying func(room *Room)
@@ -33,9 +36,25 @@ type Hub struct {
 	Monitor MonitorBuffer
 }
 
-// NewHub 创建编排层。
+// NewHub 创建编排层。Hub.ctx 默认为 context.Background()；
+// 调用方可经 SetContext 注入服务器级根 ctx（关闭时取消以中断进行中的上游 HTTP 请求）。
 func NewHub(state *ServerState, phira PhiraAPI) *Hub {
-	return &Hub{State: state, Phira: phira}
+	return &Hub{State: state, Phira: phira, ctx: context.Background()}
+}
+
+// SetContext 设置 Hub 的根 ctx（用于派生上游 HTTP 调用的 context）。
+// 通常在 main.go 中创建 rootCtx 后立即调用。nil 视为 context.Background()。
+// 幂等：可多次调用，后调用覆盖前值。
+func (h *Hub) SetContext(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	h.ctx = ctx
+}
+
+// ctxWithTimeout 从 Hub 的根 ctx 派生一个带超时的 ctx，用于上游 HTTP 调用。
+func (h *Hub) ctxWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(h.ctx, d)
 }
 
 // pickNextHost 对齐 jphira-mp 的 PlayerManager.transferHostToNextPlayer：
@@ -88,9 +107,18 @@ var (
 
 // BroadcastRoom 向房间所有参与者发送一条命令（预编码一次，广播给所有用户）。
 func (h *Hub) BroadcastRoom(room *Room, cmd protocol.ServerCommand) {
-	// 收集目标用户
+	// 先收集在线用户，若全离线则跳过编码（避免无谓的帧分配与编码开销）。
 	ids := room.AllParticipantIDs()
 	if len(ids) == 0 {
+		return
+	}
+	users := make([]*User, 0, len(ids))
+	for _, id := range ids {
+		if u := h.State.Users[id]; u != nil {
+			users = append(users, u)
+		}
+	}
+	if len(users) == 0 {
 		return
 	}
 	// 预编码一次帧，通过 TrySendFrameOwned 广播给所有用户（encodeServerCommandFrame
@@ -99,10 +127,8 @@ func (h *Hub) BroadcastRoom(room *Room, cmd protocol.ServerCommand) {
 	if frame == nil {
 		return
 	}
-	for _, id := range ids {
-		if u := h.State.Users[id]; u != nil {
-			u.TrySendFrameOwned(frame)
-		}
+	for _, u := range users {
+		u.TrySendFrameOwned(frame)
 	}
 }
 
@@ -196,9 +222,10 @@ func (h *Hub) RequireRoom(user *User) (*Room, error) {
 	return user.Room, nil
 }
 
-// CheckRoomAllReady 推进房间状态机（就绪/结算检查）。
-func (h *Hub) CheckRoomAllReady(room *Room) {
-	room.CheckAllReady(h.MakeRoomLifecycle(room))
+// CheckRoomAllReady 推进房间状态机并返回是否需解散房间（比赛 AutoDisband）。
+// 调用方须持 state.Mu；返回 disband=true 时调用方应在 room.Mu 释放后调 DisbandRoom。
+func (h *Hub) CheckRoomAllReady(room *Room) bool {
+	return room.CheckAllReady(h.MakeRoomLifecycle(room))
 }
 
 func (h *Hub) isBanned(user *User) bool {
@@ -343,6 +370,8 @@ func (h *Hub) ProcessJoinRoom(user *User, id protocol.RoomID, monitor bool) (pro
 }
 
 // DisbandRoom 解散房间：让所有成员离开并从全局移除。调用方须持 state.Mu。
+// 内部循环 OnUserLeave 时房间状态已是 StateSelectChart（被 checkPlaying 切回），
+// 故返回的 disband 恒 false，可忽略。
 func (h *Hub) DisbandRoom(room *Room) {
 	lc := h.MakeRoomLifecycle(room)
 	room.Mu.Lock()
@@ -351,7 +380,7 @@ func (h *Hub) DisbandRoom(room *Room) {
 		if u == nil || u.Room == nil || u.Room.ID != room.ID {
 			continue
 		}
-		room.OnUserLeave(lc, u)
+		_, _ = room.OnUserLeave(lc, u)
 	}
 	delete(h.State.Rooms, room.ID)
 	room.Mu.Unlock()
@@ -360,30 +389,36 @@ func (h *Hub) DisbandRoom(room *Room) {
 
 // ---------- Phira 取数 ----------
 
-// 进程级共享缓存：谱面与成绩均为不可变数据，缓存命中可跳过上游 HTTP。
-// 仅驻内存（不落盘）——作为 L1 缓存对任意 PhiraAPI 实现生效（含测试 mock）；
-// phira.Client 内的 recordCache（落盘）提供跨重启持久化，二者互补。
-var (
-	chartCache  = cache.NewInt[config.Chart](cache.Options{Name: "hub_chart_cache", TTL: 24 * time.Hour, MaxMem: 500, Persist: false})
-	recordCache = cache.NewInt[config.RecordData](cache.Options{Name: "hub_record_cache", TTL: time.Hour, MaxMem: 500, Persist: false})
-)
+// fetchTimeout 是 Hub 派生上游 HTTP 调用 ctx 的超时（对齐 phira.fetchTimeout）。
+const fetchTimeout = 10 * time.Second
 
-// FetchChart 取谱面（缓存 24h，谱面不可变）。
+// FetchChart 取谱面（缓存由 phira.Client 层管理，Hub 不再缓存）。
 func (h *Hub) FetchChart(user *User, id int) (config.Chart, error) {
 	if h.Phira == nil {
 		return config.Chart{}, errors.New("chart-fetch-failed")
 	}
-	return chartCache.GetOrSet(id, func() (config.Chart, error) {
-		return h.Phira.FetchChart(id)
-	})
+	ctx, cancel := h.ctxWithTimeout(fetchTimeout)
+	defer cancel()
+	return h.Phira.FetchChart(ctx, id)
 }
 
-// FetchRecord 取成绩（缓存 1h，成绩不可变）。
+// FetchRecord 取成绩（缓存由 phira.Client 层管理，Hub 不再缓存）。
 func (h *Hub) FetchRecord(user *User, id int) (config.RecordData, error) {
 	if h.Phira == nil {
 		return config.RecordData{}, errors.New("record-fetch-failed")
 	}
-	return recordCache.GetOrSet(id, func() (config.RecordData, error) {
-		return h.Phira.FetchRecord(id)
-	})
+	ctx, cancel := h.ctxWithTimeout(fetchTimeout)
+	defer cancel()
+	return h.Phira.FetchRecord(ctx, id)
+}
+
+// FetchUserInfo 用 token 认证取用户信息（缓存由 phira.Client 层管理）。
+// 与 FetchChart/FetchRecord 一致地由 Hub 派生 ctx，调用方无需感知 context。
+func (h *Hub) FetchUserInfo(token string) (PhiraUserInfo, error) {
+	if h.Phira == nil {
+		return PhiraUserInfo{}, errors.New("auth-fetch-failed")
+	}
+	ctx, cancel := h.ctxWithTimeout(fetchTimeout)
+	defer cancel()
+	return h.Phira.FetchUserInfo(ctx, token)
 }

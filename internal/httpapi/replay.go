@@ -54,7 +54,7 @@ func (s *Service) verifyUserToken(token string) (int, bool) {
 	if token == "" || s.hub == nil || s.hub.Phira == nil {
 		return 0, false
 	}
-	info, err := s.hub.Phira.FetchUserInfo(token)
+	info, err := s.hub.FetchUserInfo(token)
 	if err != nil || info.ID <= 0 {
 		return 0, false
 	}

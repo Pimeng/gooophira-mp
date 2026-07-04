@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -29,7 +30,7 @@ func newStatsService(t *testing.T) (*Service, *stats.Store) {
 		1003: {ID: 3, Player: 1003, Score: 700000, Accuracy: 0.88, Perfect: 600, Good: 150, Bad: 50, Miss: 50, MaxCombo: 300},
 	}
 	names := map[int]string{1001: "Alice", 1002: "Bob", 1003: "Carol"}
-	if _, err := store.RecordMatch("room-1", 42, "Test Chart", []int{1001, 1002, 1003}, r1, names, 120); err != nil {
+	if _, err := store.RecordMatch(context.Background(), "room-1", 42, "Test Chart", []int{1001, 1002, 1003}, r1, names, 120); err != nil {
 		t.Fatalf("RecordMatch 1: %v", err)
 	}
 	time.Sleep(1 * time.Second)
@@ -38,7 +39,7 @@ func newStatsService(t *testing.T) (*Service, *stats.Store) {
 		1001: {ID: 4, Player: 1001, Score: 850000, Accuracy: 0.95, MaxCombo: 400},
 		1002: {ID: 5, Player: 1002, Score: 950000, Accuracy: 0.99, MaxCombo: 900, FullCombo: true},
 	}
-	if _, err := store.RecordMatch("room-2", 43, "Another Chart", []int{1001, 1002}, r2, names, 90); err != nil {
+	if _, err := store.RecordMatch(context.Background(), "room-2", 43, "Another Chart", []int{1001, 1002}, r2, names, 90); err != nil {
 		t.Fatalf("RecordMatch 2: %v", err)
 	}
 	time.Sleep(1 * time.Second)
@@ -46,7 +47,7 @@ func newStatsService(t *testing.T) (*Service, *stats.Store) {
 	r3 := map[int]config.RecordData{
 		1003: {ID: 6, Player: 1003, Score: 750000, Accuracy: 0.90, MaxCombo: 350},
 	}
-	if _, err := store.RecordMatch("room-3", 42, "Test Chart", []int{1003}, r3, names, 45); err != nil {
+	if _, err := store.RecordMatch(context.Background(), "room-3", 42, "Test Chart", []int{1003}, r3, names, 45); err != nil {
 		t.Fatalf("RecordMatch 3: %v", err)
 	}
 

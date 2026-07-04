@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -20,7 +21,7 @@ import (
 // 其余 token 按内容派生不同用户 id（供并发测试用）。
 type fakePhira struct{}
 
-func (fakePhira) FetchUserInfo(token string) (server.PhiraUserInfo, error) {
+func (fakePhira) FetchUserInfo(ctx context.Context, token string) (server.PhiraUserInfo, error) {
 	if token == "aaaaaaaa" {
 		return server.PhiraUserInfo{ID: 100, Name: "Alice", Language: "zh-CN"}, nil
 	}
@@ -33,10 +34,10 @@ func (fakePhira) FetchUserInfo(token string) (server.PhiraUserInfo, error) {
 	}
 	return server.PhiraUserInfo{ID: 1000 + h%100000, Name: token, Language: "zh-CN"}, nil
 }
-func (fakePhira) FetchChart(id int) (config.Chart, error) {
+func (fakePhira) FetchChart(ctx context.Context, id int) (config.Chart, error) {
 	return config.Chart{ID: id, Name: "chart"}, nil
 }
-func (fakePhira) FetchRecord(id int) (config.RecordData, error) {
+func (fakePhira) FetchRecord(ctx context.Context, id int) (config.RecordData, error) {
 	return config.RecordData{ID: id, Player: 100, Score: 1000000, Accuracy: 1, FullCombo: true}, nil
 }
 

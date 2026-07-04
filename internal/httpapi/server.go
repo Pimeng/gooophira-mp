@@ -45,8 +45,16 @@ type Service struct {
 	otpBanIP    map[string]int64      // IP 封禁至（ms）
 	otpBanSSID  map[string]int64      // 会话封禁至（ms）
 
+	// cleanup 独立 goroutine 定期回收过期 replay/otp 会话与封禁项，
+	// 避免长期无新请求时过期项不回收导致 map 膨胀（原先只在触发式 prune 时清理）。
+	cleanupStop chan struct{}
+	cleanupDone chan struct{}
+
 	startedAt time.Time // 启动时间（用于 /admin/metrics uptime）
 }
+
+// cleanupInterval 是 replay/otp 过期项独立清理的间隔（短于 replaySessionTTL=30min 与 OTP 封禁时长）。
+const cleanupInterval = 5 * time.Minute
 
 // New 创建 HTTP 服务（未启动）。statsStore 为 nil 时统计端点返回 503。
 // 同时把 WebSocket hub 注入 state.WSService。
@@ -76,7 +84,34 @@ func New(state *server.ServerState, hub *server.Hub, statsStore *stats.Store) *S
 	state.OnConfigReload(func(c *config.ServerConfig) {
 		s.rl.setOptions(c.EffectiveHTTPRateLimitMaxRequests(), time.Duration(c.EffectiveHTTPRateLimitWindowMS())*time.Millisecond)
 	})
+	s.startCleanup()
 	return s
+}
+
+// startCleanup 启动定期清理 goroutine，回收过期 replay/otp 会话与封禁项。
+// 原实现仅在 createReplaySession/handleOTPRequest 触发时顺手 prune，
+// 长期无新请求时过期项不回收；此 goroutine 保证最长 cleanupInterval 后必清理一次。
+func (s *Service) startCleanup() {
+	s.cleanupStop = make(chan struct{})
+	s.cleanupDone = make(chan struct{})
+	go func() {
+		defer close(s.cleanupDone)
+		ticker := time.NewTicker(cleanupInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-s.cleanupStop:
+				return
+			case <-ticker.C:
+				s.replayMu.Lock()
+				s.pruneReplaySessionsLocked()
+				s.replayMu.Unlock()
+				s.otpMu.Lock()
+				s.pruneOTPLocked()
+				s.otpMu.Unlock()
+			}
+		}
+	}()
 }
 
 // Start 在 addr 上监听并开始服务（非阻塞）。
@@ -90,8 +125,13 @@ func (s *Service) Start(addr string) (net.Addr, error) {
 	return ln.Addr(), nil
 }
 
-// Close 优雅关闭 HTTP 与 WebSocket 服务，并停止后台采样。
+// Close 优雅关闭 HTTP 与 WebSocket 服务，并停止后台采样与清理 goroutine。
 func (s *Service) Close() error {
+	if s.cleanupStop != nil {
+		close(s.cleanupStop)
+		<-s.cleanupDone
+		s.cleanupStop, s.cleanupDone = nil, nil
+	}
 	s.ws.closeAll()
 	if s.statsProc != nil {
 		s.statsProc.Stop()
