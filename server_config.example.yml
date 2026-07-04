@@ -15,8 +15,8 @@ HTTP_PORT: 12347
 
 # HTTP CORS 允许的来源列表
 # 配置后，只有列表中的来源才能通过浏览器访问 HTTP API
-# 不配置或为空数组时，向后兼容允许所有来源（*）
-# 生产环境强烈建议配置此项，限制为管理面板等可信来源
+# 不配置或为空数组时，不返回 CORS 头（浏览器默认禁止跨域）
+# 配置为 ["*"] 时显式允许所有来源；生产环境强烈建议限制为管理面板等可信来源
 CORS_ORIGINS:
   - "https://t.phira.link"
   - "http://localhost:5173"
@@ -40,10 +40,11 @@ LOG_LEVEL: INFO
 # 优先级：ENV PHIRA_MP_LANG > ENV LANG > 此项 > 默认（zh-CN）
 LANG: zh-CN
 
-# 真实 IP 头名称，用于反向代理场景，默认 X-Forwarded-For
+# 真实 IP 头名称，用于反向代理场景，默认空（关闭）
+# 只有部署在可信反向代理/CDN 之后才启用，否则客户端可伪造 IP 绕过限流/封禁
 # 可选值例如：X-Forwarded-For、X-Real-IP、CF-Connecting-IP
 # 注意：这里只对 HTTP 服务生效
-REAL_IP_HEADER: X-Forwarded-For
+# REAL_IP_HEADER: X-Forwarded-For
 
 # 是否启用 HAProxy PROXY Protocol 支持
 # 注意：用于 TCP 代理场景下获取真实 IP

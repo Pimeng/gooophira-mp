@@ -95,18 +95,16 @@ func (h *Hub) BroadcastRoom(room *Room, cmd protocol.ServerCommand) {
 }
 
 func (h *Hub) broadcastToMonitors(room *Room, cmd protocol.ServerCommand) {
-	ids := room.MonitorIDs()
-	if len(ids) == 0 {
+	users := room.MonitorUsers()
+	if len(users) == 0 {
 		return
 	}
 	frame := encodeServerCommandFrame(cmd)
 	if frame == nil {
 		return
 	}
-	for _, id := range ids {
-		if u := h.State.Users[id]; u != nil {
-			u.TrySendFrame(frame)
-		}
+	for _, u := range users {
+		u.TrySendFrame(frame)
 	}
 }
 
@@ -202,12 +200,15 @@ func (h *Hub) ProcessCreateRoom(user *User, id protocol.RoomID) error {
 	h.State.Rooms[id] = room
 	user.Room = room
 
+	room.Mu.Lock()
 	room.RefreshLive(h.State.ReplayEnabled)
 	// 对齐原版：建房时输出 MARK 级控制台日志。
-	room.logRoomMark(h.MakeRoomLifecycle(room), "log-room-created", map[string]string{"user": user.Name})
+	lc := h.MakeRoomLifecycle(room)
+	room.logRoomMark(lc, "log-room-created", map[string]string{"user": user.Name})
 	h.BroadcastRoomMessage(room, protocol.MsgCreateRoom{User: int32FromInt(user.ID)})
 	h.State.EmitEvent(Event{Type: EventRoomCreate, RoomID: room.ID.String(), UserID: user.ID, UserName: user.Name})
 	h.sendFakeMonitorJoin(user, room)
+	room.Mu.Unlock()
 	return nil
 }
 
@@ -224,16 +225,21 @@ func (h *Hub) sendFakeMonitorJoin(targetUser *User, room *Room) {
 	// 对齐 TS sendFakeMonitorJoin：延迟到下一轮事件循环，确保 CreateRoom/JoinRoom
 	// 的响应已先被客户端处理完毕。同时再验证用户仍在此房间（可能在延迟期间离开）。
 	roomID := room.ID
+	state := h.State
 	time.AfterFunc(20*time.Millisecond, func() {
 		// 仅在用户仍在此房间时发送；已离开或已换房则跳过。
-		if targetUser.Room == nil || targetUser.Room.ID != roomID {
+		// targetUser.Room 的写入由 state.Mu 或 room.Mu 保护，读取需要同步。
+		state.Mu.Lock()
+		currentRoom := targetUser.Room
+		state.Mu.Unlock()
+		if currentRoom == nil || currentRoom.ID != roomID {
 			return
 		}
-		if h.State.ReplayRecorder == nil {
+		if state.ReplayRecorder == nil {
 			return
 		}
-		name := l10n.TL(h.State.ServerLang, "replay-recorder-name", nil)
-		fake := h.State.ReplayRecorder.FakeMonitorInfo(name)
+		name := l10n.TL(state.ServerLang, "replay-recorder-name", nil)
+		fake := state.ReplayRecorder.FakeMonitorInfo(name)
 		targetUser.TrySend(protocol.SrvOnJoinRoom{Info: fake})
 		targetUser.TrySend(protocol.SrvMessage{
 			Message: protocol.MsgJoinRoom{User: fake.ID, Name: fake.Name},
@@ -265,10 +271,13 @@ func (h *Hub) ProcessJoinRoom(user *User, id protocol.RoomID, monitor bool) (pro
 		return zero, errRoomNotFound
 	}
 
+	room.Mu.Lock()
 	if err := room.ValidateJoin(user, monitor); err != nil {
+		room.Mu.Unlock()
 		return zero, err
 	}
 	if !room.AddUser(user, monitor) {
+		room.Mu.Unlock()
 		return zero, errJoinRoomFull
 	}
 	user.Monitor = monitor
@@ -277,7 +286,8 @@ func (h *Hub) ProcessJoinRoom(user *User, id protocol.RoomID, monitor bool) (pro
 	room.RefreshLive(h.State.ReplayEnabled)
 
 	// 对齐原版：加入房间输出 MARK 级控制台日志（观战者带后缀）。
-	room.logRoomMark(h.MakeRoomLifecycle(room), "log-room-joined", map[string]string{
+	lc := h.MakeRoomLifecycle(room)
+	room.logRoomMark(lc, "log-room-joined", map[string]string{
 		"user": user.Name, "suffix": h.monitorSuffix(monitor),
 	})
 	h.BroadcastRoom(room, protocol.SrvOnJoinRoom{Info: user.ToInfo()})
@@ -298,13 +308,15 @@ func (h *Hub) ProcessJoinRoom(user *User, id protocol.RoomID, monitor bool) (pro
 		cid := int32(room.Chart.ID)
 		respState = protocol.RoomStateSelectChart{ID: &cid}
 	}
+	room.Mu.Unlock()
 
 	return protocol.JoinRoomResponse{State: respState, Users: users, Live: room.IsLive()}, nil
 }
 
-// DisbandRoom 解散房间：让所有成员离开并从全局移除。
+// DisbandRoom 解散房间：让所有成员离开并从全局移除。调用方须持 state.Mu。
 func (h *Hub) DisbandRoom(room *Room) {
 	lc := h.MakeRoomLifecycle(room)
+	room.Mu.Lock()
 	for _, id := range room.AllParticipantIDs() {
 		u := h.State.Users[id]
 		if u == nil || u.Room == nil || u.Room.ID != room.ID {
@@ -313,6 +325,7 @@ func (h *Hub) DisbandRoom(room *Room) {
 		room.OnUserLeave(lc, u)
 	}
 	delete(h.State.Rooms, room.ID)
+	room.Mu.Unlock()
 	h.State.EmitEvent(Event{Type: EventRoomDisband, RoomID: room.ID.String()})
 }
 

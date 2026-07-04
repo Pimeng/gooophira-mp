@@ -99,8 +99,8 @@ LRU + 落盘，可切 Redis 多实例共享）。
 | `COMMAND_RATE_LIMIT` | 同名 | `true` | 会话级命令令牌桶限流 |
 | `HTTP_RATE_LIMIT_MAX_REQUESTS` | 同名 | `100` | HTTP API 单 IP 限流窗口内最大请求数 |
 | `HTTP_RATE_LIMIT_WINDOW_MS` | 同名 | `60000` | HTTP API 限流窗口（毫秒） |
-| `CORS_ORIGINS` | 同名 | `[]`（允许所有） | HTTP CORS 允许来源列表 |
-| `REAL_IP_HEADER` | 同名 | `X-Forwarded-For` | HTTP 真实 IP 头名称（反代场景） |
+| `CORS_ORIGINS` | 同名 | `[]`（不返回 CORS 头） | HTTP CORS 允许来源列表；`["*"]` 显式允许所有 |
+| `REAL_IP_HEADER` | 同名 | `""`（关闭） | HTTP 真实 IP 头名称（仅可信反代场景启用） |
 | `ALLOW_TOKEN_IN_QUERY` | 同名 | `false` | 是否允许 URL 查询参数传 token |
 
 **房间与对局：**

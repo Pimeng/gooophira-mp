@@ -57,7 +57,7 @@ func playingStateFor(room *Room, userID int) (StatePlaying, bool) {
 
 func (h *Hub) forwardTouches(room *Room, userID int, frames []protocol.TouchFrame) {
 	if h.Monitor != nil {
-		h.Monitor.BufferTouches(room, room.MonitorIDs(), userID, frames)
+		h.Monitor.BufferTouches(room, userID, frames)
 		return
 	}
 	h.broadcastToMonitors(room, protocol.SrvTouches{Player: int32FromInt(userID), Frames: frames})
@@ -65,7 +65,7 @@ func (h *Hub) forwardTouches(room *Room, userID int, frames []protocol.TouchFram
 
 func (h *Hub) forwardJudges(room *Room, userID int, judges []protocol.JudgeEvent) {
 	if h.Monitor != nil {
-		h.Monitor.BufferJudges(room, room.MonitorIDs(), userID, judges)
+		h.Monitor.BufferJudges(room, userID, judges)
 		return
 	}
 	h.broadcastToMonitors(room, protocol.SrvJudges{Player: int32FromInt(userID), Judges: judges})
@@ -169,15 +169,18 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			}
 			lc := h.MakeRoomLifecycle(room)
 			// 对齐原版：离开房间输出 MARK 级日志（在 OnUserLeave 前取观战后缀）。
+			room.Mu.Lock()
 			room.logRoomMark(lc, "log-room-left", map[string]string{
 				"user": user.Name, "suffix": h.monitorSuffix(user.Monitor),
 			})
 			shouldDrop := room.OnUserLeave(lc, user)
+			if !shouldDrop {
+				room.RefreshLive(h.State.ReplayEnabled)
+			}
+			room.Mu.Unlock()
 			if shouldDrop {
 				room.logRoomInfo(lc, "log-room-recycled", nil)
 				delete(h.State.Rooms, room.ID)
-			} else {
-				room.RefreshLive(h.State.ReplayEnabled)
 			}
 			return nil
 		})}, true

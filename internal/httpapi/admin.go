@@ -10,6 +10,7 @@ import (
 
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
+	"github.com/Pimeng/gooophira-mp/internal/server"
 )
 
 const adminMaxFailedPerIP = 5
@@ -171,12 +172,17 @@ func (s *Service) handleAdminBroadcast(w http.ResponseWriter, r *http.Request, l
 		return
 	}
 	s.state.Mu.Lock()
-	count := len(s.state.Rooms)
+	rooms := make([]*server.Room, 0, len(s.state.Rooms))
 	for _, room := range s.state.Rooms {
-		s.hub.BroadcastRoomMessage(room, protocol.MsgChat{User: 0, Content: body.Message})
+		rooms = append(rooms, room)
 	}
 	s.state.Mu.Unlock()
-	s.writeJSON(w, http.StatusOK, map[string]any{"ok": true, "rooms": count})
+	for _, room := range rooms {
+		room.Mu.Lock()
+		s.hub.BroadcastRoomMessage(room, protocol.MsgChat{User: 0, Content: body.Message})
+		room.Mu.Unlock()
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"ok": true, "rooms": len(rooms)})
 }
 
 func (s *Service) handleAdminDisband(w http.ResponseWriter, r *http.Request, lang *l10n.Language) {

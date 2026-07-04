@@ -33,11 +33,10 @@ type monitorJudgeItem struct {
 
 // AggregatingMonitorBuffer 实现 MonitorBuffer：把同一玩家在窗口内的多帧合并成一条命令再广播。
 //
-// 并发：BufferTouches/BufferJudges 在持有 state.Mu 的命令处理路径中被调用，仅快速入队（持本缓冲
-// 自身的 mu）。flush 在定时器 goroutine 上先取走缓冲（持 b.mu，随即释放），再持 state.Mu 解析当前
-// 观战者并 TrySend（非阻塞入队）。b.mu 与 state.Mu 不会被同一路径同时持有，故无环路死锁。
+// 并发：BufferTouches/BufferJudges 在 room.Mu 下被快速入队（持本缓冲自身的 mu），不访问全局 state。
+// flush 在定时器 goroutine 上先取走缓冲（持 b.mu，随即释放），再对每个 room 持 room.Mu 读取当前
+// 观战者并 TrySend。b.mu 与 room.Mu 不会被同一路径同时持有，故无环路死锁。
 type AggregatingMonitorBuffer struct {
-	state  *ServerState
 	mu     sync.Mutex
 	touch  []monitorTouchItem
 	judge  []monitorJudgeItem
@@ -46,16 +45,16 @@ type AggregatingMonitorBuffer struct {
 }
 
 // NewMonitorBuffer 创建观战数据聚合缓冲。
-func NewMonitorBuffer(state *ServerState) *AggregatingMonitorBuffer {
-	return &AggregatingMonitorBuffer{state: state}
+func NewMonitorBuffer() *AggregatingMonitorBuffer {
+	return &AggregatingMonitorBuffer{}
 }
 
 // 确保实现 MonitorBuffer。
 var _ MonitorBuffer = (*AggregatingMonitorBuffer)(nil)
 
-// BufferTouches 入队一批触摸帧（调用方持 state.Mu）。无观战者则直接丢弃。
-func (b *AggregatingMonitorBuffer) BufferTouches(room *Room, monitors []int, userID int, frames []protocol.TouchFrame) {
-	if len(monitors) == 0 || len(frames) == 0 {
+// BufferTouches 入队一批触摸帧（调用方持 room.Mu）。
+func (b *AggregatingMonitorBuffer) BufferTouches(room *Room, userID int, frames []protocol.TouchFrame) {
+	if len(frames) == 0 {
 		return
 	}
 	b.mu.Lock()
@@ -64,9 +63,9 @@ func (b *AggregatingMonitorBuffer) BufferTouches(room *Room, monitors []int, use
 	b.mu.Unlock()
 }
 
-// BufferJudges 入队一批判定事件（调用方持 state.Mu）。无观战者则直接丢弃。
-func (b *AggregatingMonitorBuffer) BufferJudges(room *Room, monitors []int, userID int, judges []protocol.JudgeEvent) {
-	if len(monitors) == 0 || len(judges) == 0 {
+// BufferJudges 入队一批判定事件（调用方持 room.Mu）。
+func (b *AggregatingMonitorBuffer) BufferJudges(room *Room, userID int, judges []protocol.JudgeEvent) {
+	if len(judges) == 0 {
 		return
 	}
 	b.mu.Lock()
@@ -104,8 +103,6 @@ func (b *AggregatingMonitorBuffer) Flush() {
 		return
 	}
 
-	b.state.Mu.Lock()
-	defer b.state.Mu.Unlock()
 	b.broadcastTouches(touches)
 	b.broadcastJudges(judges)
 }
@@ -122,7 +119,7 @@ func (b *AggregatingMonitorBuffer) Stop() {
 	b.Flush()
 }
 
-// broadcastTouches 按 (房间, 玩家) 合并帧后广播给各房间当前观战者（调用方持 state.Mu）。
+// broadcastTouches 按 (房间, 玩家) 合并帧后广播给各房间当前观战者（调用方不持任何锁）。
 func (b *AggregatingMonitorBuffer) broadcastTouches(items []monitorTouchItem) {
 	merged := make(map[*Room]map[int][]protocol.TouchFrame, 8)
 	var order []*Room
@@ -136,8 +133,10 @@ func (b *AggregatingMonitorBuffer) broadcastTouches(items []monitorTouchItem) {
 		pm[it.player] = append(pm[it.player], it.frames...)
 	}
 	for _, room := range order {
-		ids := room.MonitorIDs()
-		if len(ids) == 0 {
+		room.Mu.Lock()
+		users := room.MonitorUsers()
+		room.Mu.Unlock()
+		if len(users) == 0 {
 			continue
 		}
 		for player, frames := range merged[room] {
@@ -147,16 +146,14 @@ func (b *AggregatingMonitorBuffer) broadcastTouches(items []monitorTouchItem) {
 			if frame == nil {
 				continue
 			}
-			for _, id := range ids {
-				if u := b.state.Users[id]; u != nil {
-					u.TrySendFrame(frame)
-				}
+			for _, u := range users {
+				u.TrySendFrame(frame)
 			}
 		}
 	}
 }
 
-// broadcastJudges 按 (房间, 玩家) 合并判定事件后广播给各房间当前观战者（调用方持 state.Mu）。
+// broadcastJudges 按 (房间, 玩家) 合并判定事件后广播给各房间当前观战者（调用方不持任何锁）。
 func (b *AggregatingMonitorBuffer) broadcastJudges(items []monitorJudgeItem) {
 	merged := make(map[*Room]map[int][]protocol.JudgeEvent, 8)
 	var order []*Room
@@ -170,8 +167,10 @@ func (b *AggregatingMonitorBuffer) broadcastJudges(items []monitorJudgeItem) {
 		pm[it.player] = append(pm[it.player], it.judges...)
 	}
 	for _, room := range order {
-		ids := room.MonitorIDs()
-		if len(ids) == 0 {
+		room.Mu.Lock()
+		users := room.MonitorUsers()
+		room.Mu.Unlock()
+		if len(users) == 0 {
 			continue
 		}
 		for player, judges := range merged[room] {
@@ -180,10 +179,8 @@ func (b *AggregatingMonitorBuffer) broadcastJudges(items []monitorJudgeItem) {
 			if frame == nil {
 				continue
 			}
-			for _, id := range ids {
-				if u := b.state.Users[id]; u != nil {
-					u.TrySendFrame(frame)
-				}
+			for _, u := range users {
+				u.TrySendFrame(frame)
 			}
 		}
 	}

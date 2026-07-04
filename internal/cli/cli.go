@@ -205,24 +205,37 @@ func (c *Console) Dispatch(line string) {
 
 func (c *Console) cmdListRooms() {
 	c.state.Mu.Lock()
-	defer c.state.Mu.Unlock()
-	if len(c.state.Rooms) == 0 {
+	rooms := make(map[protocol.RoomID]*server.Room, len(c.state.Rooms))
+	for id, room := range c.state.Rooms {
+		rooms[id] = room
+	}
+	c.state.Mu.Unlock()
+	if len(rooms) == 0 {
 		c.printInfo(c.t("cli-no-rooms", nil))
 		return
 	}
 	c.print("")
-	c.print(c.t("cli-rooms-total", map[string]string{"count": strconv.Itoa(len(c.state.Rooms))}))
-	for id, room := range c.state.Rooms {
+	c.print(c.t("cli-rooms-total", map[string]string{"count": strconv.Itoa(len(rooms))}))
+	for id, room := range rooms {
+		room.Mu.Lock()
 		chart := c.t("cli-none", nil)
 		if room.Chart != nil {
 			chart = room.Chart.Name
 		}
+		state := room.State
+		userCount := room.UserCount()
+		monitorCount := room.MonitorCount()
+		maxUsers := room.MaxUsers
+		locked := room.Locked
+		cycle := room.Cycle
+		contest := room.Contest != nil
+		room.Mu.Unlock()
 		c.print(c.t("cli-room-line", map[string]string{
-			"id": string(id), "state": c.stateLabel(room.State),
-			"users": strconv.Itoa(room.UserCount()), "maxUsers": strconv.Itoa(room.MaxUsers),
-			"monitors": strconv.Itoa(room.MonitorCount()), "chart": chart,
-			"locked": c.boolYesNo(room.Locked), "cycle": c.boolYesNo(room.Cycle),
-			"contest": c.boolYesNo(room.Contest != nil),
+			"id": string(id), "state": c.stateLabel(state),
+			"users": strconv.Itoa(userCount), "maxUsers": strconv.Itoa(maxUsers),
+			"monitors": strconv.Itoa(monitorCount), "chart": chart,
+			"locked": c.boolYesNo(locked), "cycle": c.boolYesNo(cycle),
+			"contest": c.boolYesNo(contest),
 		}))
 	}
 	c.print("")
@@ -230,13 +243,18 @@ func (c *Console) cmdListRooms() {
 
 func (c *Console) cmdListUsers() {
 	c.state.Mu.Lock()
-	defer c.state.Mu.Unlock()
-	if len(c.state.Users) == 0 {
+	users := make(map[int]*server.User, len(c.state.Users))
+	for id, u := range c.state.Users {
+		users[id] = u
+	}
+	c.state.Mu.Unlock()
+	if len(users) == 0 {
 		c.printInfo(c.t("cli-no-users", nil))
 		return
 	}
-	c.print(c.t("cli-users-total", map[string]string{"count": strconv.Itoa(len(c.state.Users))}))
-	for id, u := range c.state.Users {
+	c.print(c.t("cli-users-total", map[string]string{"count": strconv.Itoa(len(users))}))
+	for id, u := range users {
+		u.Mu.RLock()
 		status := c.t("cli-user-status-offline", nil)
 		if u.Session != nil {
 			status = c.t("cli-user-status-online", nil)
@@ -249,12 +267,16 @@ func (c *Console) cmdListUsers() {
 		if u.Room != nil {
 			room = string(u.Room.ID)
 		}
+		name := u.Name
+		u.Mu.RUnlock()
 		bannedTag := ""
+		c.state.Mu.Lock()
 		if _, banned := c.state.BannedUsers[id]; banned {
 			bannedTag = c.t("cli-user-banned-tag", nil)
 		}
+		c.state.Mu.Unlock()
 		c.print(c.t("cli-user-line", map[string]string{
-			"id": strconv.Itoa(id), "name": u.Name, "status": status,
+			"id": strconv.Itoa(id), "name": name, "status": status,
 			"role": role, "room": room, "bannedTag": bannedTag,
 		}))
 	}
@@ -273,19 +295,21 @@ func (c *Console) cmdUserInfo(args []string) {
 		c.printErr(c.t("cli-user-not-found", map[string]string{"id": args[0]}))
 		return
 	}
+	u.Mu.RLock()
 	connected := u.Session != nil
 	monitor := u.Monitor
 	room := c.t("cli-none", nil)
 	if u.Room != nil {
 		room = string(u.Room.ID)
 	}
-	_, banned := c.state.BannedUsers[id]
 	gameTime := u.GameTime
 	lang := "unknown"
 	if u.Lang != nil {
 		lang = u.Lang.Tag
 	}
 	name := u.Name
+	u.Mu.RUnlock()
+	_, banned := c.state.BannedUsers[id]
 	c.state.Mu.Unlock()
 
 	status := c.t("cli-user-status-offline", nil)
@@ -321,12 +345,17 @@ func (c *Console) cmdBroadcast(args []string) {
 	}
 	msg := strings.Join(args, " ")
 	c.state.Mu.Lock()
-	count := len(c.state.Rooms)
+	rooms := make([]*server.Room, 0, len(c.state.Rooms))
 	for _, room := range c.state.Rooms {
-		c.hub.BroadcastRoomMessage(room, protocol.MsgChat{User: 0, Content: msg})
+		rooms = append(rooms, room)
 	}
 	c.state.Mu.Unlock()
-	c.printOK(c.t("cli-broadcast-sent", map[string]string{"count": strconv.Itoa(count)}))
+	for _, room := range rooms {
+		room.Mu.Lock()
+		c.hub.BroadcastRoomMessage(room, protocol.MsgChat{User: 0, Content: msg})
+		room.Mu.Unlock()
+	}
+	c.printOK(c.t("cli-broadcast-sent", map[string]string{"count": strconv.Itoa(len(rooms))}))
 }
 
 func (c *Console) cmdRoomSay(args []string) {
@@ -338,14 +367,14 @@ func (c *Console) cmdRoomSay(args []string) {
 	msg := strings.Join(args[1:], " ")
 	c.state.Mu.Lock()
 	room := c.state.Rooms[rid]
-	if room != nil {
-		c.hub.BroadcastRoomMessage(room, protocol.MsgChat{User: 0, Content: msg})
-	}
 	c.state.Mu.Unlock()
 	if room == nil {
 		c.printErr(c.t("cli-room-not-found-named", map[string]string{"room": args[0]}))
 		return
 	}
+	room.Mu.Lock()
+	c.hub.BroadcastRoomMessage(room, protocol.MsgChat{User: 0, Content: msg})
+	room.Mu.Unlock()
 	c.printOK(c.t("cli-room-message-sent", map[string]string{"room": args[0]}))
 }
 
@@ -386,10 +415,12 @@ func (c *Console) cmdMaxUsers(args []string) {
 	rid := protocol.RoomID(args[0])
 	c.state.Mu.Lock()
 	room := c.state.Rooms[rid]
-	if room != nil {
-		room.MaxUsers = n
-	}
 	c.state.Mu.Unlock()
+	if room != nil {
+		room.Mu.Lock()
+		room.MaxUsers = n
+		room.Mu.Unlock()
+	}
 	if room == nil {
 		c.printErr(c.t("cli-room-not-found", nil))
 		return
@@ -442,25 +473,30 @@ func (c *Console) cmdKick(args []string) {
 // （对应 TS abortPlayingUserAndCheckReady）。
 func (c *Console) abortPlayingAndCheck(u *server.User) {
 	c.state.Mu.Lock()
-	defer c.state.Mu.Unlock()
 	room := u.Room
+	c.state.Mu.Unlock()
 	if room == nil {
 		return
 	}
+	room.Mu.Lock()
 	st, ok := room.State.(server.StatePlaying)
 	if !ok {
+		room.Mu.Unlock()
 		return
 	}
 	if _, done := st.Results[u.ID]; done {
+		room.Mu.Unlock()
 		return // 已交成绩
 	}
 	if _, aborted := st.Aborted[u.ID]; aborted {
+		room.Mu.Unlock()
 		return // 已判退
 	}
 	st.Aborted[u.ID] = struct{}{}
 	c.hub.BroadcastRoomMessage(room, protocol.MsgAbort{User: int32(u.ID)})
 	room.NotifyWebSocket(c.hub.MakeRoomLifecycle(room))
 	c.hub.CheckRoomAllReady(room)
+	room.Mu.Unlock()
 }
 
 func (c *Console) cmdBan(args []string) {
@@ -472,7 +508,9 @@ func (c *Console) cmdBan(args []string) {
 	c.state.BannedUsers[id] = struct{}{}
 	var sess server.Session
 	if u := c.state.Users[id]; u != nil {
+		u.Mu.RLock()
 		sess = u.Session
+		u.Mu.RUnlock()
 	}
 	c.state.Mu.Unlock()
 	if sess != nil {

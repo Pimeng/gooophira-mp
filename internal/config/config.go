@@ -161,7 +161,7 @@ func (c *ServerConfig) EffectiveLogMaxTotalMB() int {
 }
 func (c *ServerConfig) EffectiveLang() string { return strOr(c.Lang, "") }
 func (c *ServerConfig) EffectiveRealIPHeader() string {
-	return strOr(c.RealIPHeader, "X-Forwarded-For")
+	return strOr(c.RealIPHeader, "")
 }
 func (c *ServerConfig) EffectiveHAProxyProtocol() bool   { return boolOr(c.HAProxyProtocol, false) }
 func (c *ServerConfig) EffectiveHTTPService() bool       { return boolOr(c.HTTPService, false) }

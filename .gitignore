@@ -2,6 +2,7 @@
 logs/
 record/
 tmp/
+cache/
 admin_data.json
 
 # 编译产物

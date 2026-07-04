@@ -18,10 +18,10 @@ func TestMonitorBuffer_MergesFramesPerPlayer(t *testing.T) {
 		t.Fatal("monitor should be addable")
 	}
 
-	b := NewMonitorBuffer(h.state)
+	b := NewMonitorBuffer()
 	// 同一玩家(7)两批帧 → 应合并为一条 SrvTouches。
-	b.BufferTouches(room, room.MonitorIDs(), 7, []protocol.TouchFrame{touchFrame(1)})
-	b.BufferTouches(room, room.MonitorIDs(), 7, []protocol.TouchFrame{touchFrame(2), touchFrame(3)})
+	b.BufferTouches(room, 7, []protocol.TouchFrame{touchFrame(1)})
+	b.BufferTouches(room, 7, []protocol.TouchFrame{touchFrame(2), touchFrame(3)})
 	b.Flush()
 
 	sent := sentTo(mon)
@@ -40,17 +40,17 @@ func TestMonitorBuffer_MergesFramesPerPlayer(t *testing.T) {
 }
 
 func TestMonitorBuffer_NoMonitorsNoSend(t *testing.T) {
-	h := newHarness()
+	_ = newHarness()
 	room := NewRoom("room1", 1, 8, false)
-	b := NewMonitorBuffer(h.state)
-	// 无观战者 → BufferTouches 直接丢弃，Flush 无副作用。
-	b.BufferTouches(room, room.MonitorIDs(), 7, []protocol.TouchFrame{touchFrame(1)})
+	b := NewMonitorBuffer()
+	// 调用方已在 room.Mu 外检查 monitor count，缓冲层不再重复检查。
+	b.BufferTouches(room, 7, []protocol.TouchFrame{touchFrame(1)})
 	b.Flush()
 	b.mu.Lock()
 	n := len(b.touch)
 	b.mu.Unlock()
 	if n != 0 {
-		t.Errorf("no-monitor frames should not be buffered, got %d", n)
+		t.Errorf("flush should drain buffered frames, got %d remaining", n)
 	}
 }
 
@@ -60,9 +60,9 @@ func TestMonitorBuffer_SeparatePlayersSeparateCommands(t *testing.T) {
 	mon := h.addUser(200, "mon")
 	room.AddUser(mon, true)
 
-	b := NewMonitorBuffer(h.state)
-	b.BufferTouches(room, room.MonitorIDs(), 7, []protocol.TouchFrame{touchFrame(1)})
-	b.BufferTouches(room, room.MonitorIDs(), 8, []protocol.TouchFrame{touchFrame(2)})
+	b := NewMonitorBuffer()
+	b.BufferTouches(room, 7, []protocol.TouchFrame{touchFrame(1)})
+	b.BufferTouches(room, 8, []protocol.TouchFrame{touchFrame(2)})
 	b.Flush()
 
 	players := map[int32]bool{}
@@ -82,9 +82,9 @@ func TestMonitorBuffer_JudgesMerge(t *testing.T) {
 	mon := h.addUser(200, "mon")
 	room.AddUser(mon, true)
 
-	b := NewMonitorBuffer(h.state)
-	b.BufferJudges(room, room.MonitorIDs(), 7, []protocol.JudgeEvent{{Time: 1, LineID: 0, NoteID: 0, Judgement: 1}})
-	b.BufferJudges(room, room.MonitorIDs(), 7, []protocol.JudgeEvent{{Time: 2, LineID: 0, NoteID: 1, Judgement: 1}})
+	b := NewMonitorBuffer()
+	b.BufferJudges(room, 7, []protocol.JudgeEvent{{Time: 1, LineID: 0, NoteID: 0, Judgement: 1}})
+	b.BufferJudges(room, 7, []protocol.JudgeEvent{{Time: 2, LineID: 0, NoteID: 1, Judgement: 1}})
 	b.Flush()
 
 	var judges []protocol.SrvJudges
@@ -104,8 +104,8 @@ func TestMonitorBuffer_StopFlushesAndIsIdempotent(t *testing.T) {
 	mon := h.addUser(200, "mon")
 	room.AddUser(mon, true)
 
-	b := NewMonitorBuffer(h.state)
-	b.BufferTouches(room, room.MonitorIDs(), 7, []protocol.TouchFrame{touchFrame(1)})
+	b := NewMonitorBuffer()
+	b.BufferTouches(room, 7, []protocol.TouchFrame{touchFrame(1)})
 	b.Stop() // 应刷写残留
 	b.Stop() // 二次调用不应 panic
 
