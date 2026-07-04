@@ -29,14 +29,16 @@ const (
 )
 
 func parseLevel(s string) Level {
+	// 接受 4 字符新形式（DEBU/ERRO）与 5 字符旧别名（DEBUG/ERROR），
+	// 历史配置文件和文档可能仍在使用旧名。
 	switch strings.ToUpper(strings.TrimSpace(s)) {
-	case "DEBUG":
+	case "DEBU", "DEBUG":
 		return LevelDebug
 	case "MARK":
 		return LevelMark
 	case "WARN":
 		return LevelWarn
-	case "ERROR":
+	case "ERRO", "ERROR":
 		return LevelError
 	default:
 		return LevelInfo
@@ -44,15 +46,16 @@ func parseLevel(s string) Level {
 }
 
 func (l Level) label() string {
+	// 全部 4 字符宽度，对齐日志列。
 	switch l {
 	case LevelDebug:
-		return "DEBUG"
+		return "DEBU"
 	case LevelMark:
 		return "MARK"
 	case LevelWarn:
 		return "WARN"
 	case LevelError:
-		return "ERROR"
+		return "ERRO"
 	default:
 		return "INFO"
 	}

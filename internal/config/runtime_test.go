@@ -49,12 +49,12 @@ func TestRuntimePatch_ApplyScalars(t *testing.T) {
 	if cfg.EffectiveRoomMaxUsers() != 6 {
 		t.Errorf("ROOM_MAX_USERS = %d, want 6", cfg.EffectiveRoomMaxUsers())
 	}
-	if cfg.EffectiveLogLevel() != "DEBUG" {
-		t.Errorf("LOG_LEVEL = %s, want DEBUG", cfg.EffectiveLogLevel())
+	if cfg.EffectiveLogLevel() != "DEBU" {
+		t.Errorf("LOG_LEVEL = %s, want DEBU", cfg.EffectiveLogLevel())
 	}
 	// Persist 应保留解析后的标量值（用于落盘）。
-	if res.Persist["LOG_LEVEL"] != "DEBUG" {
-		t.Errorf("persist LOG_LEVEL = %v, want DEBUG", res.Persist["LOG_LEVEL"])
+	if res.Persist["LOG_LEVEL"] != "DEBU" {
+		t.Errorf("persist LOG_LEVEL = %v, want DEBU", res.Persist["LOG_LEVEL"])
 	}
 }
 

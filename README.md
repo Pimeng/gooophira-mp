@@ -84,7 +84,7 @@ LRU + 落盘，可切 Redis 多实例共享）。
 | `HTTP_SERVICE` / `HTTP_PORT` | 同名 | `false` / `12347` | 是否开启 HTTP 管理服务 |
 | `GUI` | `GUI` | `false` | 启动时自动弹出 GUI 窗口（需 HTTP 服务） |
 | `ADMIN_TOKEN` | `ADMIN_TOKEN` | 空 | HTTP 管理接口鉴权令牌（不配则禁用管理接口） |
-| `LOG_LEVEL` | `LOG_LEVEL` | `INFO` | 日志级别：`DEBUG`/`INFO`/`MARK`/`WARN`/`ERROR` |
+| `LOG_LEVEL` | `LOG_LEVEL` | `INFO` | 日志级别：`DEBU`/`INFO`/`MARK`/`WARN`/`ERRO`（兼容旧名 `DEBUG`/`ERROR`） |
 | `LANG` | `PHIRA_MP_LANG` > `LANG` | `zh-CN` | 界面语言：`zh-CN`/`en-US` |
 | `ROOM_MAX_USERS` | `ROOM_MAX_USERS` | `8` | 单个房间最大人数 |
 | `REPLAY_ENABLED` | `REPLAY_ENABLED` | `false` | 是否录制回放（可运行时切换） |

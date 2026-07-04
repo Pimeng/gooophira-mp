@@ -26,7 +26,7 @@ CORS_ORIGINS:
 # HTTP API 限流窗口（毫秒），默认 60000（1 分钟）
 # HTTP_RATE_LIMIT_WINDOW_MS: 60000
 
-# 日志等级：DEBUG、INFO、MARK、WARN、ERROR，默认 INFO
+# 日志等级：DEBU、INFO、MARK、WARN、ERRO（兼容旧名 DEBUG/ERROR），默认 INFO
 LOG_LEVEL: INFO
 
 # 日志维护（按天切分的历史日志的压缩与清理；当天正在写入的日志永不处理）

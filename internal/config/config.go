@@ -311,7 +311,17 @@ func parsePortValue(v any) (int, bool) {
 	return n, true
 }
 
-var logLevels = map[string]bool{"DEBUG": true, "INFO": true, "MARK": true, "WARN": true, "ERROR": true}
+// logLevels 接受 4 字符规范名（DEBU/INFO/MARK/WARN/ERRO）与 5 字符旧别名
+// （DEBUG/ERROR），统一规范化为短形式后落盘与下发，详见 parseLogLevelValue。
+var logLevels = map[string]string{
+	"DEBU":  "DEBU",
+	"DEBUG": "DEBU",
+	"INFO":  "INFO",
+	"MARK":  "MARK",
+	"WARN":  "WARN",
+	"ERRO":  "ERRO",
+	"ERROR": "ERRO",
+}
 
 func parseLogLevelValue(v any) (string, bool) {
 	s, ok := v.(string)
@@ -319,10 +329,11 @@ func parseLogLevelValue(v any) (string, bool) {
 		return "", false
 	}
 	u := strings.ToUpper(strings.TrimSpace(s))
-	if u == "" || !logLevels[u] {
+	norm, ok := logLevels[u]
+	if u == "" || !ok {
 		return "", false
 	}
-	return u, true
+	return norm, true
 }
 
 func parseRoomMaxUsersValue(v any) (int, bool) {
