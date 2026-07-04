@@ -27,6 +27,7 @@ func TestEffectiveDefaults(t *testing.T) {
 		{"ChatEnabled", c.EffectiveChatEnabled(), true},
 		{"ReplayEnabled", c.EffectiveReplayEnabled(), false},
 		{"ReplayTTLDays", c.EffectiveReplayTTLDays(), 4},
+		{"ReplayFakeMonitorUserID", c.EffectiveReplayFakeMonitorUserID(), 0},
 		{"RoomListTip", c.EffectiveRoomListTip(), ""},
 		{"LogLevel", c.EffectiveLogLevel(), "INFO"},
 		{"LogCompressAfterDays", c.EffectiveLogCompressAfterDays(), 14},
@@ -59,13 +60,14 @@ func TestExplicitOverridesDefault(t *testing.T) {
 
 func TestBuildFromMap_ParseAndValidate(t *testing.T) {
 	m := map[string]any{
-		"ROOM_MAX_USERS":  100, // 超上限 → 钳到 64
-		"REPLAY_TTL_DAYS": 0,   // 非法（<1）→ 忽略，回退默认 4
-		"CHAT_ENABLED":    "off",
-		"PORT":            "8080",
-		"MONITORS":        "1,2,3",
-		"OUTBOUND_PROXY":  false,
-		"REDIS":           map[string]any{"ENABLED": true, "PORT": 6380},
+		"ROOM_MAX_USERS":              100, // 超上限 → 钳到 64
+		"REPLAY_TTL_DAYS":             0,   // 非法（<1）→ 忽略，回退默认 4
+		"REPLAY_FAKE_MONITOR_USER_ID": 12345678,
+		"CHAT_ENABLED":                "off",
+		"PORT":                        "8080",
+		"MONITORS":                    "1,2,3",
+		"OUTBOUND_PROXY":              false,
+		"REDIS":                       map[string]any{"ENABLED": true, "PORT": 6380},
 	}
 	c := BuildFromMap(m)
 	if c.EffectiveRoomMaxUsers() != 64 {
@@ -76,6 +78,9 @@ func TestBuildFromMap_ParseAndValidate(t *testing.T) {
 	}
 	if c.EffectiveReplayTTLDays() != 4 {
 		t.Error("REPLAY_TTL_DAYS should fall back to default 4")
+	}
+	if c.EffectiveReplayFakeMonitorUserID() != 12345678 {
+		t.Errorf("REPLAY_FAKE_MONITOR_USER_ID should parse to 12345678, got %d", c.EffectiveReplayFakeMonitorUserID())
 	}
 	if c.EffectiveChatEnabled() != false {
 		t.Error("CHAT_ENABLED 'off' should parse to false")

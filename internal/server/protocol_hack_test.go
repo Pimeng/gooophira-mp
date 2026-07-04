@@ -1,12 +1,14 @@
 package server
 
 import (
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
+	"github.com/Pimeng/gooophira-mp/internal/l10n"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
 )
 
@@ -396,5 +398,106 @@ func TestForceSyncHost_HostSendsChangeHostTrue(t *testing.T) {
 	}
 	if !found {
 		t.Error("host should receive SrvChangeHost{IsHost:true}")
+	}
+}
+
+// ---------- 回放录制器提示聊天 ----------
+
+// findHintChat 在 sent 中查找系统聊天（MsgChat User=0）。
+// 返回 (内容, 是否找到)。
+func findHintChat(sent []protocol.ServerCommand) (string, bool) {
+	for _, cmd := range sent {
+		if sm, ok := cmd.(protocol.SrvMessage); ok {
+			if chat, ok := sm.Message.(protocol.MsgChat); ok && chat.User == 0 {
+				return chat.Content, true
+			}
+		}
+	}
+	return "", false
+}
+
+// TestForceSyncInfo_LiveWithRecorder_SendsHintChat 验证 live=true + recorder 时
+// 在派发假观战者加入消息后，紧跟一条系统聊天（User=0），明确告知玩家这是服务器模拟的
+// 回放采集会话、无需理会。提示文本应包含录制器显示名以便玩家对应。
+func TestForceSyncInfo_LiveWithRecorder_SendsHintChat(t *testing.T) {
+	h := newHarness()
+	rec := &captureRecorder{}
+	h.state.ReplayRecorder = rec
+	hub := NewHub(h.state, &mockPhira{})
+	ph := hub.NewProtocolHack()
+	SetProtocolHackDelay(0)
+	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+
+	u := h.addUser(2, "bob")
+	u.SetSession(&mockSession{id: "bob"})
+	r := NewRoom("room1", 1, 8, false)
+	r.Live = true
+	r.State = StateSelectChart{}
+	r.Chart = nil
+
+	before := len(sentTo(u))
+	ph.forceSyncInfo(r, u)
+	time.Sleep(50 * time.Millisecond)
+	sent := sentTo(u)[before:]
+
+	content, ok := findHintChat(sent)
+	if !ok {
+		t.Fatal("expected a system chat (MsgChat User=0) hint after fake monitor join")
+	}
+	// 提示文本应包含本地化的录制器显示名（带「（系统）」后缀），便于玩家对应。
+	recorderName := l10n.TL(h.state.ServerLang, "replay-recorder-name", nil)
+	if !strings.Contains(content, recorderName) {
+		t.Errorf("hint chat should contain recorder name %q, got %q", recorderName, content)
+	}
+}
+
+// TestForceSyncInfo_NoRecorder_SkipsHintChat 验证 recorder=nil 时既不发假观战者消息，
+// 也不发提示聊天——避免给玩家发送与回放无关的误导性提示。
+func TestForceSyncInfo_NoRecorder_SkipsHintChat(t *testing.T) {
+	h := newHarness()
+	hub := NewHub(h.state, &mockPhira{})
+	ph := hub.NewProtocolHack()
+	SetProtocolHackDelay(0)
+	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+
+	u := h.addUser(2, "bob")
+	u.SetSession(&mockSession{id: "bob"})
+	r := NewRoom("room1", 1, 8, false)
+	r.Live = true
+	r.State = StateSelectChart{}
+	r.Chart = nil
+
+	before := len(sentTo(u))
+	ph.forceSyncInfo(r, u)
+	time.Sleep(30 * time.Millisecond)
+	sent := sentTo(u)[before:]
+	if _, ok := findHintChat(sent); ok {
+		t.Error("should not send hint chat when recorder is nil")
+	}
+}
+
+// TestForceSyncInfo_NotLive_SkipsHintChat 验证 live=false 时也不发提示聊天。
+func TestForceSyncInfo_NotLive_SkipsHintChat(t *testing.T) {
+	h := newHarness()
+	rec := &captureRecorder{}
+	h.state.ReplayRecorder = rec
+	hub := NewHub(h.state, &mockPhira{})
+	ph := hub.NewProtocolHack()
+	SetProtocolHackDelay(0)
+	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+
+	u := h.addUser(2, "bob")
+	u.SetSession(&mockSession{id: "bob"})
+	r := NewRoom("room1", 1, 8, false)
+	r.Live = false
+	r.State = StateSelectChart{}
+	r.Chart = nil
+
+	before := len(sentTo(u))
+	ph.forceSyncInfo(r, u)
+	time.Sleep(30 * time.Millisecond)
+	sent := sentTo(u)[before:]
+	if _, ok := findHintChat(sent); ok {
+		t.Error("should not send hint chat when room is not live")
 	}
 }

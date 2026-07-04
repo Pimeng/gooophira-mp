@@ -272,12 +272,55 @@ func (h *Hub) ProcessCreateRoom(user *User, id protocol.RoomID) error {
 	return nil
 }
 
+// sendReplayRecorderHint 向用户发送一条系统聊天（MsgChat User=0），告知其刚才加入的
+// 「回放录制器（系统）」是服务器模拟的自动化会话，仅供回放采集使用，不参与游戏，也不
+// 影响对局结果。仅在确实派发假观战者加入消息后调用——避免裸提示让玩家误以为有真实观战
+// 者进入。name 为假观战者显示名（已含「（系统）」后缀），用于在提示中指代该会话。
+// 迟到加入者会单独收到 chat-late-join-hint 提示（见 sendLateJoinHint），与本提示解耦。
+func (h *Hub) sendReplayRecorderHint(user *User, lang *l10n.Language, name string) {
+	if user == nil || lang == nil {
+		return
+	}
+	const key = "chat-replay-recorder-hint"
+	hint := l10n.TL(lang, key, map[string]string{"name": name})
+	// 缺失翻译时 TL 返回 key 本身；此时静默跳过避免发送无意义内容。
+	if hint == "" || hint == key {
+		return
+	}
+	user.TrySend(protocol.SrvMessage{Message: protocol.MsgChat{User: 0, Content: hint}})
+}
+
+// sendLateJoinHint 向迟到加入者（对局进行中加入的非观战者）发送系统聊天提示：告知其
+// 本局已自动计为已放弃、无需操作、不影响分数，下一局可正常参与。与回放假观战者提示
+// 解耦——即使未启用回放录制，迟到加入者仍会收到本提示。
+//
+// 派发走 ProtocolHack 延迟调度：① 避免在 room.Mu 内同步写 chat 通道；② 让真实玩家
+// 加入广播（BroadcastRoom OnJoinRoom / MsgJoinRoom）先抵达客户端，提示紧随其后到达，
+// 体感更自然、避免客户端在加入动画途中就弹出系统聊天。
+func (h *Hub) sendLateJoinHint(user *User, lang *l10n.Language) {
+	if user == nil || lang == nil {
+		return
+	}
+	const key = "chat-late-join-hint"
+	hint := l10n.TL(lang, key, nil)
+	if hint == "" || hint == key {
+		return
+	}
+	snapshot := user
+	h.NewProtocolHack().schedule(func() {
+		snapshot.TrySend(protocol.SrvMessage{Message: protocol.MsgChat{User: 0, Content: hint}})
+	})
+}
+
 // sendFakeMonitorJoin 向目标用户发送回放假观战者加入通知（OnJoinRoom + JoinRoom）。
 // 客户端检测到观战者后会上报 Touches/Judges，供录制器采集。对应 TS Session.sendFakeMonitorJoin。
 //
 // 实现走 ProtocolHack.forceSyncInfo：默认延迟 5ms（可经 -protocol-hack-delay 调整），
 // 模仿 TS setImmediate 语义：客户端收到 OnJoinRoom 时房间必须已初始化完毕，否则客户端
 // 不会把假观战者加入其内部用户列表。
+//
+// 迟到加入者的提示（chat-late-join-hint）由 ProcessJoinRoom 在 HandleJoin 后单独发送，
+// 与本函数解耦——未启用回放录制时迟到加入者仍会收到迟到提示。
 func (h *Hub) sendFakeMonitorJoin(targetUser *User, room *Room) {
 	if !h.State.ReplayEnabled || !room.ReplayEligible {
 		return
@@ -304,6 +347,9 @@ func (h *Hub) sendFakeMonitorJoin(targetUser *User, room *Room) {
 		snapshot.TrySend(protocol.SrvMessage{
 			Message: protocol.MsgJoinRoom{User: fake.ID, Name: fake.Name},
 		})
+		// 紧跟一条系统聊天，明确告知玩家这是服务器模拟的回放采集会话、无需理会，
+		// 避免其误以为有真实观战者进入并产生困惑或等待行为。
+		h.sendReplayRecorderHint(snapshot, state.ServerLang, name)
 	})
 }
 
@@ -344,6 +390,15 @@ func (h *Hub) ProcessJoinRoom(user *User, id protocol.RoomID, monitor bool) (pro
 	user.Room = room
 	lc := h.MakeRoomLifecycle(room)
 	room.HandleJoin(lc, user)
+	// 迟到加入者（对局进行中加入的非观战者）单独发送一条提示，告知本局已自动计为已放弃。
+	// 此提示与回放假观战者解耦：即使未启用回放录制，迟到加入者仍会收到本提示。
+	if !monitor {
+		if sp, ok := room.State.(StatePlaying); ok {
+			if _, aborted := sp.Aborted[user.ID]; aborted {
+				h.sendLateJoinHint(user, h.State.ServerLang)
+			}
+		}
+	}
 	room.RefreshLive(h.State.ReplayEnabled)
 
 	// 对齐原版：加入房间输出 MARK 级控制台日志（观战者带后缀）。

@@ -110,3 +110,54 @@ func TestRecorder_OverflowCapsFrames(t *testing.T) {
 		t.Fatalf("touch frames should cap at %d, got %d", maxFramesPerInflight, got)
 	}
 }
+
+// TestRecorder_DefaultFakeMonitorID 验证未调用 SetFakeMonitorID 时，录制器使用内置默认 ID。
+func TestRecorder_DefaultFakeMonitorID(t *testing.T) {
+	rec := NewRecorder(t.TempDir(), nil)
+	if id := rec.FakeMonitorID(); id != FakeMonitorID() {
+		t.Errorf("default FakeMonitorID = %d, want %d", id, FakeMonitorID())
+	}
+	info := rec.FakeMonitorInfo("recorder")
+	if info.ID != FakeMonitorID() {
+		t.Errorf("FakeMonitorInfo.ID = %d, want default %d", info.ID, FakeMonitorID())
+	}
+	if !info.Monitor {
+		t.Error("FakeMonitorInfo.Monitor should be true")
+	}
+	if info.Name != "recorder" {
+		t.Errorf("FakeMonitorInfo.Name = %q, want %q", info.Name, "recorder")
+	}
+}
+
+// TestRecorder_SetFakeMonitorID 验证 SetFakeMonitorID 覆盖后，FakeMonitorInfo 使用自定义 ID。
+// 这让客户端可凭该 ID 向 Phira 拉取真实头像/昵称。
+func TestRecorder_SetFakeMonitorID(t *testing.T) {
+	rec := NewRecorder(t.TempDir(), nil)
+	const customID int32 = 12345678
+	rec.SetFakeMonitorID(customID)
+
+	if id := rec.FakeMonitorID(); id != customID {
+		t.Errorf("after SetFakeMonitorID, FakeMonitorID = %d, want %d", id, customID)
+	}
+	info := rec.FakeMonitorInfo("bot")
+	if info.ID != customID {
+		t.Errorf("FakeMonitorInfo.ID = %d, want custom %d", info.ID, customID)
+	}
+	if info.Name != "bot" {
+		t.Errorf("FakeMonitorInfo.Name = %q, want %q", info.Name, "bot")
+	}
+}
+
+// TestRecorder_SetFakeMonitorID_ZeroOrNegative_FallsBack 验证 id<=0 时回退到内置默认值。
+func TestRecorder_SetFakeMonitorID_ZeroOrNegative_FallsBack(t *testing.T) {
+	rec := NewRecorder(t.TempDir(), nil)
+	rec.SetFakeMonitorID(999)
+	rec.SetFakeMonitorID(0) // 0 应回退到默认
+	if id := rec.FakeMonitorID(); id != FakeMonitorID() {
+		t.Errorf("SetFakeMonitorID(0): FakeMonitorID = %d, want default %d", id, FakeMonitorID())
+	}
+	rec.SetFakeMonitorID(-5) // 负数也应回退
+	if id := rec.FakeMonitorID(); id != FakeMonitorID() {
+		t.Errorf("SetFakeMonitorID(-5): FakeMonitorID = %d, want default %d", id, FakeMonitorID())
+	}
+}

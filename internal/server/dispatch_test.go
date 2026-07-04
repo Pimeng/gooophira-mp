@@ -7,10 +7,12 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
+	"github.com/Pimeng/gooophira-mp/internal/l10n"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
 	"github.com/Pimeng/gooophira-mp/internal/replay"
 )
@@ -431,6 +433,18 @@ func TestDispatch_ReplayWithFakeMonitor(t *testing.T) {
 		t.Error("fake monitor JoinRoom message not sent to room creator")
 	}
 
+	// 建房后应同时收到一条系统聊天，明确告知玩家这是服务器模拟的回放采集会话、无需理会。
+	hintContent, gotHint := findHintChat(sentTo(alice))
+	if !gotHint {
+		t.Error("expected a system chat hint after fake monitor join (sendFakeMonitorJoin path)")
+	} else {
+		// 提示文本应包含本地化的录制器显示名（带「（系统）」后缀），便于玩家对应。
+		recorderName := l10n.TL(st.ServerLang, "replay-recorder-name", nil)
+		if !strings.Contains(hintContent, recorderName) {
+			t.Errorf("hint chat should contain recorder name %q, got %q", recorderName, hintContent)
+		}
+	}
+
 	// 2. 选谱 → 请求开始（单人立即 Playing，触发 OnEnterPlaying → StartRoom）
 	hub.mustDispatch(t, alice, protocol.CmdSelectChart{ID: 1})
 	hub.mustDispatch(t, alice, protocol.CmdRequestStart{})
@@ -557,6 +571,117 @@ func readUleb(r *protocol.BinaryReader) uint64 {
 			return result
 		}
 		shift += 7
+	}
+}
+
+// TestSendFakeMonitorJoin_LateJoiner_GetsRegularHint 验证：当用户在对局进行中
+// （StatePlaying）加入房间并已被 HandleJoin 标记为 Aborted 时，sendFakeMonitorJoin
+// 应发送与普通加入者相同的提示变体（chat-replay-recorder-hint）。迟到加入者的专用
+// 提示（chat-late-join-hint）由 ProcessJoinRoom 在 HandleJoin 后单独发送，与本函数解耦。
+func TestSendFakeMonitorJoin_LateJoiner_GetsRegularHint(t *testing.T) {
+	dir := t.TempDir()
+	enabled := true
+	cfg := &config.ServerConfig{ReplayEnabled: &enabled, ReplayBaseDir: &dir}
+	st := NewServerState(cfg, nil, "test", "", "")
+	st.ReplayRecorder = &captureRecorder{}
+	hub := NewHub(st, &mockPhira{})
+	SetProtocolHackDelay(0)
+	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+
+	// bob 是迟到加入者：房间已在 StatePlaying，bob.ID 在 Aborted 中。
+	bob := NewUser(2, "Bob", "", st)
+	bob.SetSession(&mockSession{id: "bob"})
+	st.Users[2] = bob
+	room := NewRoom("room_late", 1, 8, true) // ReplayEligible=true
+	room.State = StatePlaying{
+		Results: map[int]config.RecordData{},
+		Aborted: map[int]struct{}{2: {}}, // bob 已被 HandleJoin 标记
+	}
+	bob.Room = room
+
+	before := len(sentTo(bob))
+	hub.sendFakeMonitorJoin(bob, room)
+	time.Sleep(50 * time.Millisecond)
+	sent := sentTo(bob)[before:]
+
+	content, ok := findHintChat(sent)
+	if !ok {
+		t.Fatal("expected a system chat hint for late joiner")
+	}
+	recorderName := l10n.TL(st.ServerLang, "replay-recorder-name", nil)
+	regularHint := l10n.TL(st.ServerLang, "chat-replay-recorder-hint", map[string]string{"name": recorderName})
+	if content != regularHint {
+		t.Errorf("late joiner should receive regular hint variant (late-join hint is sent separately)\n got: %q\nwant: %q", content, regularHint)
+	}
+}
+
+// TestSendLateJoinHint_SendsLateJoinHint 验证：sendLateJoinHint 异步发送 chat-late-join-hint
+// 提示，告知迟到加入者本局已自动计为已放弃、下一局可正常参与。此提示与回放假观战者解耦，
+// 即使未启用回放录制也应发送。双保险：提示内容不得包含假观战者说明（应只含迟到加入解释）。
+func TestSendLateJoinHint_SendsLateJoinHint(t *testing.T) {
+	cfg := &config.ServerConfig{}
+	st := NewServerState(cfg, nil, "test", "", "")
+	hub := NewHub(st, &mockPhira{})
+	SetProtocolHackDelay(0) // 立即异步派发，便于同步验证
+	t.Cleanup(func() { SetProtocolHackDelay(30 * time.Millisecond) })
+
+	bob := NewUser(2, "Bob", "", st)
+	bob.SetSession(&mockSession{id: "bob"})
+	st.Users[2] = bob
+
+	before := len(sentTo(bob))
+	hub.sendLateJoinHint(bob, st.ServerLang)
+	time.Sleep(30 * time.Millisecond) // 等异步 schedule 派发
+	sent := sentTo(bob)[before:]
+
+	content, ok := findHintChat(sent)
+	if !ok {
+		t.Fatal("expected a system chat hint from sendLateJoinHint")
+	}
+	lateHint := l10n.TL(st.ServerLang, "chat-late-join-hint", nil)
+	if content != lateHint {
+		t.Errorf("sendLateJoinHint should send chat-late-join-hint\n got: %q\nwant: %q", content, lateHint)
+	}
+	// 双保险：迟到加入提示不得包含假观战者说明（即录制器名），否则说明耦合未拆干净。
+	recorderName := l10n.TL(st.ServerLang, "replay-recorder-name", nil)
+	if strings.Contains(content, recorderName) {
+		t.Errorf("chat-late-join-hint should not mention the fake monitor recorder name %q", recorderName)
+	}
+}
+
+// TestSendFakeMonitorJoin_RegularJoiner_GetsRegularHint 验证：当用户加入非
+// StatePlaying 房间（如 SelectChart）时，sendFakeMonitorJoin 应发送默认提示变体
+// （chat-replay-recorder-hint），而非迟到变体。
+func TestSendFakeMonitorJoin_RegularJoiner_GetsRegularHint(t *testing.T) {
+	dir := t.TempDir()
+	enabled := true
+	cfg := &config.ServerConfig{ReplayEnabled: &enabled, ReplayBaseDir: &dir}
+	st := NewServerState(cfg, nil, "test", "", "")
+	st.ReplayRecorder = &captureRecorder{}
+	hub := NewHub(st, &mockPhira{})
+	SetProtocolHackDelay(0)
+	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+
+	alice := NewUser(1, "Alice", "", st)
+	alice.SetSession(&mockSession{id: "alice"})
+	st.Users[1] = alice
+	room := NewRoom("room_reg", 1, 8, true) // ReplayEligible=true
+	room.State = StateSelectChart{}         // 非 StatePlaying → 非迟到加入
+	alice.Room = room
+
+	before := len(sentTo(alice))
+	hub.sendFakeMonitorJoin(alice, room)
+	time.Sleep(50 * time.Millisecond)
+	sent := sentTo(alice)[before:]
+
+	content, ok := findHintChat(sent)
+	if !ok {
+		t.Fatal("expected a system chat hint for regular joiner")
+	}
+	recorderName := l10n.TL(st.ServerLang, "replay-recorder-name", nil)
+	regularHint := l10n.TL(st.ServerLang, "chat-replay-recorder-hint", map[string]string{"name": recorderName})
+	if content != regularHint {
+		t.Errorf("regular joiner should receive regular hint variant\n got: %q\nwant: %q", content, regularHint)
 	}
 }
 

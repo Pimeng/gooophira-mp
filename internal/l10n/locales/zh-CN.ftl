@@ -44,7 +44,9 @@ cli-invalid-monitors = MONITORS 不合法
 cli-invalid-protocol-hack-delay = PROTOCOL_HACK_DELAY 必须是非负整数（毫秒）
 
 label-monitor-suffix = （观战者）
-replay-recorder-name = 回放录制器
+replay-recorder-name = 回放录制器（系统）
+chat-replay-recorder-hint = ℹ️ 你可能注意到房间列表/进出信息有位名叫 `「{ $name }」` 的玩家，该用户用于录制本局回放（仅触发客户端行为），此玩家不参与游戏，也不会影响对局结果，请按正常节奏游玩，无需理会其进出房间提示。
+chat-late-join-hint = ℹ️ 你在对局进行中加入房间。由于本局已开始，无法将你中途插入，因此本局将自动计为已放弃——这并非异常，也无需任何操作，不会影响你的分数或他人的对局。请耐心在房间内等待本局结束，下一局开始后你即可正常参与。
 
 chat-welcome = "{ $userName }"你好！欢迎来到 { $serverName } 服务器！
 chat-welcome-version = 服务器当前版本： { $version }
@@ -180,6 +182,8 @@ log-user-judges = “{ $user }” 在房间 “{ $room }” 上报判定事件 {
 log-room-created = “{ $user }” 创建房间 “{ $room }”
 log-room-joined = “{ $user }”{ $suffix } 加入房间 “{ $room }”
 log-room-left = “{ $user }”{ $suffix } 离开房间 “{ $room }”
+
+log-replay-fake-monitor-id = 回放假观战者用户 ID 已配置为 { $id }，客户端将凭此 ID 拉取真实头像/昵称
 
 log-msg-create-room = { $user } 创建了房间
 log-msg-join-room = { $name } 加入了房间

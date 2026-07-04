@@ -155,6 +155,11 @@ func main() {
 	// 回放录制：录制器注入全局状态（供 dispatch 的 Append*/SetRecordID），并通过
 	// OnEnterPlaying/OnGameEnd 钩子驱动每局的开始/落盘。
 	recorder := replay.NewRecorder(cfg.EffectiveReplayBaseDir(), logger)
+	// 配置假观战者用户 ID：设为真实 Phira 用户 ID 后，客户端可凭此 ID 拉取真实头像/昵称。
+	if fid := cfg.EffectiveReplayFakeMonitorUserID(); fid > 0 {
+		recorder.SetFakeMonitorID(int32(fid))
+		logger.Mark(l10n.TL(lang, "log-replay-fake-monitor-id", map[string]string{"id": strconv.Itoa(fid)}))
+	}
 	state.ReplayRecorder = recorder
 
 	// 对局结束自动上传分享站（延迟 30s）。仅在 REPLAY_AUTO_UPLOAD 开启且分享站配置时实际生效。

@@ -126,6 +126,7 @@ var configFields = []fieldSpec{
 	strField("REPLAY_BASE_DIR", false, parseStringValue, func(c *ServerConfig) **string { return &c.ReplayBaseDir }),
 	intField("REPLAY_TTL_DAYS", false, parseReplayTTLDaysValue, func(c *ServerConfig) **int { return &c.ReplayTTLDays }),
 	boolField("REPLAY_AUTO_UPLOAD", false, func(c *ServerConfig) **bool { return &c.ReplayAutoUpload }),
+	intField("REPLAY_FAKE_MONITOR_USER_ID", false, parseNonNegativeIntValue, func(c *ServerConfig) **int { return &c.ReplayFakeMonitorUserID }),
 	strField("ADMIN_TOKEN", false, parseStringValue, func(c *ServerConfig) **string { return &c.AdminToken }),
 	strField("ADMIN_DATA_PATH", true, parseStringValue, func(c *ServerConfig) **string { return &c.AdminDataPath }),
 	strField("ROOM_LIST_TIP", false, parseStringValue, func(c *ServerConfig) **string { return &c.RoomListTip }),

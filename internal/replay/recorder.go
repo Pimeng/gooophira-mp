@@ -63,22 +63,26 @@ func (it *inFlight) info() FileInfo {
 // 所有 map 操作经内部 mu 保护。dispatch 路径在 ServerState.Mu 下调用 Append*/SetRecordID
 // （已串行）；EndRoom 的磁盘写入应由调用方放到 goroutine 中以免阻塞命令处理。
 type Recorder struct {
-	mu         sync.Mutex
-	baseDir    string
-	logger     Logger
-	inflight   map[string]*inFlight       // key = "roomKey:userID"
-	keysByRoom map[string]map[string]bool // roomKey -> set(key)
-	completed  map[string][]FileInfo      // roomKey -> 已完成文件
+	mu            sync.Mutex
+	baseDir       string
+	logger        Logger
+	fakeMonitorID int32                      // 假观战者用户 ID，默认 fakeMonitorID 常量；可经 SetFakeMonitorID 覆盖
+	inflight      map[string]*inFlight       // key = "roomKey:userID"
+	keysByRoom    map[string]map[string]bool // roomKey -> set(key)
+	completed     map[string][]FileInfo      // roomKey -> 已完成文件
 }
 
 // NewRecorder 创建录制器。logger 可为 nil。
+// fakeMonitorID 默认为内置常量（2_000_000_000）；调用 SetFakeMonitorID 可覆盖为真实用户 ID，
+// 使客户端可凭该 ID 向 Phira 拉取真实头像/昵称，让假观战者在用户列表中呈现真实用户外观。
 func NewRecorder(baseDir string, logger Logger) *Recorder {
 	return &Recorder{
-		baseDir:    baseDir,
-		logger:     logger,
-		inflight:   make(map[string]*inFlight),
-		keysByRoom: make(map[string]map[string]bool),
-		completed:  make(map[string][]FileInfo),
+		baseDir:       baseDir,
+		logger:        logger,
+		fakeMonitorID: int32(fakeMonitorID),
+		inflight:      make(map[string]*inFlight),
+		keysByRoom:    make(map[string]map[string]bool),
+		completed:     make(map[string][]FileInfo),
 	}
 }
 
@@ -258,9 +262,22 @@ func (r *Recorder) ClearRoomFiles(roomID protocol.RoomID) {
 	delete(r.completed, string(roomID))
 }
 
+// SetFakeMonitorID 覆盖假观战者的用户 ID。id<=0 时回退到内置默认值（2_000_000_000）。
+// 配置为真实 Phira 用户 ID 后，客户端可凭此 ID 向 Phira 拉取该用户的头像与昵称，
+// 让假观战者在用户列表中呈现为真实用户外观。应在 NewRecorder 之后、任何房间开始录制之前调用。
+func (r *Recorder) SetFakeMonitorID(id int32) {
+	if id <= 0 {
+		id = int32(fakeMonitorID)
+	}
+	r.fakeMonitorID = id
+}
+
+// FakeMonitorID 返回录制器当前使用的假观战者用户 ID（实例方法，反映配置覆盖）。
+func (r *Recorder) FakeMonitorID() int32 { return r.fakeMonitorID }
+
 // FakeMonitorInfo 返回回放假观战者信息（用于让客户端以为有观战者从而上报实时数据）。
 func (r *Recorder) FakeMonitorInfo(name string) protocol.UserInfo {
-	return protocol.UserInfo{ID: fakeMonitorID, Name: name, Monitor: true}
+	return protocol.UserInfo{ID: r.fakeMonitorID, Name: name, Monitor: true}
 }
 
 func (r *Recorder) buildContent(it *inFlight) []byte {

@@ -12,13 +12,14 @@ import (
 // CompletableFuture.delayedExecutor(2, MILLISECONDS)，Go 端没有同等的 setImmediate 机制，
 // 需要一个保守的延迟确保客户端已处理完上一条响应（CreateRoom/JoinRoom/Auth 等）后再发送
 // 后续协议补偿消息。2ms 在 Netty 足够，但 Go 的写循环是独立 goroutine、且经过 TCP 缓冲
-// 套接字——保险起见默认设 5ms，可由 -protocol-hack-delay CLI 参数覆盖（0 关闭）。可经
-// atomic 改写以配合测试 / 运行时调优。
+// 套接字——保险起见默认设 30ms（处于 10-100ms 体感无延迟但足以让客户端消化上一条消息的
+// 区间），可由 -protocol-hack-delay CLI 参数覆盖（0 关闭）。可经 atomic 改写以配合测试 /
+// 运行时调优。
 //
 // 真正的「零延迟」方案需要客户端发送 ACK 消息并增加一对协议包，超出本项目当前范围。
 var protocolHackDelay atomic.Int64
 
-func init() { protocolHackDelay.Store(int64(5 * time.Millisecond)) }
+func init() { protocolHackDelay.Store(int64(30 * time.Millisecond)) }
 
 // SetProtocolHackDelay 运行时设置 ProtocolHack 延迟（用于测试或热调优）。传入 0 关闭。
 func SetProtocolHackDelay(d time.Duration) { protocolHackDelay.Store(int64(d)) }
@@ -66,6 +67,15 @@ func (ph *ProtocolHack) forceSyncHost(room *Room, user *User) {
 
 // forceSyncInfo 对齐玩家对房间的完整认知：房主状态 + 观战者进出 + 房间状态。
 // 对应 jphira-mp 的 forceSyncInfo：补发假观战者加入/离开，并修复客户端房间状态。
+//
+// 所有派发均走延迟调度（避免响应刚返回时客户端状态机还没就绪就收到状态变更），
+// 并通过嵌套 schedule 保持「加入 → 离开 → 状态对齐」的严格时序：
+//   - T=delay：房主状态、假观战者加入 + 录制器提示
+//   - T=2*delay：假观战者离开
+//   - T=2*delay：fixClientRoomState0（SelectChart 伪装）
+//   - T=3*delay：真实房间状态（由 fixClientRoomState0 内部 AfterFunc 派发）
+//
+// 默认 delay=30ms 时整序列 ~90ms 完成，处于 100ms 以内、体感无滞后。
 func (ph *ProtocolHack) forceSyncInfo(room *Room, user *User) {
 	if user == nil || room == nil {
 		return
@@ -74,35 +84,37 @@ func (ph *ProtocolHack) forceSyncInfo(room *Room, user *User) {
 	lang := hub.State.ServerLang
 	recorder := hub.State.ReplayRecorder
 	live := room.IsLive()
-	delay := ph.delay
 
-	// 1) 立即（非延迟）发送：房主状态、假观战者加入消息
-	if !room.IsHost(user) {
-		user.TrySend(protocol.SrvChangeHost{IsHost: false})
-	}
-	if live && recorder != nil {
-		name := l10n.TL(lang, "replay-recorder-name", nil)
-		fake := recorder.FakeMonitorInfo(name)
-		user.TrySend(protocol.SrvOnJoinRoom{Info: fake})
-		user.TrySend(protocol.SrvMessage{
-			Message: protocol.MsgJoinRoom{User: fake.ID, Name: fake.Name},
-		})
-		// 2) 延迟发送：让客户端有时间把假观战者加入其本地用户列表后再离开——这是触发
-		// 「观战者已加入」回放标记的关键序列。
-		ph.schedule(func() {
+	ph.schedule(func() {
+		// 1) 房主状态对齐
+		if !room.IsHost(user) {
+			user.TrySend(protocol.SrvChangeHost{IsHost: false})
+		}
+		if live && recorder != nil {
+			name := l10n.TL(lang, "replay-recorder-name", nil)
+			fake := recorder.FakeMonitorInfo(name)
+			user.TrySend(protocol.SrvOnJoinRoom{Info: fake})
 			user.TrySend(protocol.SrvMessage{
-				Message: protocol.MsgLeaveRoom{User: fake.ID, Name: fake.Name},
+				Message: protocol.MsgJoinRoom{User: fake.ID, Name: fake.Name},
 			})
-		})
-	}
-
-	// 3) 修复客户端房间状态（仅在需要时：非 SelectChart 但有谱面）
-	if _, isSelect := room.State.(StateSelectChart); !isSelect && room.Chart != nil {
-		// 二次延迟：确保上面假观战者离开消息已被处理
-		time.AfterFunc(delay, func() {
-			ph.fixClientRoomState0(room, user)
-		})
-	}
+			// 紧跟一条系统聊天，明确告知玩家这是服务器模拟的回放采集会话、无需理会，
+			// 避免其误以为有真实观战者进入。
+			hub.sendReplayRecorderHint(user, lang, name)
+			// 2) 离开消息：再延迟一发，让客户端先消化假观战者加入。
+			ph.schedule(func() {
+				user.TrySend(protocol.SrvMessage{
+					Message: protocol.MsgLeaveRoom{User: fake.ID, Name: fake.Name},
+				})
+			})
+		}
+		// 3) 修复客户端房间状态（仅在需要时：非 SelectChart 但有谱面）。继续嵌套延迟，
+		// 确保假观战者离开消息已被处理后再开始状态伪装。
+		if _, isSelect := room.State.(StateSelectChart); !isSelect && room.Chart != nil {
+			ph.schedule(func() {
+				ph.fixClientRoomState0(room, user)
+			})
+		}
+	})
 }
 
 // fixClientRoomState 在「非 SelectChart 但有谱面」时，伪装成 SelectChart 让客户端先

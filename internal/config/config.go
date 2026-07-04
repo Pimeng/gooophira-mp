@@ -62,6 +62,7 @@ type ServerConfig struct {
 	ReplayBaseDir            *string        // REPLAY_BASE_DIR
 	ReplayTTLDays            *int           // REPLAY_TTL_DAYS
 	ReplayAutoUpload         *bool          // REPLAY_AUTO_UPLOAD
+	ReplayFakeMonitorUserID  *int           // REPLAY_FAKE_MONITOR_USER_ID
 	AdminToken               *string        // ADMIN_TOKEN
 	AdminDataPath            *string        // ADMIN_DATA_PATH (startup-only)
 	RoomListTip              *string        // ROOM_LIST_TIP
@@ -156,6 +157,14 @@ func (c *ServerConfig) EffectiveReplayTTLDays() int {
 }
 func (c *ServerConfig) EffectiveReplayAutoUpload() bool {
 	return boolOr(c.ReplayAutoUpload, false)
+}
+
+// EffectiveReplayFakeMonitorUserID 返回回放假观战者的用户 ID。
+// 未配置或 <=0 时返回 0，表示由录制器使用内置默认值（2_000_000_000）。
+// 配置为真实 Phira 用户 ID 后，客户端可凭此 ID 向 Phira 拉取该用户的头像与昵称，
+// 让假观战者在用户列表中呈现为真实用户外观。
+func (c *ServerConfig) EffectiveReplayFakeMonitorUserID() int {
+	return intOr(c.ReplayFakeMonitorUserID, 0)
 }
 func (c *ServerConfig) EffectiveRoomListTip() string { return strOr(c.RoomListTip, "") }
 func (c *ServerConfig) EffectiveLogLevel() string    { return strOr(c.LogLevel, DefaultLogLevel) }
