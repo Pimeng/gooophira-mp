@@ -9,7 +9,6 @@ import (
 )
 
 var (
-	errZstdUnsupported        = errors.New("replay-compression-zstd-unsupported")
 	errCompressionUnsupported = errors.New("replay-compression-unsupported")
 )
 

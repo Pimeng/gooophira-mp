@@ -7,7 +7,9 @@ require gopkg.in/yaml.v3 v3.0.1
 require (
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/coder/websocket v1.8.15
+	github.com/klauspost/compress v1.19.0
 	github.com/redis/go-redis/v9 v9.21.0
+	modernc.org/sqlite v1.53.0
 )
 
 require (
@@ -23,5 +25,4 @@ require (
 	modernc.org/libc v1.73.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.53.0 // indirect
 )

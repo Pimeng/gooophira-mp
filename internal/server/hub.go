@@ -4,7 +4,9 @@ import (
 	"errors"
 	"sort"
 	"sync"
+	"time"
 
+	"github.com/Pimeng/gooophira-mp/internal/cache"
 	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
@@ -358,18 +360,30 @@ func (h *Hub) DisbandRoom(room *Room) {
 
 // ---------- Phira 取数 ----------
 
-// FetchChart 取谱面（TODO: stage-4 加 chartCache）。
+// 进程级共享缓存：谱面与成绩均为不可变数据，缓存命中可跳过上游 HTTP。
+// 仅驻内存（不落盘）——作为 L1 缓存对任意 PhiraAPI 实现生效（含测试 mock）；
+// phira.Client 内的 recordCache（落盘）提供跨重启持久化，二者互补。
+var (
+	chartCache  = cache.NewInt[config.Chart](cache.Options{Name: "hub_chart_cache", TTL: 24 * time.Hour, MaxMem: 500, Persist: false})
+	recordCache = cache.NewInt[config.RecordData](cache.Options{Name: "hub_record_cache", TTL: time.Hour, MaxMem: 500, Persist: false})
+)
+
+// FetchChart 取谱面（缓存 24h，谱面不可变）。
 func (h *Hub) FetchChart(user *User, id int) (config.Chart, error) {
 	if h.Phira == nil {
 		return config.Chart{}, errors.New("chart-fetch-failed")
 	}
-	return h.Phira.FetchChart(id)
+	return chartCache.GetOrSet(id, func() (config.Chart, error) {
+		return h.Phira.FetchChart(id)
+	})
 }
 
-// FetchRecord 取成绩（TODO: stage-4 加 recordCache）。
+// FetchRecord 取成绩（缓存 1h，成绩不可变）。
 func (h *Hub) FetchRecord(user *User, id int) (config.RecordData, error) {
 	if h.Phira == nil {
 		return config.RecordData{}, errors.New("record-fetch-failed")
 	}
-	return h.Phira.FetchRecord(id)
+	return recordCache.GetOrSet(id, func() (config.RecordData, error) {
+		return h.Phira.FetchRecord(id)
+	})
 }

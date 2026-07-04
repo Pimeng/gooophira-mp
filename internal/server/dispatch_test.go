@@ -366,6 +366,8 @@ func TestDispatch_LeaveRoomDisbands(t *testing.T) {
 // 验证：sendFakeMonitorJoin 发送假观战者 → 客户端上报 Touches/Judges →
 // 录制器正确落盘，文件包含游戏数据。
 func TestDispatch_ReplayWithFakeMonitor(t *testing.T) {
+	chartCache.Clear()
+	recordCache.Clear()
 	dir := t.TempDir()
 	enabled := true
 	cfg := &config.ServerConfig{ReplayEnabled: &enabled, ReplayBaseDir: &dir}
@@ -497,21 +499,21 @@ func TestDispatch_ReplayWithFakeMonitor(t *testing.T) {
 	}
 	// buildContent 顺序: recordID(I32) + ts(I64) + chartID(I32) + chartName(str) + userID(I32) + userName(str) + touches(arr) + judges(arr)
 	br := protocol.NewBinaryReader(content)
-	_ = br.ReadI32()  // recordID
-	_ = br.ReadI64()  // timestamp
-	_ = br.ReadI32()  // chartID
+	_ = br.ReadI32()    // recordID
+	_ = br.ReadI64()    // timestamp
+	_ = br.ReadI32()    // chartID
 	_ = br.ReadString() // chartName
-	_ = br.ReadI32()  // userID
+	_ = br.ReadI32()    // userID
 	_ = br.ReadString() // userName
 	touchCount := readUleb(br)
 	// 跳过触摸帧数据，以便读取 judges 计数
 	for i := uint64(0); i < touchCount; i++ {
-		_ = br.ReadF32()                       // time
-		ptCount := readUleb(br)               // points count
+		_ = br.ReadF32()        // time
+		ptCount := readUleb(br) // points count
 		for j := uint64(0); j < ptCount; j++ {
-			_ = br.ReadI8()                  // point id
-			_ = br.ReadU16()                 // x (F16 bits)
-			_ = br.ReadU16()                 // y (F16 bits)
+			_ = br.ReadI8()  // point id
+			_ = br.ReadU16() // x (F16 bits)
+			_ = br.ReadU16() // y (F16 bits)
 		}
 	}
 	judgeCount := readUleb(br)

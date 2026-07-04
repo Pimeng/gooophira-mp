@@ -50,6 +50,8 @@ type testHarness struct {
 }
 
 func newHarness(monitors ...int) *testHarness {
+	chartCache.Clear()
+	recordCache.Clear()
 	cfg := &config.ServerConfig{Monitors: monitors}
 	st := NewServerState(cfg, nil, "test", "", "")
 	return &testHarness{users: map[int]*User{}, state: st}

@@ -1,7 +1,8 @@
 // Package replay 实现游戏回放录制：PHIRAREC 文件格式、存储路径与录制器。
 //
-// 压缩用 DEFLATE（Go 标准库 compress/flate）而非 TS 端默认的 ZSTD——文件头的压缩字节
-// 标明算法，TS 读取侧支持 DEFLATE，故格式完全兼容且无需引入 zstd 依赖。
+// 压缩写入用 DEFLATE（Go 标准库 compress/flate）而非 TS 端默认的 ZSTD——文件头的压缩字节
+// 标明算法，TS 读取侧支持 DEFLATE，故格式完全兼容。读取侧同时支持 DEFLATE 与 ZSTD，
+// 以便读取 TS 端产出的 ZSTD 回放文件（zstd 仅用于解压读取，本实现不写 ZSTD）。
 package replay
 
 import (
@@ -11,6 +12,7 @@ import (
 	"io"
 
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
+	"github.com/klauspost/compress/zstd"
 )
 
 // PHIRAREC 文件格式常量。
@@ -55,6 +57,20 @@ func decompressDeflate(data []byte) ([]byte, error) {
 	return io.ReadAll(r)
 }
 
+// zstdReader 是进程级共享的 zstd 解码器（线程安全，复用以分摊构造开销）。
+var zstdReader *zstd.Decoder
+
+func init() {
+	zstdReader, _ = zstd.NewReader(nil)
+}
+
+func decompressZstd(data []byte) ([]byte, error) {
+	if zstdReader == nil {
+		return nil, errCompressionUnsupported
+	}
+	return zstdReader.DecodeAll(data, nil)
+}
+
 // isPhiraRecordV2 判断缓冲是否为 PHIRAREC v2 文件。
 func isPhiraRecordV2(buf []byte) bool {
 	return len(buf) >= phiraRecordHeaderSize && bytes.Equal(buf[0:8], phiraRecordMagic)
@@ -70,7 +86,7 @@ func decodePayload(buf []byte) ([]byte, error) {
 	case compressionDeflate:
 		return decompressDeflate(payload)
 	case compressionZstd:
-		return nil, errZstdUnsupported // 本实现不写 ZSTD；读到则报错（TODO: 可选引入 zstd）
+		return decompressZstd(payload)
 	default:
 		return nil, errCompressionUnsupported
 	}

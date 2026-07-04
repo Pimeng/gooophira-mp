@@ -2,8 +2,6 @@
 // 游戏逻辑。这些类型相互引用紧密（state↔room↔user↔session），按 Go 惯例放在同一
 // 包内以避免循环依赖；传输层（network）通过本包定义的接口反向接入，从而打破
 // network↔server 的环。
-//
-// 框架阶段：类型与字段已定形，复杂方法体留 TODO: stage-3，保证 go build 通过。
 package server
 
 import "github.com/Pimeng/gooophira-mp/internal/protocol"
