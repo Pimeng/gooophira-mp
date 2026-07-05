@@ -410,7 +410,8 @@ func (s *Session) readLoop() {
 
 // isRoomOnlyCmd 判断命令是否仅需房间级锁（不需要全局 state.Mu）。
 // Touches/Judges 是 Playing 阶段高频命令，无房间间依赖，可用分段锁并行。
-// CmdPlayed 会广播并触发全局结算，仍需全局锁。
+// CmdPlayed 会广播并触发全局结算（CheckAllReady → DisbandRoom → delete(state.Rooms)），
+// 仍需全局锁，故不在此列。
 func isRoomOnlyCmd(cmd protocol.ClientCommand) bool {
 	switch cmd.(type) {
 	case protocol.CmdTouches, protocol.CmdJudges:
@@ -441,7 +442,7 @@ func (s *Session) onCommand(cmd protocol.ClientCommand) {
 		}
 	}
 	// 已认证：持锁调度命令。
-	// Touches/Judges/Played 仅持 room.Mu（分段锁，房间间并行），其余命令持 state.Mu（全局串行）。
+	// Touches/Judges 仅持 room.Mu（分段锁，房间间并行），其余命令持 state.Mu（全局串行）。
 	var resp protocol.ServerCommand
 	var has bool
 	if isRoomOnlyCmd(cmd) {

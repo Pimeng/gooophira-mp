@@ -370,12 +370,32 @@ func newBenchClient(state *server.ServerState, hub *server.Hub, id int, name str
 	return &benchClient{user: u, hub: hub, userID: id}
 }
 
-// dispatch 发送命令并等待响应（Hub 内部已串行化）。
+// dispatch 发送命令并等待响应。
+// 对齐真实 session.go 的锁逻辑：Touches/Judges 持 room.Mu（分段锁，房间间并行），
+// 其余命令持 state.Mu（全局串行，保护 state.Rooms 等全局 map）。
+// 之前直接调用 ProcessClientCommand 不持锁，导致 schedule 回调读 state.Rooms 与
+// CmdReady/CmdPlayed 触发的 DisbandRoom 写 state.Rooms 并发，触发
+// "concurrent map read and map write" fatal。
 func (c *benchClient) dispatch(cmd protocol.ClientCommand) (protocol.ServerCommand, error) {
 	sess := c.user.Session.(*benchSession)
 	before := len(sess.sentCmds)
 
-	c.hub.ProcessClientCommand(c.user, cmd)
+	switch cmd.(type) {
+	case protocol.CmdTouches, protocol.CmdJudges:
+		if room := c.user.Room; room != nil {
+			room.Mu.Lock()
+			c.hub.ProcessClientCommand(c.user, cmd)
+			room.Mu.Unlock()
+		} else {
+			c.hub.State.Mu.Lock()
+			c.hub.ProcessClientCommand(c.user, cmd)
+			c.hub.State.Mu.Unlock()
+		}
+	default:
+		c.hub.State.Mu.Lock()
+		c.hub.ProcessClientCommand(c.user, cmd)
+		c.hub.State.Mu.Unlock()
+	}
 
 	// 检查是否收到了新响应
 	if len(sess.sentCmds) > before {
@@ -518,15 +538,16 @@ func runRoomCycleScenario(bc benchConfig, mc *metricsCollector) scenarioResult {
 
 				t0 := time.Now()
 
-				// 持 room.Mu 分段锁（不同房间间并行）
+				// room-cycle 场景 touches 与 played 交替：CmdPlayed 会写 room.State
+				// （CheckAllReady → checkPlaying），CmdTouches 读 room.State（playingStateFor）。
+				// room.Mu 与 state.Mu 不互斥，若 touches 持 room.Mu、played 持 state.Mu 会
+				// 触发 "concurrent map read and map write"。故本场景统一持 state.Mu 串行化；
+				// touches 的 room.Mu 分段锁并发性能由 gameplay 场景单独验证。
 				if room := cl.user.Room; room != nil {
-					room.Mu.Lock()
+					state.Mu.Lock()
 					hub.ProcessClientCommand(cl.user, touches)
-					room.Mu.Unlock()
-
-					room.Mu.Lock()
 					hub.ProcessClientCommand(cl.user, played)
-					room.Mu.Unlock()
+					state.Mu.Unlock()
 				}
 
 				mc.recordCycle(time.Since(t0))
