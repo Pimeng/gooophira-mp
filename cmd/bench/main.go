@@ -51,6 +51,9 @@ type benchConfig struct {
 	Verbose    bool          `json:"verbose"`
 }
 
+// ptr64 把 float64 字面量转为指针，便于填充 RecordData.Std / StdScore 之类的 *float64 字段。
+func ptr64(v float64) *float64 { return &v }
+
 func parseFlags() benchConfig {
 	var (
 		clients    = flag.Int("clients", 50, "并发客户端数")
@@ -420,7 +423,7 @@ func (b *benchMockPhira) FetchChart(ctx context.Context, id int) (config.Chart, 
 	return config.Chart{ID: id, Name: fmt.Sprintf("chart-%d", id)}, nil
 }
 func (b *benchMockPhira) FetchRecord(ctx context.Context, id int) (config.RecordData, error) {
-	return config.RecordData{ID: id, Player: id, Score: 900000, Accuracy: 0.95, Std: 0.02}, nil
+	return config.RecordData{ID: id, Player: id, Score: 900000, Accuracy: 0.95, Std: ptr64(0.02)}, nil
 }
 
 // ---------- 测试场景 ----------

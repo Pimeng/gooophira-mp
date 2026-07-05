@@ -264,8 +264,8 @@ func TestCheckAllReady_PlayingToSelectChart(t *testing.T) {
 	_ = host
 
 	results := map[int]config.RecordData{
-		1: {Score: 900000, Accuracy: 0.95, Std: 0.030},
-		2: {Score: 980000, Accuracy: 0.99, Std: 0.010},
+		1: {Score: 900000, Accuracy: 0.95, Std: ptr64(0.030)},
+		2: {Score: 980000, Accuracy: 0.99, Std: ptr64(0.010)},
 	}
 	r.State = StatePlaying{Results: results, Aborted: map[int]struct{}{}}
 	r.CheckAllReady(h.lifecycle())
@@ -313,7 +313,7 @@ func TestCheckAllReady_ContestAutoDisband_NoDeadlock(t *testing.T) {
 
 	// 双方均 finished（alice 交成绩，bob 中止）
 	r.State = StatePlaying{
-		Results: map[int]config.RecordData{1: {Score: 900000, Accuracy: 0.95, Std: 0.030}},
+		Results: map[int]config.RecordData{1: {Score: 900000, Accuracy: 0.95, Std: ptr64(0.030)}},
 		Aborted: map[int]struct{}{2: {}},
 	}
 
@@ -471,7 +471,7 @@ func benchmarkRoomLifecycle(b *testing.B, n int) {
 	phira := &mockPhira{
 		charts: map[int]config.Chart{1: {ID: 1, Name: "chart1"}},
 		records: map[int]config.RecordData{
-			10: {ID: 10, Player: 1, Score: 900000, Accuracy: 0.95, Std: 0.02},
+			10: {ID: 10, Player: 1, Score: 900000, Accuracy: 0.95, Std: ptr64(0.02)},
 		},
 	}
 	hub := NewHub(h.state, phira)
@@ -485,7 +485,7 @@ func benchmarkRoomLifecycle(b *testing.B, n int) {
 
 	// 为所有玩家预配置相同的 record，使 CmdPlayed 通过校验
 	for i := 2; i <= n; i++ {
-		phira.records[i*10] = config.RecordData{ID: i * 10, Player: i, Score: 900000, Accuracy: 0.95, Std: 0.02}
+		phira.records[i*10] = config.RecordData{ID: i * 10, Player: i, Score: 900000, Accuracy: 0.95, Std: ptr64(0.02)}
 	}
 
 	b.ReportAllocs()
@@ -523,6 +523,9 @@ func benchmarkRoomLifecycle(b *testing.B, n int) {
 		}
 	}
 }
+
+// ptr64 把 float64 字面量转为指针，便于填充 RecordData.Std / StdScore 之类的 *float64 字段。
+// 定义见 dispatch_test.go（同一 package，所有 _test.go 文件共享）。
 
 // BenchmarkRoomGameplay 基准测试 Playing 阶段的高频帧（Touches / Judges）。
 func BenchmarkRoomGameplay(b *testing.B) {

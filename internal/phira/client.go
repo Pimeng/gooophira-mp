@@ -146,19 +146,19 @@ func (c *Client) fetchRecord(ctx context.Context, id int) (config.RecordData, er
 		return config.RecordData{}, fmt.Errorf("record-fetch-failed")
 	}
 	var data struct {
-		ID        int     `json:"id"`
-		Player    int     `json:"player"`
-		Chart     *int    `json:"chart"`
-		Score     int     `json:"score"`
-		Perfect   int     `json:"perfect"`
-		Good      int     `json:"good"`
-		Bad       int     `json:"bad"`
-		Miss      int     `json:"miss"`
-		MaxCombo  int     `json:"max_combo"`
-		Accuracy  float64 `json:"accuracy"`
-		FullCombo bool    `json:"full_combo"`
-		Std       float64 `json:"std"`
-		StdScore  float64 `json:"std_score"`
+		ID        int      `json:"id"`
+		Player    int      `json:"player"`
+		Chart     *int     `json:"chart"`
+		Score     int      `json:"score"`
+		Perfect   int      `json:"perfect"`
+		Good      int      `json:"good"`
+		Bad       int      `json:"bad"`
+		Miss      int      `json:"miss"`
+		MaxCombo  int      `json:"max_combo"`
+		Accuracy  float64  `json:"accuracy"`
+		FullCombo bool     `json:"full_combo"`
+		Std       *float64 `json:"std"`
+		StdScore  *float64 `json:"std_score"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return config.RecordData{}, fmt.Errorf("record-fetch-failed")

@@ -81,8 +81,8 @@ func TestDispatch_FullGameFlow(t *testing.T) {
 	phira := &mockPhira{
 		charts: map[int]config.Chart{1: {ID: 1, Name: "chart1"}},
 		records: map[int]config.RecordData{
-			10: {ID: 10, Player: 1, Score: 900000, Accuracy: 0.95, Std: 0.02},
-			20: {ID: 20, Player: 2, Score: 980000, Accuracy: 0.99, Std: 0.01},
+			10: {ID: 10, Player: 1, Score: 900000, Accuracy: 0.95, Std: ptr64(0.02)},
+			20: {ID: 20, Player: 2, Score: 980000, Accuracy: 0.99, Std: ptr64(0.01)},
 		},
 	}
 	hub := NewHub(h.state, phira)
@@ -380,7 +380,7 @@ func TestDispatch_ReplayWithFakeMonitor(t *testing.T) {
 
 	phira := &mockPhira{
 		charts:  map[int]config.Chart{1: {ID: 1, Name: "Chart-1"}},
-		records: map[int]config.RecordData{10: {ID: 10, Player: 1, Score: 900000, Accuracy: 0.95, Std: 0.02}},
+		records: map[int]config.RecordData{10: {ID: 10, Player: 1, Score: 900000, Accuracy: 0.95, Std: ptr64(0.02)}},
 	}
 	hub := NewHub(st, phira)
 	hub.OnEnterPlaying = func(room *Room) {
@@ -559,6 +559,9 @@ func decodePhiraRecPayload(raw []byte) ([]byte, error) {
 		return nil, errors.New("unsupported compression")
 	}
 }
+
+// ptr64 把 float64 字面量转为指针，便于填充 RecordData.Std / StdScore 之类的 *float64 字段。
+func ptr64(v float64) *float64 { return &v }
 
 // readUleb 从 BinaryReader 读取一个 LEB128 无符号整数（不 panic）。
 func readUleb(r *protocol.BinaryReader) uint64 {

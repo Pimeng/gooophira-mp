@@ -76,7 +76,8 @@ type RecordData struct {
 	Miss      int
 	MaxCombo  int
 	Accuracy  float64
+	Mod       int
 	FullCombo bool
-	Std       float64
-	StdScore  float64
+	Std       *float64 // nil => JSON 里的 null
+	StdScore  *float64 // nil => JSON 里的 null
 }

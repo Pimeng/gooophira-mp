@@ -106,12 +106,22 @@ func (s *Store) RecordMatch(ctx context.Context, roomID string, chartID int, cha
 		if rd.FullCombo {
 			fc = 1
 		}
+		// rd.Std / rd.StdScore 是 *float64（nil = 客户端未上报），DB 列 NOT NULL
+		// DEFAULT 0.0，因此 nil 时退化为 0.0 入库，避免 NOT NULL 约束失败。
+		stdVal := 0.0
+		if rd.Std != nil {
+			stdVal = *rd.Std
+		}
+		stdScoreVal := 0.0
+		if rd.StdScore != nil {
+			stdScoreVal = *rd.StdScore
+		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO match_results(match_id,user_id,score,accuracy,perfect,good,bad,miss,max_combo,full_combo,std,std_score,rank)
-			 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			matchID, uid, rd.Score, rd.Accuracy,
 			rd.Perfect, rd.Good, rd.Bad, rd.Miss,
-			rd.MaxCombo, fc, rd.Std, rd.StdScore, rr.rank,
+			rd.MaxCombo, fc, stdVal, stdScoreVal, rr.rank,
 		); err != nil {
 			return nil, fmt.Errorf("stats: insert match_result user=%d: %w", uid, err)
 		}
