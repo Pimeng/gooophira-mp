@@ -198,8 +198,6 @@ func matchBrace(s string, start int) int {
 	return -1
 }
 
-var variantRe = regexp.MustCompile(`(\*)?\[([^\]]*)\]`)
-
 // parsePlaceable 解析 { } 内的内容为一个元素。
 func parsePlaceable(inner string) element {
 	if strings.Contains(inner, "->") {
@@ -230,18 +228,73 @@ func parseSelect(inner string) selectElem {
 	body := inner[arrow+2:]
 
 	sel := selectElem{selector: selector, variants: make(map[string][]element)}
-	ms := variantRe.FindAllStringSubmatchIndex(body, -1)
+
+	// 扫描顶层变体（depth=0 时的 [key] 或 *[key]）。
+	// 不能用正则全局匹配 [..]：嵌套选择表达式内的变体边界会被误识别为当前层变体，
+	// 导致内层变体覆盖外层。例如 chat-record-send-template 的 $isAp 段，其 *[false]
+	// 分支嵌套了 { $fc -> [true] ，全连 *[false] {""} }；正则会把内层 [true]/[false]
+	// 也当作 $isAp 的变体，使 isAp=true 错误命中 $fc 的 [true] 分支输出"全连"。
+	type marker struct {
+		key       string
+		isDefault bool
+		rawStart  int // 含前导 * 的起点（用于作为上一变体值的终点）
+		keyEnd    int // ']' 之后下一个字节位置
+	}
+	var ms []marker
+	depth := 0
+	for i := 0; i < len(body); {
+		c := body[i]
+		switch {
+		case c == '{':
+			depth++
+			i++
+		case c == '}':
+			depth--
+			i++
+		case depth == 0 && c == '*':
+			if i+1 >= len(body) || body[i+1] != '[' {
+				i++
+				continue
+			}
+			closeRel := strings.IndexByte(body[i+1:], ']')
+			if closeRel < 0 {
+				break
+			}
+			closeIdx := i + 1 + closeRel
+			ms = append(ms, marker{
+				key:       body[i+2 : closeIdx],
+				isDefault: true,
+				rawStart:  i,
+				keyEnd:    closeIdx + 1,
+			})
+			i = closeIdx + 1
+		case depth == 0 && c == '[':
+			closeRel := strings.IndexByte(body[i:], ']')
+			if closeRel < 0 {
+				break
+			}
+			closeIdx := i + closeRel
+			ms = append(ms, marker{
+				key:       body[i+1 : closeIdx],
+				isDefault: false,
+				rawStart:  i,
+				keyEnd:    closeIdx + 1,
+			})
+			i = closeIdx + 1
+		default:
+			i++
+		}
+	}
+
 	for idx, m := range ms {
-		isDefault := m[2] >= 0 // 分组1 (*) 命中
-		key := body[m[4]:m[5]]
-		valStart := m[1]
+		valStart := m.keyEnd
 		valEnd := len(body)
 		if idx+1 < len(ms) {
-			valEnd = ms[idx+1][0]
+			valEnd = ms[idx+1].rawStart
 		}
 		pat := parsePattern(strings.TrimSpace(body[valStart:valEnd]))
-		sel.variants[key] = pat
-		if isDefault {
+		sel.variants[m.key] = pat
+		if m.isDefault {
 			sel.def = pat
 		}
 	}

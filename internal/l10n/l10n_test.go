@@ -1,6 +1,7 @@
 package l10n
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -89,6 +90,60 @@ func TestNegotiate(t *testing.T) {
 		if got := NewLanguage(hint).Tag; got != want {
 			t.Errorf("negotiate(%q) = %q, want %q", hint, got, want)
 		}
+	}
+}
+
+// TestTL_NestedSelectExpression 是 chat-record-send-template 嵌套选择表达式的回归测试。
+// $isAp 的 *[false] 分支内嵌套了 { $fc -> [true] ，全连 *[false] {""} }。
+// 旧 parseSelect 用正则全局匹配 [..]，不区分花括号层级，会把内层 $fc 的 [true]/[false]
+// 当作外层 $isAp 的变体并覆盖外层 [true]（"，AP"），导致 isAp=true 错误命中 $fc 的
+// [true] 分支输出"全连"。
+func TestTL_NestedSelectExpression(t *testing.T) {
+	base := func() map[string]string {
+		return map[string]string{
+			"user": "皮梦测试号", "userid": "123",
+			"score": "1000000", "acc": "100.00",
+			"hasStd": "false", "hasMod": "false",
+			"perfect": "1000", "good": "0", "bad": "0", "miss": "0",
+		}
+	}
+
+	// isAp=true → 应输出"，AP"，绝不含"，全连"
+	m := base()
+	m["isAp"] = "true"
+	m["fc"] = "true"
+	got := TL(zh(), "chat-record-send-template", m)
+	if !strings.Contains(got, "，AP") {
+		t.Errorf("isAp=true → %q, want contains '，AP'", got)
+	}
+	if strings.Contains(got, "全连") {
+		t.Errorf("isAp=true → %q, must NOT contain '全连'", got)
+	}
+
+	// isAp=false, fc=true → 应输出"，全连"，绝不含"，AP"
+	m = base()
+	m["isAp"] = "false"
+	m["fc"] = "true"
+	m["acc"] = "95.00"
+	got = TL(zh(), "chat-record-send-template", m)
+	if !strings.Contains(got, "，全连") {
+		t.Errorf("isAp=false,fc=true → %q, want contains '，全连'", got)
+	}
+	if strings.Contains(got, "AP") {
+		t.Errorf("isAp=false,fc=true → %q, must NOT contain 'AP'", got)
+	}
+
+	// isAp=false, fc=false → 既不含"，AP"也不含"，全连"
+	m = base()
+	m["isAp"] = "false"
+	m["fc"] = "false"
+	m["acc"] = "90.00"
+	got = TL(zh(), "chat-record-send-template", m)
+	if strings.Contains(got, "AP") {
+		t.Errorf("isAp=false,fc=false → %q, must NOT contain 'AP'", got)
+	}
+	if strings.Contains(got, "全连") {
+		t.Errorf("isAp=false,fc=false → %q, must NOT contain '全连'", got)
 	}
 }
 

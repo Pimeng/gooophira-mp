@@ -1,13 +1,11 @@
 # gooophira-mp
 
-Phira 多人游戏服务端的 Go 实现（自 TypeScript 版 `tphira-mp` 迁移而来）。
+Phira 多人游戏服务端的 Go 实现
 
-涵盖完整的服务端功能链路：二进制协议 / TCP 网络（含 HAProxy PROXY 协议、连接限速）/ 房间状态机 /
-命令派发 / 配置（YAML + 环境变量，支持热重载）/ 管理接口（HTTP + 终端 CLI）/ 日志（按天轮转 + gzip 压缩 +
-IP 黑名单）/ 回放（录制 + 下载 + 上传 + 自动上传）/ 观战聚合 / GUI 网页控制台 / 缓存（本地内存 +
-LRU + 落盘，可切 Redis 多实例共享）。
+优点：
+✅️ 纯 Go 实现，无需 CGO，单文件二进制，跨平台。
 
-> 纯 Go 实现，无需 CGO，单文件二进制，跨平台。
+国内用户请转至 [CNB镜像仓库](https://cnb.cool/Pimeng233/gooophira-mp) [下载Release](https://cnb.cool/Pimeng233/gooophira-mp/-/releases) 更快哦
 
 ---
 
@@ -373,9 +371,10 @@ internal/
 [AGPL-3.0](License)
 
 ## 想说的话
+
 这个项目是用AI赶工赶出来的，更新比较频繁，建议别在正式服务器上使用，可以用来测试玩一下，等后面完善后，再部署到正式环境叭
 
 ## 画饼
 
 - [x] 优化成绩输出，使用服务器的消息系统，而不是使用自带的成绩包
-- [ ] 准备倒计时
+- [x] 准备倒计时

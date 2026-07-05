@@ -481,6 +481,7 @@ func buildChatRecordMap(lang *l10n.Language, user *User, record config.RecordDat
 		"acc":     fmt.Sprintf("%.2f", math.Round(record.Accuracy*100)),
 		"hasStd":  strconv.FormatBool(hasStd),
 		"fc":      strconv.FormatBool(record.FullCombo),
+		"isAp":    strconv.FormatBool(math.Round(record.Accuracy*100) == 100),
 		"perfect": strconv.Itoa(record.Perfect),
 		"good":    strconv.Itoa(record.Good),
 		"bad":     strconv.Itoa(record.Bad),
@@ -489,7 +490,7 @@ func buildChatRecordMap(lang *l10n.Language, user *User, record config.RecordDat
 	}
 
 	if hasStd {
-		m["std"] = fmt.Sprintf("%d", int64(math.Round(*record.Std*100))%100)
+		m["std"] = fmt.Sprintf("%d", int(math.Round(*record.Std*1000)))
 		m["stdScore"] = fmt.Sprintf("%.2f", *record.StdScore)
 	}
 

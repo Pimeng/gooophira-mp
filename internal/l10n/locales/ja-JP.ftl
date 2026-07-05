@@ -112,9 +112,9 @@ chat-record-send-template =
     スコア：{ $score }，精度：{ $acc }%{ $hasStd ->
     [true] ，誤差：±{ $std }ms，無誤差スコア：{ $stdScore }
     *[false] {""}
-    }{ $fc ->
-    [true] ，フルコンボ
-    *[false] {""}
+    }{ $isAp ->
+    [true] ，AP
+    *[false] { $fc -> [true] ，フルコンボ *[false] {""} }
     }
     Perfect：{ $perfect }，Good：{ $good }，Bad：{ $bad }，Miss：{ $miss }{ $hasMod ->
     [true] ，使用Mod：{ $modList }

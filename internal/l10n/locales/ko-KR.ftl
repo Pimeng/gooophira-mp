@@ -112,9 +112,9 @@ chat-record-send-template =
     점수: { $score }, 정확도: { $acc }%{ $hasStd ->
     [true] , 오차: ±{ $std }ms, 무오차 점수: { $stdScore }
     *[false] {""}
-    }{ $fc ->
-    [true] , 풀 콤보
-    *[false] {""}
+    }{ $isAp ->
+    [true] , AP
+    *[false] { $fc -> [true] , 풀 콤보 *[false] {""} }
     }
     Perfect: { $perfect }, Good: { $good }, Bad: { $bad }, Miss: { $miss }{ $hasMod ->
     [true] , 사용 모드: { $modList }

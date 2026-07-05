@@ -113,9 +113,9 @@ chat-record-send-template =
     分数：{ $score }，准度：{ $acc }%{ $hasStd ->
     [true] ，误差：±{ $std }ms，无暇度分数：{ $stdScore }
     *[false] {""}
-    }{ $fc ->
-    [true] ，全连
-    *[false] {""}
+    }{ $isAp ->
+    [true] ，AP！！！
+    *[false] { $fc -> [true] ，全连 *[false] {""} }
     }
     Perfect：{ $perfect }，Good：{ $good }，Bad：{ $bad }，Miss：{ $miss }{ $hasMod ->
     [true] ，使用的模组：{ $modList }
