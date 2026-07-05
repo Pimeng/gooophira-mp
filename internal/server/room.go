@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
@@ -94,6 +96,10 @@ type Room struct {
 
 	// Chart 当前选中的谱面（nil = 未选）。
 	Chart *config.Chart
+
+	// readyCancel 取消「准备倒计时」（房主下发游戏开始后 60 秒强制开赛）。
+	// nil 表示无活跃倒计时。用 atomic.Pointer 访问，无需持有 Mu。
+	readyCancel atomic.Pointer[context.CancelFunc]
 
 	recentLogs []RoomLog
 }

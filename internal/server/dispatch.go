@@ -267,9 +267,29 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			lc := h.MakeRoomLifecycle(room)
 			room.logRoomMark(lc, "log-room-request-start", map[string]string{"user": user.Name})
 			h.BroadcastRoomMessage(room, protocol.MsgGameStart{User: int32FromInt(user.ID)})
+			// 系统身份提示聊天走 ProtocolHack 延迟调度：让 GameStart 广播先抵达客户端，
+			// 提示紧随其后到达，避免在状态切换动画途中弹出系统聊天。
+			hint := l10n.TL(lc.Lang, "chat-game-start-hint", map[string]string{"user": user.Name})
+			if hint != "" && hint != "chat-game-start-hint" {
+				sysID := h.State.SystemChatUserID()
+				state := h.State
+				roomID := room.ID
+				h.NewProtocolHack().schedule(func() {
+					state.Mu.Lock()
+					if _, exists := state.Rooms[roomID]; !exists {
+						state.Mu.Unlock()
+						return
+					}
+					room.Mu.Lock()
+					h.BroadcastRoomMessage(room, protocol.MsgChat{User: sysID, Content: hint})
+					room.Mu.Unlock()
+					state.Mu.Unlock()
+				})
+			}
 			room.State = StateWaitForReady{Started: map[int]struct{}{user.ID: {}}}
 			room.OnStateChange(lc)
 			room.NotifyWebSocket(lc)
+			h.startReadyCountdown(room, user.Name)
 			if h.CheckRoomAllReady(room) {
 				h.DisbandRoom(room)
 			}
@@ -323,6 +343,7 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			if room.HostID == user.ID {
 				room.logRoomMark(lc, "log-room-cancel-game", map[string]string{"user": user.Name})
 				h.BroadcastRoomMessage(room, protocol.MsgCancelGame{User: int32FromInt(user.ID)})
+				room.cancelReadyCountdown()
 				room.State = StateSelectChart{}
 				room.OnStateChange(lc)
 				room.NotifyWebSocket(lc)

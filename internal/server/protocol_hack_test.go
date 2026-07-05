@@ -68,7 +68,7 @@ func TestFixClientRoomState_SkipsSelectChart(t *testing.T) {
 	hub := NewHub(h.state, &mockPhira{})
 	ph := hub.NewProtocolHack()
 	SetProtocolHackDelay(0) // 立即派发，便于同步验证
-	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
 
 	u := h.addUser(1, "alice")
 	u.SetSession(&mockSession{id: "alice"})
@@ -92,7 +92,7 @@ func TestFixClientRoomState_SkipsWhenChartNil(t *testing.T) {
 	hub := NewHub(h.state, &mockPhira{})
 	ph := hub.NewProtocolHack()
 	SetProtocolHackDelay(0)
-	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
 
 	u := h.addUser(1, "alice")
 	u.SetSession(&mockSession{id: "alice"})
@@ -116,7 +116,7 @@ func TestFixClientRoomState_FiresOnWaitForReadyWithChart(t *testing.T) {
 	hub := NewHub(h.state, &mockPhira{})
 	ph := hub.NewProtocolHack()
 	SetProtocolHackDelay(0)
-	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
 
 	u := h.addUser(1, "alice")
 	u.SetSession(&mockSession{id: "alice"})
@@ -151,7 +151,7 @@ func TestForceSyncInfo_NonHost_ReceivesChangeHostFalse(t *testing.T) {
 	hub := NewHub(h.state, &mockPhira{})
 	ph := hub.NewProtocolHack()
 	SetProtocolHackDelay(0)
-	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
 
 	u := h.addUser(2, "bob") // bob 不是房主
 	u.SetSession(&mockSession{id: "bob"})
@@ -180,7 +180,7 @@ func TestForceSyncInfo_Host_DoesNotReceiveChangeHostFalse(t *testing.T) {
 	hub := NewHub(h.state, &mockPhira{})
 	ph := hub.NewProtocolHack()
 	SetProtocolHackDelay(0)
-	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
 
 	host := h.addUser(1, "alice")
 	host.SetSession(&mockSession{id: "alice"})
@@ -205,7 +205,7 @@ func TestForceSyncInfo_NoRecorder_SkipsFakeMonitor(t *testing.T) {
 	hub := NewHub(h.state, &mockPhira{})
 	ph := hub.NewProtocolHack()
 	SetProtocolHackDelay(0)
-	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
 
 	// 状态：state.ReplayRecorder 默认为 nil
 	u := h.addUser(2, "bob")
@@ -240,7 +240,7 @@ func TestForceSyncInfo_NotLive_SkipsFakeMonitor(t *testing.T) {
 	hub := NewHub(h.state, &mockPhira{})
 	ph := hub.NewProtocolHack()
 	SetProtocolHackDelay(0)
-	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
 
 	u := h.addUser(2, "bob")
 	u.SetSession(&mockSession{id: "bob"})
@@ -266,7 +266,7 @@ func TestForceSyncInfo_LiveWithRecorder_SendsFakeMonitor(t *testing.T) {
 	hub := NewHub(h.state, &mockPhira{})
 	ph := hub.NewProtocolHack()
 	SetProtocolHackDelay(0)
-	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
 
 	u := h.addUser(2, "bob")
 	u.SetSession(&mockSession{id: "bob"})
@@ -311,7 +311,7 @@ func TestSetProtocolHackDelay_ZeroDispatchesImmediately(t *testing.T) {
 	hub := NewHub(h.state, &mockPhira{})
 	ph := hub.NewProtocolHack()
 	SetProtocolHackDelay(0)
-	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
 
 	done := make(chan struct{})
 	ph.schedule(func() { close(done) })
@@ -328,7 +328,7 @@ func TestSetProtocolHackDelay_PositiveDelaysExecution(t *testing.T) {
 	h := newHarness()
 	hub := NewHub(h.state, &mockPhira{})
 	SetProtocolHackDelay(50 * time.Millisecond)
-	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
 	ph := hub.NewProtocolHack()
 
 	start := time.Now()
@@ -353,7 +353,7 @@ func TestForceSyncHost_NonHostSendsChangeHostFalse(t *testing.T) {
 	hub := NewHub(h.state, &mockPhira{})
 	ph := hub.NewProtocolHack()
 	SetProtocolHackDelay(0)
-	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
 
 	bob := h.addUser(2, "bob")
 	bob.SetSession(&mockSession{id: "bob"})
@@ -380,7 +380,7 @@ func TestForceSyncHost_HostSendsChangeHostTrue(t *testing.T) {
 	hub := NewHub(h.state, &mockPhira{})
 	ph := hub.NewProtocolHack()
 	SetProtocolHackDelay(0)
-	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
 
 	host := h.addUser(1, "alice")
 	host.SetSession(&mockSession{id: "alice"})
@@ -426,7 +426,7 @@ func TestForceSyncInfo_LiveWithRecorder_SendsHintChat(t *testing.T) {
 	hub := NewHub(h.state, &mockPhira{})
 	ph := hub.NewProtocolHack()
 	SetProtocolHackDelay(0)
-	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
 
 	u := h.addUser(2, "bob")
 	u.SetSession(&mockSession{id: "bob"})
@@ -458,7 +458,7 @@ func TestForceSyncInfo_NoRecorder_SkipsHintChat(t *testing.T) {
 	hub := NewHub(h.state, &mockPhira{})
 	ph := hub.NewProtocolHack()
 	SetProtocolHackDelay(0)
-	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
 
 	u := h.addUser(2, "bob")
 	u.SetSession(&mockSession{id: "bob"})
@@ -484,7 +484,7 @@ func TestForceSyncInfo_NotLive_SkipsHintChat(t *testing.T) {
 	hub := NewHub(h.state, &mockPhira{})
 	ph := hub.NewProtocolHack()
 	SetProtocolHackDelay(0)
-	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
 
 	u := h.addUser(2, "bob")
 	u.SetSession(&mockSession{id: "bob"})

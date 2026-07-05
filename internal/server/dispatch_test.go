@@ -59,6 +59,8 @@ func (h *Hub) mustDispatch(t *testing.T, user *User, cmd protocol.ClientCommand)
 		assertOK(t, "RequestStart", c.Result.Ok, c.Result.Error)
 	case protocol.SrvReady:
 		assertOK(t, "Ready", c.Result.Ok, c.Result.Error)
+	case protocol.SrvCancelReady:
+		assertOK(t, "CancelReady", c.Result.Ok, c.Result.Error)
 	case protocol.SrvPlayed:
 		assertOK(t, "Played", c.Result.Ok, c.Result.Error)
 	case protocol.SrvLeaveRoom:
@@ -332,6 +334,56 @@ func TestDispatch_NonHostCannotSelectOrStart(t *testing.T) {
 	}
 }
 
+// TestDispatch_RequestStartBroadcastsHintChat 验证房主下发「游戏开始」后，系统身份
+// 延迟广播一条聊天提示，告知房间成员一分钟内准备。提示文本应包含房主名，所有房间成员
+// （含房主自己）均应收到，且发送者 User 为 SystemChatUserID。
+func TestDispatch_RequestStartBroadcastsHintChat(t *testing.T) {
+	h := newHarness()
+	phira := &mockPhira{charts: map[int]config.Chart{1: {ID: 1, Name: "c"}}}
+	hub := NewHub(h.state, phira)
+	host := h.addUser(1, "host")
+	player := h.addUser(2, "player")
+
+	SetProtocolHackDelay(0)
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
+
+	hub.mustDispatch(t, host, protocol.CmdCreateRoom{ID: "room1"})
+	hub.mustDispatch(t, player, protocol.CmdJoinRoom{ID: "room1", Monitor: false})
+	hub.mustDispatch(t, host, protocol.CmdSelectChart{ID: 1})
+
+	hostBefore := len(sentTo(host))
+	playerBefore := len(sentTo(player))
+	hub.mustDispatch(t, host, protocol.CmdRequestStart{})
+	time.Sleep(50 * time.Millisecond) // 等延迟派发完成
+
+	expected := l10n.TL(h.state.ServerLang, "chat-game-start-hint", map[string]string{"user": "host"})
+	sysID := h.state.SystemChatUserID()
+
+	findHint := func(sent []protocol.ServerCommand) bool {
+		for _, cmd := range sent {
+			sm, ok := cmd.(protocol.SrvMessage)
+			if !ok {
+				continue
+			}
+			chat, ok := sm.Message.(protocol.MsgChat)
+			if !ok {
+				continue
+			}
+			if chat.Content == expected && chat.User == sysID {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !findHint(sentTo(host)[hostBefore:]) {
+		t.Error("host should receive game-start hint chat with system user id")
+	}
+	if !findHint(sentTo(player)[playerBefore:]) {
+		t.Error("player should receive game-start hint chat with system user id")
+	}
+}
+
 // TestDispatch_FramesDroppedWhenNotPlaying 对应 TS「非游玩状态丢弃触控/判定帧，不分发」。
 func TestDispatch_FramesDroppedWhenNotPlaying(t *testing.T) {
 	h := newHarness(300)
@@ -589,7 +641,7 @@ func TestSendFakeMonitorJoin_LateJoiner_GetsRegularHint(t *testing.T) {
 	st.ReplayRecorder = &captureRecorder{}
 	hub := NewHub(st, &mockPhira{})
 	SetProtocolHackDelay(0)
-	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
 
 	// bob 是迟到加入者：房间已在 StatePlaying，bob.ID 在 Aborted 中。
 	bob := NewUser(2, "Bob", "", st)
@@ -626,7 +678,7 @@ func TestSendLateJoinHint_SendsLateJoinHint(t *testing.T) {
 	st := NewServerState(cfg, nil, "test", "", "")
 	hub := NewHub(st, &mockPhira{})
 	SetProtocolHackDelay(0) // 立即异步派发，便于同步验证
-	t.Cleanup(func() { SetProtocolHackDelay(30 * time.Millisecond) })
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
 
 	bob := NewUser(2, "Bob", "", st)
 	bob.SetSession(&mockSession{id: "bob"})
@@ -663,7 +715,7 @@ func TestSendFakeMonitorJoin_RegularJoiner_GetsRegularHint(t *testing.T) {
 	st.ReplayRecorder = &captureRecorder{}
 	hub := NewHub(st, &mockPhira{})
 	SetProtocolHackDelay(0)
-	t.Cleanup(func() { SetProtocolHackDelay(5 * time.Millisecond) })
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
 
 	alice := NewUser(1, "Alice", "", st)
 	alice.SetSession(&mockSession{id: "alice"})

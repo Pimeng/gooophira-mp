@@ -104,6 +104,8 @@ chat-maintenance-enabled = The server has entered maintenance mode; new players 
 chat-maintenance-disabled = Server maintenance is over; back to normal
 chat-server-stopping = The server is shutting down for maintenance; you will be disconnected after the current game
 chat-waiting-reconnect = "{ $user }" disconnected unexpectedly; waiting for reconnect — the game will end in { $seconds }s if they don't return
+chat-game-start-hint = Host "{ $user }" has started the game. Please get ready within one minute. Anyone not ready will be unable to join this round.
+chat-ready-countdown = { $seconds } seconds until the game starts. Please get ready.
 chat-record-send-template =
 
     { $user }[{ $userid }] result:

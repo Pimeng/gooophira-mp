@@ -278,6 +278,7 @@ func (r *Room) checkWaitForReady(lc *RoomLifecycle, st StateWaitForReady) {
 // startPlaying 把房间切到 Playing 并广播开赛（触发录制钩子、重置 gameTime）。
 // 供「全员就绪自动开赛」与「管理员/比赛强制开赛」共用。
 func (r *Room) startPlaying(lc *RoomLifecycle) {
+	r.cancelReadyCountdown()
 	if lc.OnEnterPlaying != nil {
 		lc.OnEnterPlaying(r)
 	}

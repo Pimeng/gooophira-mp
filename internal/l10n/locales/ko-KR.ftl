@@ -104,6 +104,8 @@ chat-maintenance-enabled = 서버가 점검 모드로 전환되어 신규 참가
 chat-maintenance-disabled = 서버 점검이 끝나 정상으로 돌아왔습니다
 chat-server-stopping = 서버가 곧 점검을 위해 종료됩니다. 현재 게임이 끝나면 연결이 끊깁니다
 chat-waiting-reconnect = "{ $user }" 님의 연결이 끊겼습니다. 재접속을 기다리는 중이며, { $seconds }초 내에 돌아오지 않으면 대국을 종료합니다
+chat-game-start-hint = 방장 "{ $user }"님이 게임을 시작했습니다. 1분 이내에 준비를 완료해 주세요. 준비하지 않은 플레이어는 이번 대국에 참여할 수 없습니다
+chat-ready-countdown = 게임 시작까지 { $seconds }초 남았습니다. 준비를 완료해 주세요
 chat-record-send-template =
 
     { $user }[{ $userid }] 결과 상세:

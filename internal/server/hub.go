@@ -317,7 +317,7 @@ func (h *Hub) sendLateJoinHint(user *User, lang *l10n.Language) {
 // sendFakeMonitorJoin 向目标用户发送回放假观战者加入通知（OnJoinRoom + JoinRoom）。
 // 客户端检测到观战者后会上报 Touches/Judges，供录制器采集。对应 TS Session.sendFakeMonitorJoin。
 //
-// 实现走 ProtocolHack.forceSyncInfo：默认延迟 5ms（可经 -protocol-hack-delay 调整），
+// 实现走 ProtocolHack.forceSyncInfo：默认延迟 10ms（可经 -protocol-hack-delay 调整），
 // 模仿 TS setImmediate 语义：客户端收到 OnJoinRoom 时房间必须已初始化完毕，否则客户端
 // 不会把假观战者加入其内部用户列表。
 //
