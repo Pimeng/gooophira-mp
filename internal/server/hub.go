@@ -344,6 +344,7 @@ func (h *Hub) sendFakeMonitorJoin(targetUser *User, room *Room) {
 			return
 		}
 		name := l10n.TL(state.ServerLang, "replay-recorder-name", nil)
+		systemName := l10n.TL(state.ServerLang, "system-user-name", nil)
 		fake := state.ReplayRecorder.FakeMonitorInfo(name)
 		snapshot.TrySend(protocol.SrvOnJoinRoom{Info: fake})
 		snapshot.TrySend(protocol.SrvMessage{
@@ -351,7 +352,7 @@ func (h *Hub) sendFakeMonitorJoin(targetUser *User, room *Room) {
 		})
 		// 紧跟一条系统聊天，明确告知玩家这是服务器模拟的回放采集会话、无需理会，
 		// 避免其误以为有真实观战者进入并产生困惑或等待行为。
-		h.sendReplayRecorderHint(snapshot, state.ServerLang, name)
+		h.sendReplayRecorderHint(snapshot, state.ServerLang, systemName)
 	})
 }
 
