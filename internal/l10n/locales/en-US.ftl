@@ -58,14 +58,11 @@ chat-roomlist-empty = No available rooms
 chat-roomlist-item = { $id } ({ $count }/{ $max })
 chat-disabled-by-server = Chat is disabled on this server to avoid safety issues.
 
-chat-game-summary =
-    Match summary:
-    { $scoreText }
-    { $accText }
-    { $stdText }
-chat-game-summary-score = Best score: "{ $name } "({ $id }) { $score }
-chat-game-summary-acc = Best accuracy: "{ $name } "({ $id }) { $acc }
-chat-game-summary-std = Best std: "{ $name } "({ $id }) { $std }ms
+chat-game-ranking-title = Round Ranking
+chat-game-ranking-line = { $rank }. { $name } - Score: { $score }, Accuracy: { $acc }%{ $hasStd ->
+    [true] , Std: ±{ $std }ms
+    *[false] {""}
+    }
 
 auth-invalid-token = Invalid token
 auth-fetch-me-failed = Failed to fetch user info

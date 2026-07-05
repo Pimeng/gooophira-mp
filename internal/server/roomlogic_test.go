@@ -495,32 +495,10 @@ func TestHandleJoin_DuringPlayingMarksAborted(t *testing.T) {
 	}
 }
 
-// ---------- GameSummary ----------
+// ---------- GameRanking ----------
 
-// TestBroadcastGameSummary_NoStdTrimsTrailingNewline 验证所有玩家 Std==nil 时，
-// 结算摘要尾部不残留空行（FTL 模板中 { $stdText } 渲染为空串后的清理）。
-func TestBroadcastGameSummary_NoStdTrimsTrailingNewline(t *testing.T) {
-	h := newHarness()
-	r := NewRoom("room1", 1, 8, false)
-	h.addUser(1, "alice")
-	r.State = StatePlaying{
-		Results:   map[int]config.RecordData{1: {Score: 950000, Accuracy: 0.95, Std: nil}},
-		Aborted:   map[int]struct{}{},
-		StartedAt: time.Now(),
-	}
-	r.broadcastGameSummary(h.lifecycle(), r.State.(StatePlaying))
-	chat, ok := lastChat(h)
-	if !ok {
-		t.Fatal("expected summary chat to be broadcast")
-	}
-	if strings.HasSuffix(chat.Content, "\n") || strings.HasSuffix(chat.Content, " ") {
-		t.Errorf("summary should not end with newline/space when Std==nil, got %q", chat.Content)
-	}
-}
-
-// TestBroadcastGameSummary_WithStdPreservesStdLine 验证有 Std 时摘要包含 std 行
-// 且不会因 trim 误删 std 文本。
-func TestBroadcastGameSummary_WithStdPreservesStdLine(t *testing.T) {
+// TestBroadcastGameRanking_SinglePlayerSkipped 验证单人游玩（仅一份成绩）不输出排名。
+func TestBroadcastGameRanking_SinglePlayerSkipped(t *testing.T) {
 	h := newHarness()
 	r := NewRoom("room1", 1, 8, false)
 	h.addUser(1, "alice")
@@ -530,14 +508,68 @@ func TestBroadcastGameSummary_WithStdPreservesStdLine(t *testing.T) {
 		Aborted:   map[int]struct{}{},
 		StartedAt: time.Now(),
 	}
-	r.broadcastGameSummary(h.lifecycle(), r.State.(StatePlaying))
+	r.broadcastGameRanking(h.lifecycle(), r.State.(StatePlaying))
+	if _, ok := lastChat(h); ok {
+		t.Error("single-player game should not broadcast ranking")
+	}
+}
+
+// TestBroadcastGameRanking_MultiPlayerOrderedByScore 验证多人按分数降序排名
+// （平局取 id 升序），含 Std 时输出误差段，格式与示例一致。
+func TestBroadcastGameRanking_MultiPlayerOrderedByScore(t *testing.T) {
+	h := newHarness()
+	r := NewRoom("room1", 1, 8, false)
+	h.addUser(1, "alice")
+	h.addUser(2, "bob")
+	std1, std2 := 0.002, 0.019
+	r.State = StatePlaying{
+		Results: map[int]config.RecordData{
+			2: {Score: 970000, Accuracy: 0.97, Std: &std2},
+			1: {Score: 1000000, Accuracy: 1.0, Std: &std1},
+		},
+		Aborted:   map[int]struct{}{},
+		StartedAt: time.Now(),
+	}
+	r.broadcastGameRanking(h.lifecycle(), r.State.(StatePlaying))
 	chat, ok := lastChat(h)
 	if !ok {
-		t.Fatal("expected summary chat to be broadcast")
+		t.Fatal("expected ranking chat to be broadcast")
 	}
-	// 默认 ServerLang=zh-CN，模板 chat-game-summary-std 渲染后含「最佳无瑕度」字样。
-	if !strings.Contains(chat.Content, "最佳无瑕度") {
-		t.Errorf("summary should contain std line when Std!=nil, got %q", chat.Content)
+	// 默认 ServerLang=zh-CN；故意乱序写入 Results 验证按分数降序排列。
+	want := strings.Repeat("=", 72) + "\n" +
+		"本轮排名\n" +
+		"1. alice - 分数：1000000，准度：100.00%，误差：±2ms\n" +
+		"2. bob - 分数：970000，准度：97.00%，误差：±19ms"
+	if chat.Content != want {
+		t.Errorf("ranking = %q, want %q", chat.Content, want)
+	}
+}
+
+// TestBroadcastGameRanking_NoStdOmitsErrorSegment 验证所有玩家 Std==nil 时
+// 排名行不含误差段。
+func TestBroadcastGameRanking_NoStdOmitsErrorSegment(t *testing.T) {
+	h := newHarness()
+	r := NewRoom("room1", 1, 8, false)
+	h.addUser(1, "alice")
+	h.addUser(2, "bob")
+	r.State = StatePlaying{
+		Results: map[int]config.RecordData{
+			1: {Score: 1000000, Accuracy: 1.0, Std: nil},
+			2: {Score: 970000, Accuracy: 0.97, Std: nil},
+		},
+		Aborted:   map[int]struct{}{},
+		StartedAt: time.Now(),
+	}
+	r.broadcastGameRanking(h.lifecycle(), r.State.(StatePlaying))
+	chat, ok := lastChat(h)
+	if !ok {
+		t.Fatal("expected ranking chat to be broadcast")
+	}
+	if strings.Contains(chat.Content, "误差") {
+		t.Errorf("ranking should not contain 误差 when Std==nil, got %q", chat.Content)
+	}
+	if !strings.Contains(chat.Content, "1. alice - 分数：1000000，准度：100.00%\n") {
+		t.Errorf("alice line should lack 误差 segment, got %q", chat.Content)
 	}
 }
 

@@ -58,14 +58,11 @@ chat-roomlist-empty = 利用可能なルームはありません
 chat-roomlist-item = { $id }（{ $count }/{ $max }）
 chat-disabled-by-server = 安全上の問題を避けるため、このサーバーではチャットが無効になっています。
 
-chat-game-summary =
-    対局結果：
-    { $scoreText }
-    { $accText }
-    { $stdText }
-chat-game-summary-score = 最高スコア：「{ $name } 」({ $id }) { $score }
-chat-game-summary-acc = 最高精度：「{ $name } 」({ $id }) { $acc }
-chat-game-summary-std = 最高安定度：「{ $name } 」({ $id }) { $std }ms
+chat-game-ranking-title = ラウンドランキング
+chat-game-ranking-line = { $rank }. { $name } - スコア：{ $score }，精度：{ $acc }%{ $hasStd ->
+    [true] ，誤差：±{ $std }ms
+    *[false] {""}
+    }
 
 auth-invalid-token = トークンが不正です
 auth-fetch-me-failed = ユーザー情報の取得に失敗しました
