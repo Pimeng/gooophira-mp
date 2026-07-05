@@ -478,7 +478,7 @@ func buildChatRecordMap(lang *l10n.Language, user *User, record config.RecordDat
 		"user":    user.Name,
 		"userid":  strconv.Itoa(user.ID),
 		"score":   strconv.Itoa(record.Score),
-		"acc":     fmt.Sprintf("%v", record.Accuracy),
+		"acc":     fmt.Sprintf("%.2f", math.Round(record.Accuracy*100)),
 		"hasStd":  strconv.FormatBool(hasStd),
 		"fc":      strconv.FormatBool(record.FullCombo),
 		"perfect": strconv.Itoa(record.Perfect),
