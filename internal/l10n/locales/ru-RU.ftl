@@ -58,14 +58,11 @@ chat-roomlist-empty = Нет доступных комнат
 chat-roomlist-item = { $id } ({ $count }/{ $max })
 chat-disabled-by-server = Чат отключён на этом сервере во избежание проблем с безопасностью.
 
-chat-game-summary =
-    Итоги матча:
-    { $scoreText }
-    { $accText }
-    { $stdText }
-chat-game-summary-score = Лучший счёт: «{ $name } »({ $id }) { $score }
-chat-game-summary-acc = Лучшая точность: «{ $name } »({ $id }) { $acc }
-chat-game-summary-std = Лучшая стабильность: «{ $name } »({ $id }) { $std }мс
+chat-game-ranking-title = Рейтинг раунда
+chat-game-ranking-line = { $rank }. { $name } - Счёт: { $score }, Точность: { $acc }%{ $hasStd ->
+    [true] , Отклонение: ±{ $std } мс
+    *[false] {""}
+    }
 
 auth-invalid-token = Недействительный токен
 auth-fetch-me-failed = Не удалось получить информацию о пользователе

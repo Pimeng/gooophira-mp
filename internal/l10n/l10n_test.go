@@ -52,13 +52,22 @@ func TestTL_SelectInsideText(t *testing.T) {
 	}
 }
 
-func TestTL_MultilineValue(t *testing.T) {
-	got := TL(en(), "chat-game-summary", map[string]string{
-		"scoreText": "S", "accText": "A", "stdText": "D",
+func TestTL_RankingLine(t *testing.T) {
+	// hasStd=true → 含误差段
+	got := TL(en(), "chat-game-ranking-line", map[string]string{
+		"rank": "1", "name": "alice", "score": "1000000", "acc": "100.00",
+		"hasStd": "true", "std": "2",
 	})
-	want := "Match summary:\nS\nA\nD"
-	if got != want {
-		t.Errorf("chat-game-summary = %q, want %q", got, want)
+	if want := "1. alice - Score: 1000000, Accuracy: 100.00%, Std: ±2ms"; got != want {
+		t.Errorf("hasStd=true: got %q, want %q", got, want)
+	}
+	// hasStd=false → 不含误差段
+	got = TL(en(), "chat-game-ranking-line", map[string]string{
+		"rank": "2", "name": "bob", "score": "970000", "acc": "97.00",
+		"hasStd": "false",
+	})
+	if want := "2. bob - Score: 970000, Accuracy: 97.00%"; got != want {
+		t.Errorf("hasStd=false: got %q, want %q", got, want)
 	}
 }
 

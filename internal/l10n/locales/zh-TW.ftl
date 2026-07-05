@@ -58,14 +58,11 @@ chat-roomlist-empty = 目前沒有可用房間
 chat-roomlist-item = { $id }（{ $count }/{ $max }）
 chat-disabled-by-server = 為避免安全問題，該伺服器已停用聊天
 
-chat-game-summary =
-    本局結算：
-    { $scoreText }
-    { $accText }
-    { $stdText }
-chat-game-summary-score = 最高分：「{ $name } 」({ $id }) { $score }
-chat-game-summary-acc = 最高準度：「{ $name } 」({ $id }) { $acc }
-chat-game-summary-std = 最佳無瑕度：「{ $name } 」({ $id }) { $std }ms
+chat-game-ranking-title = 本輪排名
+chat-game-ranking-line = { $rank }. { $name } - 分數：{ $score }，準度：{ $acc }%{ $hasStd ->
+    [true] ，誤差：±{ $std }ms
+    *[false] {""}
+    }
 
 auth-invalid-token = token 不合法
 auth-fetch-me-failed = 取得使用者資訊失敗

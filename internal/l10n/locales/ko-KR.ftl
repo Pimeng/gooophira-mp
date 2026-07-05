@@ -58,14 +58,11 @@ chat-roomlist-empty = 사용 가능한 방이 없습니다
 chat-roomlist-item = { $id }（{ $count }/{ $max }）
 chat-disabled-by-server = 안전 문제를 방지하기 위해 이 서버에서는 채팅이 비활성화되어 있습니다.
 
-chat-game-summary =
-    경기 요약:
-    { $scoreText }
-    { $accText }
-    { $stdText }
-chat-game-summary-score = 최고 점수: "{ $name } "({ $id }) { $score }
-chat-game-summary-acc = 최고 정확도: "{ $name } "({ $id }) { $acc }
-chat-game-summary-std = 최고 안정도: "{ $name } "({ $id }) { $std }ms
+chat-game-ranking-title = 라운드 순위
+chat-game-ranking-line = { $rank }. { $name } - 점수: { $score }, 정확도: { $acc }%{ $hasStd ->
+    [true] , 오차: ±{ $std }ms
+    *[false] {""}
+    }
 
 auth-invalid-token = 잘못된 토큰
 auth-fetch-me-failed = 사용자 정보를 가져오지 못했습니다

@@ -346,9 +346,7 @@ func (r *Room) checkPlaying(lc *RoomLifecycle, st StatePlaying) (disband bool) {
 		return false
 	}
 
-	if len(st.Results) > 0 {
-		r.broadcastGameSummary(lc, st)
-	}
+	r.broadcastGameRanking(lc, st)
 	r.logRoomInfo(lc, "log-room-game-end", map[string]string{
 		"uploaded": fmt.Sprintf("%d", len(st.Results)),
 		"aborted":  fmt.Sprintf("%d", len(st.Aborted)),
@@ -422,54 +420,51 @@ func (r *Room) notifyDanglingReconnect(lc *RoomLifecycle, st *StatePlaying) {
 	}
 }
 
-// broadcastGameSummary 计算并播报本局最佳成绩（分数 / 准度 / std）摘要。
-// 平局时取 id 升序的第一名（确定性；TS 取 Played 提交顺序，此处为显示细节差异）。
-func (r *Room) broadcastGameSummary(lc *RoomLifecycle, st StatePlaying) {
+// broadcastGameRanking 计算并播报本局排名（按分数降序，平局取 id 升序以保证确定性）。
+// 单人游玩（仅一份成绩）不输出排名。成绩字段格式对齐 dispatch.go 的 buildChatRecordMap：
+// score 原值、acc 取 math.Round(accuracy*100) 保留两位、std 取 math.Round(*1000) 毫秒。
+func (r *Room) broadcastGameRanking(lc *RoomLifecycle, st StatePlaying) {
+	if len(st.Results) <= 1 {
+		return
+	}
 	ids := make([]int, 0, len(st.Results))
 	for id := range st.Results {
 		ids = append(ids, id)
 	}
-	slices.Sort(ids)
+	slices.SortFunc(ids, func(a, b int) int {
+		sa, sb := st.Results[a].Score, st.Results[b].Score
+		if sa != sb {
+			return sb - sa // 分数降序
+		}
+		return a - b // 平局 id 升序
+	})
 
-	bestScore, bestAcc := math.Inf(-1), math.Inf(-1)
-	var bestStd *float64
-	var bestScoreID, bestAccID, bestStdID int
-	for _, id := range ids {
+	var b strings.Builder
+	b.WriteByte('\n')
+	b.WriteString(strings.Repeat("=", 72))
+	b.WriteByte('\n')
+	b.WriteString(l10n.TL(lc.Lang, "chat-game-ranking-title", nil))
+	b.WriteByte('\n')
+	for i, id := range ids {
 		res := st.Results[id]
-		if float64(res.Score) > bestScore {
-			bestScore = float64(res.Score)
-			bestScoreID = id
+		args := map[string]string{
+			"rank":  strconv.Itoa(i + 1),
+			"name":  r.nameOf(lc, id),
+			"score": strconv.Itoa(res.Score),
+			"acc":   fmt.Sprintf("%.2f", math.Round(res.Accuracy*100)),
 		}
-		if res.Accuracy > bestAcc {
-			bestAcc = res.Accuracy
-			bestAccID = id
+		if res.Std != nil {
+			args["hasStd"] = "true"
+			args["std"] = fmt.Sprintf("%d", int(math.Round(*res.Std*1000)))
+		} else {
+			args["hasStd"] = "false"
 		}
-		if res.Std != nil && (bestStd == nil || *res.Std < *bestStd) {
-			v := *res.Std
-			bestStd = &v
-			bestStdID = id
+		b.WriteString(l10n.TL(lc.Lang, "chat-game-ranking-line", args))
+		if i < len(ids)-1 {
+			b.WriteByte('\n')
 		}
 	}
-
-	tl := func(key string, args map[string]string) string { return l10n.TL(lc.Lang, key, args) }
-	scoreText := tl("chat-game-summary-score", map[string]string{
-		"name": r.nameOf(lc, bestScoreID), "id": fmt.Sprintf("%d", bestScoreID), "score": fmt.Sprintf("%d", int(bestScore)),
-	})
-	accText := tl("chat-game-summary-acc", map[string]string{
-		"name": r.nameOf(lc, bestAccID), "id": fmt.Sprintf("%d", bestAccID), "acc": fmt.Sprintf("%.2f%%", bestAcc*100),
-	})
-	stdText := ""
-	if bestStd != nil {
-		stdText = tl("chat-game-summary-std", map[string]string{
-			"name": r.nameOf(lc, bestStdID), "id": fmt.Sprintf("%d", bestStdID), "std": fmt.Sprintf("%d", int(math.Round(*bestStd*1000))),
-		})
-	}
-	summary := tl("chat-game-summary", map[string]string{"scoreText": scoreText, "accText": accText, "stdText": stdText})
-	if bestStd == nil {
-		// 所有玩家 Std==nil 时 stdText 为空，FTL 模板尾部会留一个空行；trim 掉避免聊天显示多余空行。
-		summary = strings.TrimRight(summary, "\n ")
-	}
-	r.Send(lc, protocol.MsgChat{User: lc.SystemChatUserID(), Content: summary})
+	r.Send(lc, protocol.MsgChat{User: lc.SystemChatUserID(), Content: b.String()})
 }
 
 // rotateCycleHost 在 cycle 模式下把房主轮换到下一位。对齐 jphira-mp 的
