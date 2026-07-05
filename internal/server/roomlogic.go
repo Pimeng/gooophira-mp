@@ -409,7 +409,7 @@ func (r *Room) broadcastGameSummary(lc *RoomLifecycle, st StatePlaying) {
 	slices.Sort(ids)
 
 	bestScore, bestAcc := math.Inf(-1), math.Inf(-1)
-	bestStd := math.Inf(1)
+	var bestStd *float64
 	var bestScoreID, bestAccID, bestStdID int
 	for _, id := range ids {
 		res := st.Results[id]
@@ -421,8 +421,9 @@ func (r *Room) broadcastGameSummary(lc *RoomLifecycle, st StatePlaying) {
 			bestAcc = res.Accuracy
 			bestAccID = id
 		}
-		if res.Std < bestStd {
-			bestStd = res.Std
+		if res.Std != nil && (bestStd == nil || *res.Std < *bestStd) {
+			v := *res.Std
+			bestStd = &v
 			bestStdID = id
 		}
 	}
@@ -434,9 +435,12 @@ func (r *Room) broadcastGameSummary(lc *RoomLifecycle, st StatePlaying) {
 	accText := tl("chat-game-summary-acc", map[string]string{
 		"name": r.nameOf(lc, bestAccID), "id": fmt.Sprintf("%d", bestAccID), "acc": fmt.Sprintf("%.2f%%", bestAcc*100),
 	})
-	stdText := tl("chat-game-summary-std", map[string]string{
-		"name": r.nameOf(lc, bestStdID), "id": fmt.Sprintf("%d", bestStdID), "std": fmt.Sprintf("%d", int(math.Round(bestStd*1000))),
-	})
+	stdText := ""
+	if bestStd != nil {
+		stdText = tl("chat-game-summary-std", map[string]string{
+			"name": r.nameOf(lc, bestStdID), "id": fmt.Sprintf("%d", bestStdID), "std": fmt.Sprintf("%d", int(math.Round(*bestStd*1000))),
+		})
+	}
 	summary := tl("chat-game-summary", map[string]string{"scoreText": scoreText, "accText": accText, "stdText": stdText})
 	r.Send(lc, protocol.MsgChat{User: lc.SystemChatUserID(), Content: summary})
 }

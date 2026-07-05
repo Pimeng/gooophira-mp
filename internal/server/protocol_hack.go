@@ -12,14 +12,14 @@ import (
 // CompletableFuture.delayedExecutor(2, MILLISECONDS)，Go 端没有同等的 setImmediate 机制，
 // 需要一个保守的延迟确保客户端已处理完上一条响应（CreateRoom/JoinRoom/Auth 等）后再发送
 // 后续协议补偿消息。2ms 在 Netty 足够，但 Go 的写循环是独立 goroutine、且经过 TCP 缓冲
-// 套接字——保险起见默认设 30ms（处于 10-100ms 体感无延迟但足以让客户端消化上一条消息的
+// 套接字——保险起见默认设 10ms（处于 10-100ms 体感无延迟但足以让客户端消化上一条消息的
 // 区间），可由 -protocol-hack-delay CLI 参数覆盖（0 关闭）。可经 atomic 改写以配合测试 /
 // 运行时调优。
 //
 // 真正的「零延迟」方案需要客户端发送 ACK 消息并增加一对协议包，超出本项目当前范围。
 var protocolHackDelay atomic.Int64
 
-func init() { protocolHackDelay.Store(int64(30 * time.Millisecond)) }
+func init() { protocolHackDelay.Store(int64(10 * time.Millisecond)) }
 
 // SetProtocolHackDelay 运行时设置 ProtocolHack 延迟（用于测试或热调优）。传入 0 关闭。
 func SetProtocolHackDelay(d time.Duration) { protocolHackDelay.Store(int64(d)) }

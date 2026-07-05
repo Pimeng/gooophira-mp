@@ -3,7 +3,9 @@ package server
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
+	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
 )
@@ -358,12 +360,13 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			if room.Chart != nil && record.Chart != nil && *record.Chart != room.Chart.ID {
 				return errRecordChartMismatch
 			}
-			room.logRoomMark(h.MakeRoomLifecycle(room), "log-room-played", map[string]string{
+			lc := h.MakeRoomLifecycle(room)
+			room.logRoomMark(lc, "log-room-played", map[string]string{
 				"user": user.Name, "score": strconv.Itoa(record.Score), "acc": fmt.Sprintf("%v", record.Accuracy),
 			})
-			h.BroadcastRoomMessage(room, protocol.MsgPlayed{
-				User: int32FromInt(user.ID), Score: int32FromInt(record.Score),
-				Accuracy: float32(record.Accuracy), FullCombo: record.FullCombo,
+			h.BroadcastRoomMessage(room, protocol.MsgChat{
+				User:    h.State.SystemChatUserID(),
+				Content: l10n.TL(lc.Lang, "chat-record-send-template", buildChatRecordMap(lc.Lang, user, record)),
 			})
 			st, ok := room.State.(StatePlaying)
 			if !ok {
@@ -409,4 +412,58 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 	default:
 		return nil, false
 	}
+}
+
+// recordChatMods 记录 mod 位掩码到本地化键的映射。位值对齐 Phira 客户端 mod 协议：
+// 0=自动游玩, 1=X轴翻转, 2=上隐, 3=下隐, 4=夜店, 5=彩虹, 6=无着色器,
+// 7=突然死亡(AP), 8=突然死亡(FC)。新增 mod 时按位追加。
+var recordChatMods = []struct {
+	bit int
+	key string
+}{
+	{1 << 0, "chat-record-mod-autoplay"},
+	{1 << 1, "chat-record-mod-flip-x"},
+	{1 << 2, "chat-record-mod-hide-top"},
+	{1 << 3, "chat-record-mod-hide-bottom"},
+	{1 << 4, "chat-record-mod-club"},
+	{1 << 5, "chat-record-mod-rainbow"},
+	{1 << 6, "chat-record-mod-no-shader"},
+	{1 << 7, "chat-record-mod-sudden-death-ap"},
+	{1 << 8, "chat-record-mod-sudden-death-fc"},
+}
+
+func buildChatRecordMap(lang *l10n.Language, user *User, record config.RecordData) map[string]string {
+	hasStd := record.Std != nil && record.StdScore != nil
+	hasMod := record.Mod != 0
+
+	m := map[string]string{
+		"user":    user.Name,
+		"userid":  strconv.Itoa(user.ID),
+		"score":   strconv.Itoa(record.Score),
+		"acc":     fmt.Sprintf("%v", record.Accuracy),
+		"hasStd":  strconv.FormatBool(hasStd),
+		"fc":      strconv.FormatBool(record.FullCombo),
+		"perfect": strconv.Itoa(record.Perfect),
+		"good":    strconv.Itoa(record.Good),
+		"bad":     strconv.Itoa(record.Bad),
+		"miss":    strconv.Itoa(record.Miss),
+		"hasMod":  strconv.FormatBool(hasMod),
+	}
+
+	if hasStd {
+		m["std"] = fmt.Sprintf("%.2f", *record.Std)
+		m["stdScore"] = fmt.Sprintf("%.2f", *record.StdScore)
+	}
+
+	if hasMod {
+		mods := make([]string, 0, len(recordChatMods))
+		for _, def := range recordChatMods {
+			if record.Mod&def.bit != 0 {
+				mods = append(mods, l10n.TL(lang, def.key, nil))
+			}
+		}
+		m["modList"] = strings.Join(mods, ", ")
+	}
+
+	return m
 }
