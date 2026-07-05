@@ -279,8 +279,9 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			h.BroadcastRoomMessage(room, protocol.MsgGameStart{User: int32FromInt(user.ID)})
 			// 系统身份提示聊天走 ProtocolHack 延迟调度：让 GameStart 广播先抵达客户端，
 			// 提示紧随其后到达，避免在状态切换动画途中弹出系统聊天。
+			// 单人房会立即 startPlaying，无需提示「一分钟内准备」，跳过。
 			hint, hasHint := tlOrSkip(lc.Lang, "chat-game-start-hint", map[string]string{"user": user.Name})
-			if hasHint {
+			if hasHint && len(room.users) > 1 {
 				sysID := h.State.SystemChatUserID()
 				state := h.State
 				roomID := room.ID

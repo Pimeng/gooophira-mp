@@ -384,6 +384,36 @@ func TestDispatch_RequestStartBroadcastsHintChat(t *testing.T) {
 	}
 }
 
+// TestDispatch_RequestStart_SinglePlayerSkipsHintChat 验证单人房下发「游戏开始」后，
+// 因为会立即进入 Playing（无需准备倒计时），不发 chat-game-start-hint 提示聊天。
+func TestDispatch_RequestStart_SinglePlayerSkipsHintChat(t *testing.T) {
+	h := newHarness()
+	phira := &mockPhira{charts: map[int]config.Chart{1: {ID: 1, Name: "c"}}}
+	hub := NewHub(h.state, phira)
+	host := h.addUser(1, "host")
+
+	SetProtocolHackDelay(0)
+	t.Cleanup(func() { SetProtocolHackDelay(10 * time.Millisecond) })
+
+	hub.mustDispatch(t, host, protocol.CmdCreateRoom{ID: "room1"})
+	hub.mustDispatch(t, host, protocol.CmdSelectChart{ID: 1})
+
+	hostBefore := len(sentTo(host))
+	hub.mustDispatch(t, host, protocol.CmdRequestStart{})
+	time.Sleep(50 * time.Millisecond) // 等延迟派发完成（如有）
+
+	expected := l10n.TL(h.state.ServerLang, "chat-game-start-hint", map[string]string{"user": "host"})
+	for _, cmd := range sentTo(host)[hostBefore:] {
+		sm, ok := cmd.(protocol.SrvMessage)
+		if !ok {
+			continue
+		}
+		if chat, ok := sm.Message.(protocol.MsgChat); ok && chat.Content == expected {
+			t.Error("single-player room should not receive game-start hint chat")
+		}
+	}
+}
+
 // TestDispatch_FramesDroppedWhenNotPlaying 对应 TS「非游玩状态丢弃触控/判定帧，不分发」。
 func TestDispatch_FramesDroppedWhenNotPlaying(t *testing.T) {
 	h := newHarness(300)
