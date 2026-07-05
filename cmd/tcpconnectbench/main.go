@@ -823,6 +823,8 @@ func assignTCPClients(clients []*tcpClient, r, totalRooms, totalClients int) []*
 }
 
 // runConnectionStormScenario 真实 TCP 连接风暴：并发建连+认证吞吐量测试。
+// 连接全部建立后保持到 Duration 结束，期间持续采样峰值 goroutine/heap，
+// 用于衡量服务器在持续持有 N 个空闲连接时的资源开销。
 func runConnectionStormScenario(bc benchConfig, mc *metricsCollector, addr string, vipPool *vipPool) scenarioResult {
 	result := scenarioResult{
 		Name:    "connection-storm",
@@ -832,6 +834,24 @@ func runConnectionStormScenario(bc benchConfig, mc *metricsCollector, addr strin
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, bc.Concurrency)
+
+	// 跟踪已建立的连接，用于测试结束后统一关闭
+	var clientsMu sync.Mutex
+	clients := make([]*tcpClient, 0, bc.Clients)
+
+	// 周期采样 goroutine：捕获峰值 goroutine/heap（连接建立期 + 持有期）
+	stopCh := make(chan struct{})
+	sampleTicker := time.NewTicker(1 * time.Second)
+	go func() {
+		for {
+			select {
+			case <-stopCh:
+				return
+			case <-sampleTicker.C:
+				mc.sample()
+			}
+		}
+	}()
 
 	for i := 0; i < bc.Clients; i++ {
 		wg.Add(1)
@@ -850,11 +870,33 @@ func runConnectionStormScenario(bc benchConfig, mc *metricsCollector, addr strin
 			mc.recordAuth(authDur)
 			mc.addCommands(2)
 
-			// 保持连接直到测试结束，然后关闭
-			cli.close()
+			clientsMu.Lock()
+			clients = append(clients, cli)
+			clientsMu.Unlock()
 		}(i + 1)
 	}
 	wg.Wait()
+
+	// 风暴建立完毕，立即采样捕获峰值
+	mc.sample()
+
+	// 持有所有连接至 Duration 结束，测量稳态资源占用
+	if remaining := bc.Duration - time.Since(startTime); remaining > 0 {
+		time.Sleep(remaining)
+	}
+
+	close(stopCh)
+	sampleTicker.Stop()
+
+	// 关闭所有连接
+	clientsMu.Lock()
+	for _, cli := range clients {
+		cli.close()
+	}
+	clientsMu.Unlock()
+
+	// 最终采样
+	mc.sample()
 
 	elapsed := time.Since(startTime)
 	var m runtime.MemStats
