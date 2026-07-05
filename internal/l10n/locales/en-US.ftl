@@ -44,8 +44,8 @@ cli-invalid-protocol-hack-delay = PROTOCOL_HACK_DELAY must be a non-negative int
 
 label-monitor-suffix = (monitor)
 replay-recorder-name = Replay Recorder (System)
-chat-replay-recorder-hint = ℹ️ You may notice a player named `「{ $name }」` in the room list/join-leave messages; this user is used to record this match's replay (only triggers client behavior). This player does not participate in the game and will not affect match results. Please play normally and disregard its join/leave notifications.
-chat-late-join-hint = ℹ️ You joined mid-match. Since this round has already started, you cannot be inserted mid-game, so this round will be automatically marked as abandoned for you — this is not an error and requires no action; it will not affect your score or other players' matches. Please wait in the room until this round ends; you will be able to participate normally in the next round.
+chat-replay-recorder-hint = You may notice a player named `「{ $name }」` in the room list/join-leave messages; this user is used to record this match's replay (only triggers client behavior). This player does not participate in the game and will not affect match results. Please play normally and disregard its join/leave notifications.
+chat-late-join-hint = You joined mid-match. Since this round has already started, you cannot be inserted mid-game, so this round will be automatically marked as abandoned for you — this is not an error and requires no action; it will not affect your score or other players' matches. Please wait in the room until this round ends; you will be able to participate normally in the next round.
 
 chat-welcome = Hello "{ $userName }"! Welcome to { $serverName }!
 chat-welcome-version = Server is running version { $version }
