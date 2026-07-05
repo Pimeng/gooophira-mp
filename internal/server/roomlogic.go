@@ -443,6 +443,10 @@ func (r *Room) broadcastGameSummary(lc *RoomLifecycle, st StatePlaying) {
 		})
 	}
 	summary := tl("chat-game-summary", map[string]string{"scoreText": scoreText, "accText": accText, "stdText": stdText})
+	if bestStd == nil {
+		// 所有玩家 Std==nil 时 stdText 为空，FTL 模板尾部会留一个空行；trim 掉避免聊天显示多余空行。
+		summary = strings.TrimRight(summary, "\n ")
+	}
 	r.Send(lc, protocol.MsgChat{User: lc.SystemChatUserID(), Content: summary})
 }
 

@@ -3,8 +3,10 @@ package server
 import (
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
@@ -415,6 +417,52 @@ func TestHandleJoin_DuringPlayingMarksAborted(t *testing.T) {
 	st := r.State.(StatePlaying)
 	if _, ok := st.Aborted[2]; !ok {
 		t.Error("late-joining player during Playing should be marked aborted")
+	}
+}
+
+// ---------- GameSummary ----------
+
+// TestBroadcastGameSummary_NoStdTrimsTrailingNewline 验证所有玩家 Std==nil 时，
+// 结算摘要尾部不残留空行（FTL 模板中 { $stdText } 渲染为空串后的清理）。
+func TestBroadcastGameSummary_NoStdTrimsTrailingNewline(t *testing.T) {
+	h := newHarness()
+	r := NewRoom("room1", 1, 8, false)
+	h.addUser(1, "alice")
+	r.State = StatePlaying{
+		Results:   map[int]config.RecordData{1: {Score: 950000, Accuracy: 0.95, Std: nil}},
+		Aborted:   map[int]struct{}{},
+		StartedAt: time.Now(),
+	}
+	r.broadcastGameSummary(h.lifecycle(), r.State.(StatePlaying))
+	chat, ok := lastChat(h)
+	if !ok {
+		t.Fatal("expected summary chat to be broadcast")
+	}
+	if strings.HasSuffix(chat.Content, "\n") || strings.HasSuffix(chat.Content, " ") {
+		t.Errorf("summary should not end with newline/space when Std==nil, got %q", chat.Content)
+	}
+}
+
+// TestBroadcastGameSummary_WithStdPreservesStdLine 验证有 Std 时摘要包含 std 行
+// 且不会因 trim 误删 std 文本。
+func TestBroadcastGameSummary_WithStdPreservesStdLine(t *testing.T) {
+	h := newHarness()
+	r := NewRoom("room1", 1, 8, false)
+	h.addUser(1, "alice")
+	std := 0.012
+	r.State = StatePlaying{
+		Results:   map[int]config.RecordData{1: {Score: 950000, Accuracy: 0.95, Std: &std}},
+		Aborted:   map[int]struct{}{},
+		StartedAt: time.Now(),
+	}
+	r.broadcastGameSummary(h.lifecycle(), r.State.(StatePlaying))
+	chat, ok := lastChat(h)
+	if !ok {
+		t.Fatal("expected summary chat to be broadcast")
+	}
+	// 默认 ServerLang=zh-CN，模板 chat-game-summary-std 渲染后含「最佳无瑕度」字样。
+	if !strings.Contains(chat.Content, "最佳无瑕度") {
+		t.Errorf("summary should contain std line when Std!=nil, got %q", chat.Content)
 	}
 }
 
