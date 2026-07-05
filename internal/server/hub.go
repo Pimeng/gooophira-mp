@@ -132,6 +132,33 @@ func (h *Hub) BroadcastRoom(room *Room, cmd protocol.ServerCommand) {
 	}
 }
 
+// BroadcastRoomExcept 向房间内除 exclude 中用户外的所有在线参与者发送命令。
+func (h *Hub) BroadcastRoomExcept(room *Room, cmd protocol.ServerCommand, exclude map[int]struct{}) {
+	ids := room.AllParticipantIDs()
+	if len(ids) == 0 {
+		return
+	}
+	users := make([]*User, 0, len(ids))
+	for _, id := range ids {
+		if _, skip := exclude[id]; skip {
+			continue
+		}
+		if u := h.State.Users[id]; u != nil {
+			users = append(users, u)
+		}
+	}
+	if len(users) == 0 {
+		return
+	}
+	frame := encodeServerCommandFrame(cmd)
+	if frame == nil {
+		return
+	}
+	for _, u := range users {
+		u.TrySendFrameOwned(frame)
+	}
+}
+
 func (h *Hub) broadcastToMonitors(room *Room, cmd protocol.ServerCommand) {
 	users := room.MonitorUsers()
 	if len(users) == 0 {
@@ -182,6 +209,7 @@ func (h *Hub) MakeRoomLifecycle(room *Room) *RoomLifecycle {
 	return &RoomLifecycle{
 		UsersByID:           func(id int) *User { return h.State.Users[id] },
 		Broadcast:           func(cmd protocol.ServerCommand) { h.BroadcastRoom(room, cmd) },
+		BroadcastExcept:     func(cmd protocol.ServerCommand, exclude map[int]struct{}) { h.BroadcastRoomExcept(room, cmd, exclude) },
 		BroadcastToMonitors: func(cmd protocol.ServerCommand) { h.broadcastToMonitors(room, cmd) },
 		PickNextHostID:      pickNextHost,
 		Lang:                h.State.ServerLang,
@@ -273,16 +301,18 @@ func (h *Hub) ProcessCreateRoom(user *User, id protocol.RoomID) error {
 	return nil
 }
 
-// sendReplayRecorderHint 向用户发送一条系统聊天（MsgChat User=0），告知其刚才加入的
-// 「回放录制器（系统）」是服务器模拟的自动化会话，仅供回放采集使用，不参与游戏，也不
-// 影响对局结果。仅在确实派发假观战者加入消息后调用——避免裸提示让玩家误以为有真实观战
-// 者进入。name 为假观战者显示名（已含「（系统）」后缀），用于在提示中指代该会话。
+// sendReplayRecorderHint 向用户发送一条系统聊天（MsgChat User=SYSTEM_USER_ID），告知其
+// 刚才加入的假观战者是服务器模拟的回放采集会话，仅供录制使用，不参与游戏，也不影响对局
+// 结果。仅在确实派发假观战者加入消息后调用——避免裸提示让玩家误以为有真实观战者进入。
+// name 为提示聊天中指代该会话的名称，与假观战者在进出包中的显示名一致（未配置时取
+// replay-recorder-name，配置真实 ID 后取 bot 真实昵称）。配置真实 ID 后假观战者与系统
+// 聊天发送者共用 bot 身份，进出包与聊天发送者前缀均显示为 bot 昵称。
 // 迟到加入者会单独收到 chat-late-join-hint 提示（见 sendLateJoinHint），与本提示解耦。
-func (h *Hub) sendReplayRecorderHint(user *User, lang *l10n.Language, name string) {
+func (h *Hub) sendReplayRecorderHint(user *User, lang *l10n.Language) {
 	if user == nil || lang == nil {
 		return
 	}
-	hint, ok := tlOrSkip(lang, "chat-replay-recorder-hint", map[string]string{"name": name})
+	hint, ok := tlOrSkip(lang, "chat-replay-recorder-hint", nil)
 	if !ok {
 		return
 	}
@@ -340,16 +370,18 @@ func (h *Hub) sendFakeMonitorJoin(targetUser *User, room *Room) {
 		if state.ReplayRecorder == nil {
 			return
 		}
-		name := l10n.TL(state.ServerLang, "replay-recorder-name", nil)
-		systemName := l10n.TL(state.ServerLang, "system-user-name", nil)
-		fake := state.ReplayRecorder.FakeMonitorInfo(name)
+		// 假观战者身份：未配置 SYSTEM_USER_ID 时用固定 ID + 本地化名「回放录制器（系统）」；
+		// 配置真实 ID 后用该 bot 真实身份（异步拉取昵称，拉取完成前用本地化名兜底）。提示聊天
+		// name 变量用 fake.Name，确保进出包名与提示内容指代一致。
+		fallbackName := l10n.TL(state.ServerLang, "replay-recorder-name", nil)
+		fake := state.ReplayRecorder.FakeMonitorInfo(fallbackName)
 		snapshot.TrySend(protocol.SrvOnJoinRoom{Info: fake})
 		snapshot.TrySend(protocol.SrvMessage{
 			Message: protocol.MsgJoinRoom{User: fake.ID, Name: fake.Name},
 		})
 		// 紧跟一条系统聊天，明确告知玩家这是服务器模拟的回放采集会话、无需理会，
 		// 避免其误以为有真实观战者进入并产生困惑或等待行为。
-		h.sendReplayRecorderHint(snapshot, state.ServerLang, systemName)
+		h.sendReplayRecorderHint(snapshot, state.ServerLang)
 	})
 }
 

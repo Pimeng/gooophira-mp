@@ -27,9 +27,10 @@ const fetchTimeout = 10 * time.Second
 // 进程级共享缓存（对齐 TS phiraApiClient 的 tokenCache / recordCache）。
 // token 缓存不落盘（含凭证，仅驻内存）；record / chart 缓存落盘（不可变，重启后仍有效）。
 var (
-	tokenCache  = cache.NewString[server.PhiraUserInfo](cache.Options{Name: "token_cache.json", TTL: 6 * time.Hour, MaxMem: 500, Persist: false})
-	recordCache = cache.NewInt[config.RecordData](cache.Options{Name: "record_cache.json", TTL: 6 * time.Hour, MaxMem: 500, Persist: true})
-	chartCache  = cache.NewInt[config.Chart](cache.Options{Name: "chart_cache.json", TTL: 6 * time.Hour, MaxMem: 500, Persist: true})
+	tokenCache    = cache.NewString[server.PhiraUserInfo](cache.Options{Name: "token_cache.json", TTL: 6 * time.Hour, MaxMem: 500, Persist: false})
+	recordCache   = cache.NewInt[config.RecordData](cache.Options{Name: "record_cache.json", TTL: 6 * time.Hour, MaxMem: 500, Persist: true})
+	chartCache    = cache.NewInt[config.Chart](cache.Options{Name: "chart_cache.json", TTL: 6 * time.Hour, MaxMem: 500, Persist: true})
+	userNameCache = cache.NewInt[string](cache.Options{Name: "user_name_cache.json", TTL: 6 * time.Hour, MaxMem: 500, Persist: true})
 )
 
 // Client 是 Phira API HTTP 客户端。
@@ -101,6 +102,37 @@ func (c *Client) fetchUserInfo(ctx context.Context, token string) (server.PhiraU
 		return zero, fmt.Errorf("auth-invalid-user-name")
 	}
 	return server.PhiraUserInfo{ID: data.ID, Name: name, Language: data.Language}, nil
+}
+
+// FetchUserName 调用 /user/:id 取用户公开昵称。结果按 id 缓存 6h（昵称极少变化）。
+// 用于配置 SYSTEM_USER_ID 后，让回放假观战者与系统聊天发送者统一呈现为该 bot 身份。
+func (c *Client) FetchUserName(ctx context.Context, id int) (string, error) {
+	return userNameCache.GetOrSet(id, func() (string, error) {
+		return c.fetchUserName(ctx, id)
+	})
+}
+
+func (c *Client) fetchUserName(ctx context.Context, id int) (string, error) {
+	resp, err := c.get(ctx, fmt.Sprintf("/user/%d", id), nil)
+	if err != nil {
+		return "", fmt.Errorf("user-fetch-failed")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return "", fmt.Errorf("user-fetch-failed")
+	}
+	var data struct {
+		ID   int    `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return "", fmt.Errorf("user-fetch-failed")
+	}
+	name := strings.TrimSpace(data.Name)
+	if name == "" {
+		return "", fmt.Errorf("user-fetch-empty-name")
+	}
+	return name, nil
 }
 
 // FetchChart 调用 /chart/:id 取谱面信息。结果缓存 6h（谱面基本不可变）。

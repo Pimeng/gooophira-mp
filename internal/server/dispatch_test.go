@@ -494,16 +494,18 @@ func TestDispatch_ReplayWithFakeMonitor(t *testing.T) {
 	}
 
 	// 验证假观战者消息已发送给 alice（sendFakeMonitorJoin 延迟 20ms 后发送，模仿 TS setImmediate）
+	// 假观战者使用固定 ID（replay.FakeMonitorID），与 SYSTEM_USER_ID 解耦。
+	fakeID := replay.FakeMonitorID()
 	time.Sleep(50 * time.Millisecond)
 	var gotFakeOnJoin, gotFakeJoinMsg bool
 	for _, cmd := range sentTo(alice) {
 		switch c := cmd.(type) {
 		case protocol.SrvOnJoinRoom:
-			if c.Info.ID == replay.FakeMonitorID() && c.Info.Monitor {
+			if c.Info.ID == fakeID && c.Info.Monitor {
 				gotFakeOnJoin = true
 			}
 		case protocol.SrvMessage:
-			if m, ok := c.Message.(protocol.MsgJoinRoom); ok && m.User == replay.FakeMonitorID() {
+			if m, ok := c.Message.(protocol.MsgJoinRoom); ok && m.User == fakeID {
 				gotFakeJoinMsg = true
 			}
 		}
@@ -520,10 +522,9 @@ func TestDispatch_ReplayWithFakeMonitor(t *testing.T) {
 	if !gotHint {
 		t.Error("expected a system chat hint after fake monitor join (sendFakeMonitorJoin path)")
 	} else {
-		// 提示文本应包含本地化的录制器显示名（带「（系统）」后缀），便于玩家对应。
-		systemName := l10n.TL(st.ServerLang, "system-user-name", nil)
-		if !strings.Contains(hintContent, systemName) {
-			t.Errorf("hint chat should contain recorder name %q, got %q", systemName, hintContent)
+		expectedHint := l10n.TL(st.ServerLang, "chat-replay-recorder-hint", nil)
+		if hintContent != expectedHint {
+			t.Errorf("hint chat should match chat-replay-recorder-hint\n got: %q\nwant: %q", hintContent, expectedHint)
 		}
 	}
 
@@ -693,8 +694,7 @@ func TestSendFakeMonitorJoin_LateJoiner_GetsRegularHint(t *testing.T) {
 	if !ok {
 		t.Fatal("expected a system chat hint for late joiner")
 	}
-	systemName := l10n.TL(st.ServerLang, "system-user-name", nil)
-	regularHint := l10n.TL(st.ServerLang, "chat-replay-recorder-hint", map[string]string{"name": systemName})
+	regularHint := l10n.TL(st.ServerLang, "chat-replay-recorder-hint", nil)
 	if content != regularHint {
 		t.Errorf("late joiner should receive regular hint variant (late-join hint is sent separately)\n got: %q\nwant: %q", content, regularHint)
 	}
@@ -763,8 +763,7 @@ func TestSendFakeMonitorJoin_RegularJoiner_GetsRegularHint(t *testing.T) {
 	if !ok {
 		t.Fatal("expected a system chat hint for regular joiner")
 	}
-	systemName := l10n.TL(st.ServerLang, "system-user-name", nil)
-	regularHint := l10n.TL(st.ServerLang, "chat-replay-recorder-hint", map[string]string{"name": systemName})
+	regularHint := l10n.TL(st.ServerLang, "chat-replay-recorder-hint", nil)
 	if content != regularHint {
 		t.Errorf("regular joiner should receive regular hint variant\n got: %q\nwant: %q", content, regularHint)
 	}

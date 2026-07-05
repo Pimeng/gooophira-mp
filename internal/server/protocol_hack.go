@@ -91,15 +91,17 @@ func (ph *ProtocolHack) forceSyncInfo(room *Room, user *User) {
 			user.TrySend(protocol.SrvChangeHost{IsHost: false})
 		}
 		if live && recorder != nil {
-			name := l10n.TL(lang, "replay-recorder-name", nil)
-			fake := recorder.FakeMonitorInfo(name)
+			// 假观战者身份：未配置 SYSTEM_USER_ID 时用固定 ID + 本地化名；配置真实 ID 后
+			// 用 bot 真实身份。
+			fallbackName := l10n.TL(lang, "replay-recorder-name", nil)
+			fake := recorder.FakeMonitorInfo(fallbackName)
 			user.TrySend(protocol.SrvOnJoinRoom{Info: fake})
 			user.TrySend(protocol.SrvMessage{
 				Message: protocol.MsgJoinRoom{User: fake.ID, Name: fake.Name},
 			})
 			// 紧跟一条系统聊天，明确告知玩家这是服务器模拟的回放采集会话、无需理会，
 			// 避免其误以为有真实观战者进入。
-			hub.sendReplayRecorderHint(user, lang, name)
+			hub.sendReplayRecorderHint(user, lang)
 			// 2) 离开消息：再延迟一发，让客户端先消化假观战者加入。
 			ph.schedule(func() {
 				user.TrySend(protocol.SrvMessage{

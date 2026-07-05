@@ -1,7 +1,6 @@
 package server
 
 import (
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -444,10 +443,9 @@ func TestForceSyncInfo_LiveWithRecorder_SendsHintChat(t *testing.T) {
 	if !ok {
 		t.Fatal("expected a system chat (MsgChat User=0) hint after fake monitor join")
 	}
-	// 提示文本应包含本地化的录制器显示名（带「（系统）」后缀），便于玩家对应。
-	recorderName := l10n.TL(h.state.ServerLang, "replay-recorder-name", nil)
-	if !strings.Contains(content, recorderName) {
-		t.Errorf("hint chat should contain recorder name %q, got %q", recorderName, content)
+	expectedHint := l10n.TL(h.state.ServerLang, "chat-replay-recorder-hint", nil)
+	if content != expectedHint {
+		t.Errorf("hint chat should match chat-replay-recorder-hint\n got: %q\nwant: %q", content, expectedHint)
 	}
 }
 

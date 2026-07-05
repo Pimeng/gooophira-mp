@@ -21,6 +21,7 @@ import (
 type RoomLifecycle struct {
 	UsersByID           func(id int) *User
 	Broadcast           func(cmd protocol.ServerCommand)
+	BroadcastExcept     func(cmd protocol.ServerCommand, exclude map[int]struct{})
 	BroadcastToMonitors func(cmd protocol.ServerCommand)
 	PickNextHostID      func(ids []int, oldHostID int) (int, bool)
 	Lang                *l10n.Language
@@ -272,12 +273,14 @@ func (r *Room) checkWaitForReady(lc *RoomLifecycle, st StateWaitForReady) {
 	if r.Contest != nil && r.Contest.ManualStart {
 		return // 比赛房：全员就绪后仍等待管理员手动开赛
 	}
-	r.startPlaying(lc)
+	r.startPlaying(lc, nil)
 }
 
 // startPlaying 把房间切到 Playing 并广播开赛（触发录制钩子、重置 gameTime）。
 // 供「全员就绪自动开赛」与「管理员/比赛强制开赛」共用。
-func (r *Room) startPlaying(lc *RoomLifecycle) {
+// unreadyIDs 是强制开赛时未准备玩家的 ID 列表：若非空，MsgStartPlaying 和
+// SrvChangeState(Playing) 都不发给他们，由调用方自行将未准备玩家送回 SelectChart。
+func (r *Room) startPlaying(lc *RoomLifecycle, unreadyIDs []int) {
 	r.cancelReadyCountdown()
 	if lc.OnEnterPlaying != nil {
 		lc.OnEnterPlaying(r)
@@ -298,14 +301,33 @@ func (r *Room) startPlaying(lc *RoomLifecycle) {
 		"users":          joinIntIDs(r.UserIDs(), sep),
 		"monitorsSuffix": monitorsSuffix,
 	})
-	r.Send(lc, protocol.MsgStartPlaying{})
+	// 记录开赛日志。
+	if lc.Lang != nil {
+		if logText := r.formatMessageForLog(protocol.MsgStartPlaying{}, lc); logText != "" {
+			r.AddLog(logText, time.Now().UnixMilli())
+		}
+	}
 	r.ResetGameTime(lc.UsersByID)
 	r.State = StatePlaying{
 		Results:   make(map[int]config.RecordData),
 		Aborted:   make(map[int]struct{}),
 		StartedAt: time.Now(),
 	}
-	r.OnStateChange(lc)
+	// 广播 MsgStartPlaying 和 SrvChangeState(Playing)，只发给已准备的玩家。
+	// 强制开赛时未准备玩家不应收到这些包（对齐 Java：未准备玩家回退到 SelectChart 变观战者）。
+	startCmd := protocol.SrvMessage{Message: protocol.MsgStartPlaying{}}
+	stateCmd := protocol.SrvChangeState{State: r.ClientRoomState()}
+	if len(unreadyIDs) > 0 {
+		excludeSet := make(map[int]struct{}, len(unreadyIDs))
+		for _, id := range unreadyIDs {
+			excludeSet[id] = struct{}{}
+		}
+		lc.BroadcastExcept(startCmd, excludeSet)
+		lc.BroadcastExcept(stateCmd, excludeSet)
+	} else {
+		lc.Broadcast(startCmd)
+		lc.Broadcast(stateCmd)
+	}
 	r.NotifyWebSocket(lc)
 }
 

@@ -154,14 +154,13 @@ func main() {
 
 	// 回放录制：录制器注入全局状态（供 dispatch 的 Append*/SetRecordID），并通过
 	// OnEnterPlaying/OnGameEnd 钩子驱动每局的开始/落盘。
-	recorder := replay.NewRecorder(cfg.EffectiveReplayBaseDir(), logger)
-	// SYSTEM_USER_ID 同时用作回放假观战者用户 ID 与所有系统聊天消息发送者 ID：
-	// 设为真实 Phira 用户 ID 后，客户端可凭此 ID 拉取真实头像/昵称，让假观战者与所有
-	// 系统消息（欢迎语、回放/迟到提示、管理员广播、维护通知、本局结算等）共用同一身份。
-	if sid := cfg.EffectiveSystemUserID(); sid > 0 {
-		recorder.SetFakeMonitorID(int32(sid))
-		logger.Mark(l10n.TL(lang, "log-replay-fake-monitor-id", map[string]string{"id": strconv.Itoa(sid)}))
-	}
+	// 配置 SYSTEM_USER_ID（>0）后，假观战者改用该 bot 真实身份（异步拉取 /user/:id 昵称），
+	// 与系统聊天发送者（MsgChat.User=SYSTEM_USER_ID）统一呈现为 bot 昵称；未配置（=0）时
+	// 假观战者用固定 ID + 本地化名「回放录制器（系统）」，系统聊天发送者按「系统」渲染。
+	recorder := replay.NewRecorder(
+		cfg.EffectiveReplayBaseDir(), logger,
+		replay.WithSystemUser(int32(cfg.EffectiveSystemUserID()), phiraClient.FetchUserName),
+	)
 	state.ReplayRecorder = recorder
 
 	// 对局结束自动上传分享站（延迟 30s）。仅在 REPLAY_AUTO_UPLOAD 开启且分享站配置时实际生效。
@@ -357,6 +356,7 @@ func main() {
 	}
 	_ = srv.Close()
 	monitorBuf.Stop()             // 刷写残留观战帧
+	recorder.Stop()               // 停止后台昵称拉取 goroutine
 	recorder.CloseAll()           // 刷写进行中的录制
 	_ = state.FlushAdminDataNow() // 落盘封禁数据
 }

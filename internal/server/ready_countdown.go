@@ -15,11 +15,6 @@ var readyCountdownDuration = 60 * time.Second
 // readyCountdownReminders 是倒计时剩余时间提醒点（在剩余 N 时发系统聊天）。
 var readyCountdownReminders = []time.Duration{10 * time.Second, 5 * time.Second, 3 * time.Second, 2 * time.Second, 1 * time.Second}
 
-// forcedStartAbortBroadcastDelay 是强制开赛后延迟广播未准备玩家 Aborted 状态的时长。
-// 让客户端先消化开赛（MsgStartPlaying + SrvChangeState）动画，避免在切换途中弹出 abort 提示。
-// 用 var 而非 const，便于测试覆盖为小值。
-var forcedStartAbortBroadcastDelay = 500 * time.Millisecond
-
 // cancelReadyCountdown 取消房间的「准备倒计时」。无活跃倒计时时空操作。
 // 用 CAS 保证只 cancel 一次，可在任意锁状态下调用。
 func (r *Room) cancelReadyCountdown() {
@@ -102,52 +97,35 @@ func (h *Hub) startReadyCountdown(room *Room) {
 			}
 		}
 		lc := h.MakeRoomLifecycle(room)
-		room.startPlaying(lc)
-		if playingSt, ok := room.State.(StatePlaying); ok && len(unready) > 0 {
-			for _, id := range unready {
-				playingSt.Aborted[id] = struct{}{}
+		room.startPlaying(lc, unready)
+		if len(unready) > 0 {
+			if playingSt, ok := room.State.(StatePlaying); ok {
+				for _, id := range unready {
+					playingSt.Aborted[id] = struct{}{}
+				}
+				room.State = playingSt
+
+				// 对齐 Java：未准备玩家送回 SelectChart 状态（变观战者，跳过本轮）。
+				chartID := int32(0)
+				if room.Chart != nil {
+					chartID = int32(room.Chart.ID)
+				}
+				selectCmd := protocol.SrvChangeState{State: protocol.RoomStateSelectChart{ID: &chartID}}
+				frame := encodeServerCommandFrame(selectCmd)
+				for _, id := range unready {
+					name := strconv.Itoa(id)
+					if u := state.Users[id]; u != nil {
+						name = u.Name
+						if frame != nil {
+							u.TrySendFrameOwned(frame)
+						}
+					}
+					room.logRoomMark(lc, "log-room-abort", map[string]string{"user": name})
+				}
+				room.NotifyWebSocket(lc)
 			}
-			room.State = playingSt
-			// Aborted 状态立即标记（状态机正确性），但 MsgAbort 广播延迟下发：
-			// 让客户端先消化 MsgStartPlaying + SrvChangeState 的开赛动画，避免在切换途中
-			// 弹出 abort 提示。回调不依赖倒计时 ctx（已被 startPlaying 取消），改用房间状态
-			// 判断是否仍需广播——若 500ms 内房间已结算/解散则跳过。
-			abortIDs := append([]int(nil), unready...)
-			time.AfterFunc(forcedStartAbortBroadcastDelay, func() {
-				h.broadcastForcedAbort(room, roomID, abortIDs)
-			})
 		}
 		room.Mu.Unlock()
 		state.Mu.Unlock()
 	})
-}
-
-// broadcastForcedAbort 在强制开赛后延迟广播未准备玩家的 Aborted 状态。
-// 重新校验房间仍是同一个 *Room 且处于 Playing 态；跳过已离开 / 已交成绩 / 已自行 abort 的玩家。
-func (h *Hub) broadcastForcedAbort(room *Room, roomID protocol.RoomID, abortIDs []int) {
-	state := h.State
-	state.Mu.Lock()
-	defer state.Mu.Unlock()
-	if state.Rooms[roomID] != room {
-		return
-	}
-	room.Mu.Lock()
-	defer room.Mu.Unlock()
-	st, ok := room.State.(StatePlaying)
-	if !ok {
-		return
-	}
-	lc := h.MakeRoomLifecycle(room)
-	for _, id := range abortIDs {
-		if _, aborted := st.Aborted[id]; !aborted {
-			continue
-		}
-		name := strconv.Itoa(id)
-		if u := lc.UsersByID(id); u != nil {
-			name = u.Name
-		}
-		room.logRoomMark(lc, "log-room-abort", map[string]string{"user": name})
-		h.BroadcastRoomMessage(room, protocol.MsgAbort{User: int32FromInt(id)})
-	}
-	room.NotifyWebSocket(lc)
 }

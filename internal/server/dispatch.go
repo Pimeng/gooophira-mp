@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -488,7 +489,7 @@ func buildChatRecordMap(lang *l10n.Language, user *User, record config.RecordDat
 	}
 
 	if hasStd {
-		m["std"] = fmt.Sprintf("%.2f", *record.Std)
+		m["std"] = fmt.Sprintf("%d", int64(math.Round(*record.Std*100))%100)
 		m["stdScore"] = fmt.Sprintf("%.2f", *record.StdScore)
 	}
 

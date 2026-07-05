@@ -71,6 +71,6 @@ func (h *Hub) StartContest(room *Room, force bool) error {
 			}
 		}
 	}
-	room.startPlaying(h.MakeRoomLifecycle(room))
+	room.startPlaying(h.MakeRoomLifecycle(room), nil)
 	return nil
 }

@@ -1,9 +1,11 @@
 package replay
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
@@ -12,7 +14,10 @@ import (
 const (
 	// maxFramesPerInflight 是每玩家单局录制帧数上限，超出后丢弃防止内存无限增长。
 	maxFramesPerInflight = 15000
-	// fakeMonitorID 是回放假观战者的用户 id。
+	// fakeMonitorID 是回放假观战者的固定用户 ID，刻意选在真实 Phira 用户 ID 范围之外，
+	// 避免与真实用户冲突。与 SYSTEM_USER_ID 解耦：假观战者用此固定 ID，系统聊天发送者
+	// 用 SYSTEM_USER_ID。这样客户端本地用户列表中该 ID 对应「回放录制器（系统）」，
+	// 而 MsgChat.User=SYSTEM_USER_ID 查不到假观战者，会按「系统」默认渲染发送者前缀。
 	fakeMonitorID = 2_000_000_000
 )
 
@@ -66,23 +71,96 @@ type Recorder struct {
 	mu            sync.Mutex
 	baseDir       string
 	logger        Logger
-	fakeMonitorID int32                      // 假观战者用户 ID，默认 fakeMonitorID 常量；可经 SetFakeMonitorID 覆盖
+	fakeMonitorID int32                      // 未配置 SYSTEM_USER_ID 时假观战者固定用户 ID
 	inflight      map[string]*inFlight       // key = "roomKey:userID"
 	keysByRoom    map[string]map[string]bool // roomKey -> set(key)
 	completed     map[string][]FileInfo      // roomKey -> 已完成文件
+
+	// systemUserID 配置为真实 Phira 用户 ID（>0）时，假观战者改用该真实 ID，
+	// 并通过 userNameFetcher 异步拉取其公开昵称（/user/:id）填充 UserInfo.Name，
+	// 让假观战者与系统聊天发送者（MsgChat.User=SYSTEM_USER_ID）统一呈现为 bot 身份；
+	// 拉取完成前用调用方传入的 fallbackName 兜底。systemUserID<=0 时假观战者用固定
+	// fakeMonitorID + fallbackName（生造身份），系统聊天发送者按 MsgChat.User=0 渲染为「系统」。
+	systemUserID    int32
+	userNameFetcher func(context.Context, int) (string, error)
+	systemUserName  atomic.Pointer[string]
+	stop            chan struct{}
 }
 
-// NewRecorder 创建录制器。logger 可为 nil。
-// fakeMonitorID 默认为内置常量（2_000_000_000）；调用 SetFakeMonitorID 可覆盖为真实用户 ID，
-// 使客户端可凭该 ID 向 Phira 拉取真实头像/昵称，让假观战者在用户列表中呈现真实用户外观。
-func NewRecorder(baseDir string, logger Logger) *Recorder {
-	return &Recorder{
+// RecorderOption 用 functional options 配置 Recorder（对齐项目约定）。
+type RecorderOption func(*Recorder)
+
+// WithSystemUser 配置回放假观战者使用真实 Phira 用户身份。id 为 SYSTEM_USER_ID，
+// fetcher 用于异步拉取该用户公开昵称（/user/:id）。id<=0 或 fetcher 为 nil 时忽略，
+// 假观战者回退到固定 ID + 本地化名。
+func WithSystemUser(id int32, fetcher func(context.Context, int) (string, error)) RecorderOption {
+	return func(r *Recorder) {
+		if id > 0 && fetcher != nil {
+			r.systemUserID = id
+			r.userNameFetcher = fetcher
+		}
+	}
+}
+
+// NewRecorder 创建录制器。默认假观战者使用固定 ID（fakeMonitorID 常量）+ 调用方传入的
+// 本地化名；通过 WithSystemUser 选项可切换为真实 Phira 用户身份（异步拉取昵称，拉取完成前
+// 用 fallbackName 兜底）。配置真实 ID 后，假观战者与系统聊天发送者（MsgChat.User）共用
+// 该 bot 身份，进出包与聊天发送者均呈现为 bot 真实昵称；未配置时假观战者显示
+// 「回放录制器（系统）」，系统聊天发送者按 MsgChat.User=0 渲染为「系统」。
+func NewRecorder(baseDir string, logger Logger, opts ...RecorderOption) *Recorder {
+	r := &Recorder{
 		baseDir:       baseDir,
 		logger:        logger,
 		fakeMonitorID: int32(fakeMonitorID),
 		inflight:      make(map[string]*inFlight),
 		keysByRoom:    make(map[string]map[string]bool),
 		completed:     make(map[string][]FileInfo),
+		stop:          make(chan struct{}),
+	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	if r.systemUserID > 0 && r.userNameFetcher != nil {
+		go r.refreshSystemUserName()
+	}
+	return r
+}
+
+// refreshSystemUserName 后台异步拉取系统用户昵称并缓存到 systemUserName。
+// 首次立即拉取；失败 30s 重试；成功后每 6h 刷新一次（应对改名）。
+// fetcher 内部有 6h 缓存 + 10s 超时，轮询开销极低。
+func (r *Recorder) refreshSystemUserName() {
+	const (
+		retryInterval   = 30 * time.Second
+		refreshInterval = 6 * time.Hour
+	)
+	timer := time.NewTimer(0) // 立即首次拉取
+	defer timer.Stop()
+	for {
+		select {
+		case <-r.stop:
+			return
+		case <-timer.C:
+		}
+		name, err := r.userNameFetcher(context.Background(), int(r.systemUserID))
+		if err != nil {
+			if r.logger != nil {
+				r.logger.Warn(fmt.Sprintf("fetch system user name failed: %v (retry in %s)", err, retryInterval))
+			}
+			timer.Reset(retryInterval)
+			continue
+		}
+		r.systemUserName.Store(&name)
+		timer.Reset(refreshInterval)
+	}
+}
+
+// Stop 终止后台昵称拉取 goroutine。进程退出时调用可避免 goroutine 泄漏。多次调用安全。
+func (r *Recorder) Stop() {
+	select {
+	case <-r.stop:
+	default:
+		close(r.stop)
 	}
 }
 
@@ -262,22 +340,22 @@ func (r *Recorder) ClearRoomFiles(roomID protocol.RoomID) {
 	delete(r.completed, string(roomID))
 }
 
-// SetFakeMonitorID 覆盖假观战者的用户 ID。id<=0 时回退到内置默认值（2_000_000_000）。
-// 配置为真实 Phira 用户 ID 后，客户端可凭此 ID 向 Phira 拉取该用户的头像与昵称，
-// 让假观战者在用户列表中呈现为真实用户外观。应在 NewRecorder 之后、任何房间开始录制之前调用。
-func (r *Recorder) SetFakeMonitorID(id int32) {
-	if id <= 0 {
-		id = int32(fakeMonitorID)
-	}
-	r.fakeMonitorID = id
-}
-
-// FakeMonitorID 返回录制器当前使用的假观战者用户 ID（实例方法，反映配置覆盖）。
+// FakeMonitorID 返回未配置 SYSTEM_USER_ID 时假观战者使用的固定用户 ID。
 func (r *Recorder) FakeMonitorID() int32 { return r.fakeMonitorID }
 
 // FakeMonitorInfo 返回回放假观战者信息（用于让客户端以为有观战者从而上报实时数据）。
-func (r *Recorder) FakeMonitorInfo(name string) protocol.UserInfo {
-	return protocol.UserInfo{ID: r.fakeMonitorID, Name: name, Monitor: true}
+// fallbackName 为昵称未就绪（拉取中或未配置）时的兜底显示名，通常取本地化的
+// replay-recorder-name。配置了 SYSTEM_USER_ID 且昵称已缓存时，返回真实 ID + 真实昵称；
+// 否则返回固定 ID（或真实 ID + fallbackName）+ fallbackName。
+func (r *Recorder) FakeMonitorInfo(fallbackName string) protocol.UserInfo {
+	if r.systemUserID > 0 {
+		name := fallbackName
+		if p := r.systemUserName.Load(); p != nil {
+			name = *p
+		}
+		return protocol.UserInfo{ID: r.systemUserID, Name: name, Monitor: true}
+	}
+	return protocol.UserInfo{ID: r.fakeMonitorID, Name: fallbackName, Monitor: true}
 }
 
 func (r *Recorder) buildContent(it *inFlight) []byte {

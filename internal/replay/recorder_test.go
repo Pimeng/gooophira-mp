@@ -1,8 +1,10 @@
 package replay
 
 import (
+	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
 )
@@ -111,15 +113,18 @@ func TestRecorder_OverflowCapsFrames(t *testing.T) {
 	}
 }
 
-// TestRecorder_DefaultFakeMonitorID 验证未调用 SetFakeMonitorID 时，录制器使用内置默认 ID。
-func TestRecorder_DefaultFakeMonitorID(t *testing.T) {
+// TestRecorder_FakeMonitorID 验证未配置 SYSTEM_USER_ID 时假观战者使用固定 ID（fakeMonitorID
+// 常量）+ fallbackName。客户端凭此 ID 在本地用户列表中识别假观战者，而系统聊天发送者
+// （MsgChat.User=0）按「系统」默认渲染，两者不同名。
+func TestRecorder_FakeMonitorID(t *testing.T) {
 	rec := NewRecorder(t.TempDir(), nil)
+	defer rec.Stop()
 	if id := rec.FakeMonitorID(); id != FakeMonitorID() {
-		t.Errorf("default FakeMonitorID = %d, want %d", id, FakeMonitorID())
+		t.Errorf("FakeMonitorID = %d, want %d", id, FakeMonitorID())
 	}
 	info := rec.FakeMonitorInfo("recorder")
 	if info.ID != FakeMonitorID() {
-		t.Errorf("FakeMonitorInfo.ID = %d, want default %d", info.ID, FakeMonitorID())
+		t.Errorf("FakeMonitorInfo.ID = %d, want %d", info.ID, FakeMonitorID())
 	}
 	if !info.Monitor {
 		t.Error("FakeMonitorInfo.Monitor should be true")
@@ -129,35 +134,59 @@ func TestRecorder_DefaultFakeMonitorID(t *testing.T) {
 	}
 }
 
-// TestRecorder_SetFakeMonitorID 验证 SetFakeMonitorID 覆盖后，FakeMonitorInfo 使用自定义 ID。
-// 这让客户端可凭该 ID 向 Phira 拉取真实头像/昵称。
-func TestRecorder_SetFakeMonitorID(t *testing.T) {
-	rec := NewRecorder(t.TempDir(), nil)
-	const customID int32 = 12345678
-	rec.SetFakeMonitorID(customID)
+// TestRecorder_WithSystemUser_NameReady 验证配置 SYSTEM_USER_ID 且昵称拉取成功后，
+// 假观战者改用真实 ID + 真实昵称，而非固定 ID + fallbackName。
+func TestRecorder_WithSystemUser_NameReady(t *testing.T) {
+	const sysID = int32(12345)
+	const wantName = "BotAccount"
+	fetcher := func(_ context.Context, id int) (string, error) {
+		if id != int(sysID) {
+			t.Errorf("fetcher called with id=%d, want %d", id, sysID)
+		}
+		return wantName, nil
+	}
+	rec := NewRecorder(t.TempDir(), nil, WithSystemUser(sysID, fetcher))
+	defer rec.Stop()
 
-	if id := rec.FakeMonitorID(); id != customID {
-		t.Errorf("after SetFakeMonitorID, FakeMonitorID = %d, want %d", id, customID)
+	// 等后台 goroutine 拉取完成（首次立即拉取）。
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		info := rec.FakeMonitorInfo("fallback")
+		if info.Name == wantName {
+			if info.ID != sysID {
+				t.Errorf("FakeMonitorInfo.ID = %d, want %d", info.ID, sysID)
+			}
+			if !info.Monitor {
+				t.Error("FakeMonitorInfo.Monitor should be true")
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	info := rec.FakeMonitorInfo("bot")
-	if info.ID != customID {
-		t.Errorf("FakeMonitorInfo.ID = %d, want custom %d", info.ID, customID)
-	}
-	if info.Name != "bot" {
-		t.Errorf("FakeMonitorInfo.Name = %q, want %q", info.Name, "bot")
-	}
+	t.Fatal("system user name not fetched within timeout")
 }
 
-// TestRecorder_SetFakeMonitorID_ZeroOrNegative_FallsBack 验证 id<=0 时回退到内置默认值。
-func TestRecorder_SetFakeMonitorID_ZeroOrNegative_FallsBack(t *testing.T) {
-	rec := NewRecorder(t.TempDir(), nil)
-	rec.SetFakeMonitorID(999)
-	rec.SetFakeMonitorID(0) // 0 应回退到默认
-	if id := rec.FakeMonitorID(); id != FakeMonitorID() {
-		t.Errorf("SetFakeMonitorID(0): FakeMonitorID = %d, want default %d", id, FakeMonitorID())
+// TestRecorder_WithSystemUser_NameNotReady 验证昵称拉取未就绪时，
+// 假观战者用真实 ID + fallbackName 兜底（而非固定 ID）。
+func TestRecorder_WithSystemUser_NameNotReady(t *testing.T) {
+	const sysID = int32(999)
+	// fetcher 阻塞，确保昵称不就绪
+	block := make(chan struct{})
+	fetcher := func(_ context.Context, _ int) (string, error) {
+		<-block
+		return "BotAccount", nil
 	}
-	rec.SetFakeMonitorID(-5) // 负数也应回退
-	if id := rec.FakeMonitorID(); id != FakeMonitorID() {
-		t.Errorf("SetFakeMonitorID(-5): FakeMonitorID = %d, want default %d", id, FakeMonitorID())
+	rec := NewRecorder(t.TempDir(), nil, WithSystemUser(sysID, fetcher))
+	defer func() {
+		close(block)
+		rec.Stop()
+	}()
+
+	info := rec.FakeMonitorInfo("fallback")
+	if info.ID != sysID {
+		t.Errorf("FakeMonitorInfo.ID = %d, want %d (real ID before name ready)", info.ID, sysID)
+	}
+	if info.Name != "fallback" {
+		t.Errorf("FakeMonitorInfo.Name = %q, want %q (fallback before name ready)", info.Name, "fallback")
 	}
 }

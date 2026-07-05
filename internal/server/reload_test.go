@@ -9,6 +9,7 @@ import (
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
+	"github.com/Pimeng/gooophira-mp/internal/replay"
 )
 
 // fakeRecorder 是用于测试的最小 ReplayRecorder，记录 EndRoom 与 SetBaseDir 调用。
@@ -23,7 +24,7 @@ func (f *fakeRecorder) AppendJudges(protocol.RoomID, int, []protocol.JudgeEvent)
 func (f *fakeRecorder) SetRecordID(protocol.RoomID, int, int)                     {}
 func (f *fakeRecorder) EndRoom(id protocol.RoomID)                                { f.endRooms = append(f.endRooms, id) }
 func (f *fakeRecorder) FakeMonitorInfo(name string) protocol.UserInfo {
-	return protocol.UserInfo{ID: 2_000_000_000, Name: name, Monitor: true}
+	return protocol.UserInfo{ID: replay.FakeMonitorID(), Name: name, Monitor: true}
 }
 
 func TestReloadConfig_ListenerAndChangedKeys(t *testing.T) {
