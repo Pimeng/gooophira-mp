@@ -168,6 +168,8 @@ func (c *Console) Dispatch(line string) {
 		c.cmdDisband(args)
 	case "maxusers":
 		c.cmdMaxUsers(args)
+	case "nexthost":
+		c.cmdNextHost(args)
 	case "kick":
 		c.cmdKick(args)
 	case "ban":
@@ -428,6 +430,47 @@ func (c *Console) cmdMaxUsers(args []string) {
 		return
 	}
 	c.printOK(c.t("cli-room-max-users-set", map[string]string{"room": args[0], "count": strconv.Itoa(n)}))
+}
+
+// cmdNextHost 指定房间下一轮房主（仅 cycle 模式生效）：nexthost <roomId> <userId>。
+// 非循环模式、用户不存在或不在房间内时返回错误。设置一次性消费，仅影响下一次 rotateCycleHost。
+// 反馈仅在 CLI 终端输出，不向客户端发送任何提示。
+func (c *Console) cmdNextHost(args []string) {
+	if len(args) < 2 {
+		c.printErr(c.t("cli-usage-nexthost", nil))
+		return
+	}
+	rid := protocol.RoomID(args[0])
+	userID, err := strconv.Atoi(args[1])
+	if err != nil {
+		c.printErr(c.t("cli-bad-user-id", nil))
+		return
+	}
+	c.state.Mu.Lock()
+	room := c.state.Rooms[rid]
+	c.state.Mu.Unlock()
+	if room == nil {
+		c.printErr(c.t("cli-room-not-found-named", map[string]string{"room": args[0]}))
+		return
+	}
+	room.Mu.Lock()
+	if !room.Cycle {
+		room.Mu.Unlock()
+		c.printErr(c.t("cli-nexthost-not-cycle", map[string]string{"room": args[0]}))
+		return
+	}
+	if !room.ContainsUser(userID) {
+		room.Mu.Unlock()
+		c.printErr(c.t("cli-nexthost-user-not-in-room", map[string]string{
+			"userId": args[1], "room": args[0],
+		}))
+		return
+	}
+	room.SetNextHost(userID)
+	room.Mu.Unlock()
+	c.printOK(c.t("cli-nexthost-set", map[string]string{
+		"userId": args[1], "room": args[0],
+	}))
 }
 
 // sessionOf 返回用户当前会话（持锁读取后释放，避免持锁调用 Close）。

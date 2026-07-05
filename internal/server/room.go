@@ -101,6 +101,10 @@ type Room struct {
 	// nil 表示无活跃倒计时。用 atomic.Pointer 访问，无需持有 Mu。
 	readyCancel atomic.Pointer[context.CancelFunc]
 
+	// nextHostID 是管理员通过 CLI 指定的「下一轮房主」候选 ID，仅 cycle 模式下
+	// rotateCycleHost 会消费。nil 表示未指定；一次性使用后清空。访问须持 room.Mu。
+	nextHostID *int
+
 	// logMu 专门保护 recentLogs。AddLog/GetRecentLogs 的调用路径既包含
 	// 已持 room.Mu 的（OnUserLeave），也包含只持 state.Mu 的（checkPlaying），
 	// 还包含 ProtocolHack 延迟回调；用 room.Mu 会自死锁，用 state.Mu 又
@@ -210,6 +214,31 @@ func (r *Room) MonitorCount() int { return len(r.monitors) }
 
 // IsEmpty 报告房间是否无任何成员。
 func (r *Room) IsEmpty() bool { return len(r.users) == 0 && len(r.monitors) == 0 }
+
+// ContainsUser 报告给定用户 ID 是否为房间内的普通玩家（不含观战者）。调用方须持 room.Mu。
+func (r *Room) ContainsUser(id int) bool {
+	for _, uid := range r.users {
+		if uid == id {
+			return true
+		}
+	}
+	return false
+}
+
+// SetNextHost 指定下一轮房主候选 ID（仅 cycle 模式下 rotateCycleHost 会消费）。
+// 调用方须持 room.Mu。
+func (r *Room) SetNextHost(id int) { r.nextHostID = &id }
+
+// NextHostID 返回已设置的下一轮房主候选 ID 及是否设置。调用方须持 room.Mu。
+func (r *Room) NextHostID() (int, bool) {
+	if r.nextHostID == nil {
+		return 0, false
+	}
+	return *r.nextHostID, true
+}
+
+// ClearNextHost 清除下一轮房主候选。调用方须持 room.Mu。
+func (r *Room) ClearNextHost() { r.nextHostID = nil }
 
 // ClientRoomState 返回当前面向客户端的房间状态。
 func (r *Room) ClientRoomState() protocol.RoomState {

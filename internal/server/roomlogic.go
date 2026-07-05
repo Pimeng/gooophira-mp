@@ -474,11 +474,27 @@ func (r *Room) broadcastGameSummary(lc *RoomLifecycle, st StatePlaying) {
 
 // rotateCycleHost 在 cycle 模式下把房主轮换到下一位。对齐 jphira-mp 的
 // transferHostToNextPlayer：按 ID 升序找大于当前房主 ID 的最小者，没有则回环到最小 ID。
+//
+// 若管理员通过 CLI 指定了下一轮房主（nextHostID）且该用户仍在房间内、且不是当前房主，
+// 则使用指定 ID；否则回退到默认轮换。无论命中与否，nextHostID 都被一次性消费。
 func (r *Room) rotateCycleHost(lc *RoomLifecycle) {
 	oldHost := r.HostID
-	newHost, ok := lc.PickNextHostID(r.UserIDs(), oldHost)
-	if !ok {
-		return
+	var newHost int
+	designated := false
+	if r.nextHostID != nil {
+		cand := *r.nextHostID
+		r.nextHostID = nil
+		if cand != oldHost && r.ContainsUser(cand) {
+			newHost = cand
+			designated = true
+		}
+	}
+	if !designated {
+		next, ok := lc.PickNextHostID(r.UserIDs(), oldHost)
+		if !ok {
+			return
+		}
+		newHost = next
 	}
 	r.HostID = newHost
 	r.logRoomInfo(lc, "log-room-host-changed-cycle", map[string]string{

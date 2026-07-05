@@ -306,6 +306,7 @@ cli-help =
     say <message>                 - ブロードキャスト（broadcast の別名）
     roomsay <roomId> <message>    - ルームにメッセージを送信
     maxusers <roomId> <count>     - ルームの最大人数を設定
+    nexthost <roomId> <userId>    - 次ラウンドのホストを指定（循環モードのみ）
     disband <roomId>              - ルームを解散
     replay <on|off|status>        - リプレイ録画の切り替え
     roomcreation <on|off|status>  - ルーム作成の切り替え
@@ -354,6 +355,7 @@ cli-usage-broadcast = 使い方：broadcast <message>
 cli-usage-roomsay = 使い方：roomsay <roomId> <message>
 cli-usage-maxusers = 使い方：maxusers <roomId> <count>
 cli-usage-disband = 使い方：disband <roomId>
+cli-usage-nexthost = 使い方：nexthost <roomId> <userId>
 cli-usage-replay = 使い方：replay <on|off|status>
 cli-usage-roomcreation = 使い方：roomcreation <on|off|status>
 cli-usage-contest = 使い方：contest <roomId> <enable|disable|whitelist|start>
@@ -386,6 +388,10 @@ cli-room-message-sent = ルーム { $room } にメッセージを送信しまし
 cli-bad-max-users = 無効な人数（1-64）
 cli-room-max-users-set = ルーム { $room } の最大人数を { $count } に設定しました
 cli-room-disbanded = ルーム { $room } を解散しました
+
+cli-nexthost-set = ルーム { $room } の次ラウンドホストをユーザー { $userId } に指定しました（循環モードのみ有効）
+cli-nexthost-not-cycle = ルーム { $room } は循環モードが無効のため、次ホストを指定できません
+cli-nexthost-user-not-in-room = ユーザー { $userId } はルーム { $room } にいません
 
 cli-replay-status = リプレイ録画：{ $state }
 cli-replay-toggled-on = リプレイ録画を有効にしました

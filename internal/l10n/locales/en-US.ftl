@@ -306,6 +306,7 @@ cli-help =
     say <message>                 - Broadcast (alias of broadcast)
     roomsay <roomId> <message>    - Send message to room
     maxusers <roomId> <count>     - Set room max users
+    nexthost <roomId> <userId>    - Designate next round host (cycle mode only)
     disband <roomId>              - Disband room
     replay <on|off|status>        - Replay recording toggle
     roomcreation <on|off|status>  - Room creation toggle
@@ -354,6 +355,7 @@ cli-usage-broadcast = Usage: broadcast <message>
 cli-usage-roomsay = Usage: roomsay <roomId> <message>
 cli-usage-maxusers = Usage: maxusers <roomId> <count>
 cli-usage-disband = Usage: disband <roomId>
+cli-usage-nexthost = Usage: nexthost <roomId> <userId>
 cli-usage-replay = Usage: replay <on|off|status>
 cli-usage-roomcreation = Usage: roomcreation <on|off|status>
 cli-usage-contest = Usage: contest <roomId> <enable|disable|whitelist|start>
@@ -386,6 +388,10 @@ cli-room-message-sent = Message sent to room { $room }
 cli-bad-max-users = Invalid count (1-64)
 cli-room-max-users-set = Set room { $room } max users to { $count }
 cli-room-disbanded = Disbanded room { $room }
+
+cli-nexthost-set = Designated user { $userId } as next round host for room { $room } (cycle mode only)
+cli-nexthost-not-cycle = Room { $room } does not have cycle mode enabled; cannot designate next host
+cli-nexthost-user-not-in-room = User { $userId } is not in room { $room }
 
 cli-replay-status = Replay recording: { $state }
 cli-replay-toggled-on = Replay recording enabled

@@ -306,6 +306,7 @@ cli-help =
     say <message>                 - 브로드캐스트 (broadcast 별칭)
     roomsay <roomId> <message>    - 방에 메시지 전송
     maxusers <roomId> <count>     - 방 최대 인원 설정
+    nexthost <roomId> <userId>    - 다음 라운드 호스트 지정 (순환 모드 전용)
     disband <roomId>              - 방 해산
     replay <on|off|status>        - 리플레이 녹화 전환
     roomcreation <on|off|status>  - 방 생성 전환
@@ -354,6 +355,7 @@ cli-usage-broadcast = 사용법: broadcast <message>
 cli-usage-roomsay = 사용법: roomsay <roomId> <message>
 cli-usage-maxusers = 사용법: maxusers <roomId> <count>
 cli-usage-disband = 사용법: disband <roomId>
+cli-usage-nexthost = 사용법: nexthost <roomId> <userId>
 cli-usage-replay = 사용법: replay <on|off|status>
 cli-usage-roomcreation = 사용법: roomcreation <on|off|status>
 cli-usage-contest = 사용법: contest <roomId> <enable|disable|whitelist|start>
@@ -385,7 +387,11 @@ cli-room-not-found-named = 방을 찾을 수 없음: { $room }
 cli-room-message-sent = 방 { $room }에 메시지를 보냈습니다
 cli-bad-max-users = 잘못된 인원 수 (1-64)
 cli-room-max-users-set = 방 { $room }의 최대 인원을 { $count }로 설정했습니다
-cli-room-disbanded = 방 { $room }를 해산했습니다
+cli-room-disbanded = 방 { $room }을(를) 해산했습니다
+
+cli-nexthost-set = 방 { $room }의 다음 라운드 호스트를 사용자 { $userId }(으)로 지정했습니다 (순환 모드 전용)
+cli-nexthost-not-cycle = 방 { $room }은(는) 순환 모드가 활성화되지 않아 다음 호스트를 지정할 수 없습니다
+cli-nexthost-user-not-in-room = 사용자 { $userId }이(가) 방 { $room }에 없습니다
 
 cli-replay-status = 리플레이 녹화: { $state }
 cli-replay-toggled-on = 리플레이 녹화가 활성화되었습니다

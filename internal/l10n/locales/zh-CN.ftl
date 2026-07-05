@@ -308,6 +308,7 @@ cli-help =
     say <message>                 - 全服广播（broadcast 别名）
     roomsay <roomId> <message>    - 向指定房间发送消息
     maxusers <roomId> <count>     - 设置房间最大人数
+    nexthost <roomId> <userId>    - 指定房间下一轮房主（仅循环模式生效）
     disband <roomId>              - 解散房间
     replay <on|off|status>        - 回放录制开关
     roomcreation <on|off|status>  - 房间创建开关
@@ -356,6 +357,7 @@ cli-usage-broadcast = 用法：broadcast <message>
 cli-usage-roomsay = 用法：roomsay <roomId> <message>
 cli-usage-maxusers = 用法：maxusers <roomId> <count>
 cli-usage-disband = 用法：disband <roomId>
+cli-usage-nexthost = 用法：nexthost <roomId> <userId>
 cli-usage-replay = 用法：replay <on|off|status>
 cli-usage-roomcreation = 用法：roomcreation <on|off|status>
 cli-usage-contest = 用法：contest <roomId> <enable|disable|whitelist|start>
@@ -388,6 +390,10 @@ cli-room-message-sent = 已向房间 { $room } 发送消息
 cli-bad-max-users = 无效的人数（1-64）
 cli-room-max-users-set = 已设置房间 { $room } 最大人数为 { $count }
 cli-room-disbanded = 已解散房间 { $room }
+
+cli-nexthost-set = 已指定房间 { $room } 下一轮房主为用户 { $userId }（仅循环模式下生效）
+cli-nexthost-not-cycle = 房间 { $room } 未启用循环模式，无法指定下一轮房主
+cli-nexthost-user-not-in-room = 用户 { $userId } 不在房间 { $room } 内
 
 cli-replay-status = 回放录制状态：{ $state }
 cli-replay-toggled-on = 回放录制已开启

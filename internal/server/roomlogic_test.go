@@ -406,6 +406,81 @@ func TestCheckAllReady_CycleRotatesHost(t *testing.T) {
 	}
 }
 
+// TestRotateCycleHost_DesignatedHost 验证管理员指定的下一轮房主会被采用。
+func TestRotateCycleHost_DesignatedHost(t *testing.T) {
+	h := newHarness()
+	r := NewRoom("room1", 1, 8, false)
+	r.Cycle = true
+	h.addUser(1, "alice")
+	bob := h.addUser(2, "bob")
+	carol := h.addUser(3, "carol")
+	r.AddUser(bob, false)
+	r.AddUser(carol, false)
+
+	// 指定 carol 为下一轮房主。默认轮换（pickNextHost）会从 1→2，但指定应覆盖为 3。
+	r.SetNextHost(3)
+	if _, ok := r.NextHostID(); !ok {
+		t.Fatal("NextHostID should report set")
+	}
+	r.State = StatePlaying{
+		Results: map[int]config.RecordData{1: {Score: 1}, 2: {Score: 2}, 3: {Score: 3}},
+		Aborted: map[int]struct{}{},
+	}
+	r.CheckAllReady(h.lifecycle())
+	if r.HostID != 3 {
+		t.Errorf("designated host should win, got %d", r.HostID)
+	}
+	// 一次性消费
+	if _, ok := r.NextHostID(); ok {
+		t.Error("NextHostID should be cleared after rotateCycleHost")
+	}
+}
+
+// TestRotateCycleHost_DesignatedHostLeftRoom 验证指定用户已离开时回退到默认轮换。
+func TestRotateCycleHost_DesignatedHostLeftRoom(t *testing.T) {
+	h := newHarness()
+	r := NewRoom("room1", 1, 8, false)
+	r.Cycle = true
+	h.addUser(1, "alice")
+	bob := h.addUser(2, "bob")
+	r.AddUser(bob, false)
+
+	// 指定 99（不在房间内）→ 应回退到默认 1→2。
+	r.SetNextHost(99)
+	r.State = StatePlaying{
+		Results: map[int]config.RecordData{1: {Score: 1}, 2: {Score: 2}},
+		Aborted: map[int]struct{}{},
+	}
+	r.CheckAllReady(h.lifecycle())
+	if r.HostID != 2 {
+		t.Errorf("should fall back to default rotation, got %d", r.HostID)
+	}
+	if _, ok := r.NextHostID(); ok {
+		t.Error("NextHostID should be cleared even on fallback")
+	}
+}
+
+// TestRotateCycleHost_DesignatedHostIsCurrent 验证指定当前房主时回退到默认轮换。
+func TestRotateCycleHost_DesignatedHostIsCurrent(t *testing.T) {
+	h := newHarness()
+	r := NewRoom("room1", 1, 8, false)
+	r.Cycle = true
+	h.addUser(1, "alice")
+	bob := h.addUser(2, "bob")
+	r.AddUser(bob, false)
+
+	// 指定当前房主 1 → 应回退到默认 1→2（cycle 模式必须轮换）。
+	r.SetNextHost(1)
+	r.State = StatePlaying{
+		Results: map[int]config.RecordData{1: {Score: 1}, 2: {Score: 2}},
+		Aborted: map[int]struct{}{},
+	}
+	r.CheckAllReady(h.lifecycle())
+	if r.HostID != 2 {
+		t.Errorf("should fall back to default rotation when designated==current, got %d", r.HostID)
+	}
+}
+
 // ---------- 游戏中加入自动计入已完成 ----------
 
 func TestHandleJoin_DuringPlayingMarksAborted(t *testing.T) {
