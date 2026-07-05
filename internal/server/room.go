@@ -101,6 +101,11 @@ type Room struct {
 	// nil 表示无活跃倒计时。用 atomic.Pointer 访问，无需持有 Mu。
 	readyCancel atomic.Pointer[context.CancelFunc]
 
+	// logMu 专门保护 recentLogs。AddLog/GetRecentLogs 的调用路径既包含
+	// 已持 room.Mu 的（OnUserLeave），也包含只持 state.Mu 的（checkPlaying），
+	// 还包含 ProtocolHack 延迟回调；用 room.Mu 会自死锁，用 state.Mu 又
+	// 与测试路径不兼容。logMu 是叶级锁，仅围绕切片操作短临界区，零嵌套风险。
+	logMu      sync.Mutex
 	recentLogs []RoomLog
 }
 
@@ -118,18 +123,23 @@ func NewRoom(id protocol.RoomID, hostID, maxUsers int, replayEligible bool) *Roo
 }
 
 // AddLog 追加一条房间日志（超长截断），维持最多 maxRecentLogs 条。
+// 线程安全：通过 logMu 自保护，调用方无需持任何锁。
 func (r *Room) AddLog(message string, timestamp int64) {
 	if len(message) > maxLogMessageLen {
 		message = message[:maxLogMessageLen] + roomLogTrailEllip
 	}
+	r.logMu.Lock()
 	r.recentLogs = append(r.recentLogs, RoomLog{Message: message, Timestamp: timestamp})
 	if len(r.recentLogs) > maxRecentLogs {
 		r.recentLogs = r.recentLogs[len(r.recentLogs)-maxRecentLogs:]
 	}
+	r.logMu.Unlock()
 }
 
-// GetRecentLogs 返回最近房间日志的副本。
+// GetRecentLogs 返回最近房间日志的副本。线程安全：通过 logMu 自保护。
 func (r *Room) GetRecentLogs() []RoomLog {
+	r.logMu.Lock()
+	defer r.logMu.Unlock()
 	return append([]RoomLog(nil), r.recentLogs...)
 }
 
