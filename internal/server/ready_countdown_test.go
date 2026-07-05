@@ -10,11 +10,17 @@ import (
 )
 
 // withShortCountdown 临时把倒计时缩短到测试可控范围，返回恢复函数。
+// 同时把强制开赛后的 Aborted 广播延迟也缩短，避免测试等待 500ms。
 func withShortCountdown(total time.Duration, reminders []time.Duration) func() {
-	oldDur, oldRem := readyCountdownDuration, readyCountdownReminders
+	oldDur, oldRem, oldAbort := readyCountdownDuration, readyCountdownReminders, forcedStartAbortBroadcastDelay
 	readyCountdownDuration = total
 	readyCountdownReminders = reminders
-	return func() { readyCountdownDuration, readyCountdownReminders = oldDur, oldRem }
+	forcedStartAbortBroadcastDelay = 50 * time.Millisecond
+	return func() {
+		readyCountdownDuration = oldDur
+		readyCountdownReminders = oldRem
+		forcedStartAbortBroadcastDelay = oldAbort
+	}
 }
 
 // TestReadyCountdown_ForcedStart_AbortsUnready 验证 60 秒倒计时到期后强制开赛，
@@ -152,5 +158,86 @@ func TestReadyCountdown_RemindersBroadcast(t *testing.T) {
 	}
 	if !found {
 		t.Error("host should receive countdown reminder chat from system user")
+	}
+}
+
+// hasAbortFor 报告 cmds 中是否包含指定用户 ID 的 MsgAbort 广播。
+func hasAbortFor(cmds []protocol.ServerCommand, userID int) bool {
+	for _, cmd := range cmds {
+		sm, ok := cmd.(protocol.SrvMessage)
+		if !ok {
+			continue
+		}
+		if abort, ok := sm.Message.(protocol.MsgAbort); ok && int(abort.User) == userID {
+			return true
+		}
+	}
+	return false
+}
+
+// TestReadyCountdown_ForcedStart_BroadcastsDelayedAbort 验证强制开赛后 MsgAbort
+// 不立即广播：先让客户端消化 MsgStartPlaying + SrvChangeState 的开赛动画，
+// 在 forcedStartAbortBroadcastDelay 之后再向房间成员广播未准备玩家的 Aborted 状态。
+func TestReadyCountdown_ForcedStart_BroadcastsDelayedAbort(t *testing.T) {
+	h := newHarness()
+	phira := &mockPhira{charts: map[int]config.Chart{1: {ID: 1, Name: "c"}}}
+	hub := NewHub(h.state, phira)
+	host := h.addUser(1, "host")
+	player := h.addUser(2, "player") // 未准备
+
+	// 倒计时 80ms，延迟广播 50ms（由 withShortCountdown 设置）：
+	// T=80ms 强制开赛（标记 Aborted），T=130ms 广播 MsgAbort。
+	cleanup := withShortCountdown(80*time.Millisecond, nil)
+	defer cleanup()
+
+	hub.mustDispatch(t, host, protocol.CmdCreateRoom{ID: "room1"})
+	hub.mustDispatch(t, player, protocol.CmdJoinRoom{ID: "room1", Monitor: false})
+	hub.mustDispatch(t, host, protocol.CmdSelectChart{ID: 1})
+
+	hostBefore := len(sentTo(host))
+	playerBefore := len(sentTo(player))
+	hub.mustDispatch(t, host, protocol.CmdRequestStart{})
+
+	// T≈120ms：已强制开赛（80ms），但延迟广播（130ms）未触发——不应有 MsgAbort。
+	time.Sleep(120 * time.Millisecond)
+	if hasAbortFor(sentTo(host)[hostBefore:], player.ID) {
+		t.Error("host should NOT receive MsgAbort before forcedStartAbortBroadcastDelay elapsed")
+	}
+
+	// T≈270ms：延迟广播已触发，房间成员（含被 abort 的玩家自己）应收到 MsgAbort。
+	time.Sleep(150 * time.Millisecond)
+	if !hasAbortFor(sentTo(host)[hostBefore:], player.ID) {
+		t.Error("host should receive MsgAbort for unready player after delay")
+	}
+	if !hasAbortFor(sentTo(player)[playerBefore:], player.ID) {
+		t.Error("player should receive MsgAbort for themselves after delay")
+	}
+}
+
+// TestReadyCountdown_SinglePlayerSkipsCountdown 验证单人房 RequestStart 后立即进入
+// Playing，不启动「准备倒计时」——避免无谓调度 6 个 timer 然后立刻被 cancel 掉。
+func TestReadyCountdown_SinglePlayerSkipsCountdown(t *testing.T) {
+	h := newHarness()
+	phira := &mockPhira{charts: map[int]config.Chart{1: {ID: 1, Name: "c"}}}
+	hub := NewHub(h.state, phira)
+	host := h.addUser(1, "host")
+
+	cleanup := withShortCountdown(80*time.Millisecond, nil)
+	defer cleanup()
+
+	hub.mustDispatch(t, host, protocol.CmdCreateRoom{ID: "room1"})
+	hub.mustDispatch(t, host, protocol.CmdSelectChart{ID: 1})
+	hub.mustDispatch(t, host, protocol.CmdRequestStart{})
+
+	room := h.room("room1")
+	room.Mu.Lock()
+	_, ok := room.State.(StatePlaying)
+	cancelled := room.readyCancel.Load() == nil
+	room.Mu.Unlock()
+	if !ok {
+		t.Fatalf("single-player room should enter Playing immediately, got %T", room.State)
+	}
+	if !cancelled {
+		t.Error("single-player room should not start ready countdown (state already advanced to Playing)")
 	}
 }

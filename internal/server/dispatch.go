@@ -276,7 +276,7 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 				roomID := room.ID
 				h.NewProtocolHack().schedule(func() {
 					state.Mu.Lock()
-					if _, exists := state.Rooms[roomID]; !exists {
+					if state.Rooms[roomID] != room {
 						state.Mu.Unlock()
 						return
 					}
@@ -289,9 +289,12 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			room.State = StateWaitForReady{Started: map[int]struct{}{user.ID: {}}}
 			room.OnStateChange(lc)
 			room.NotifyWebSocket(lc)
-			h.startReadyCountdown(room, user.Name)
+			// 先推进状态机：单人房或全员就绪会立即 startPlaying（内部 cancelReadyCountdown），
+			// 此时无需启动倒计时；仅在仍处于 WaitForReady 时才启动。
 			if h.CheckRoomAllReady(room) {
 				h.DisbandRoom(room)
+			} else if _, stillWaiting := room.State.(StateWaitForReady); stillWaiting {
+				h.startReadyCountdown(room)
 			}
 			return nil
 		})}, true
