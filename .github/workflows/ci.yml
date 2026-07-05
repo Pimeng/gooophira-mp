@@ -7,12 +7,14 @@ on:
     branches: [main]
     paths:
       - internal/**
+      - !internal/l10n/locales/**
       - go.mod
       - go.sum
   pull_request:
     branches: [main]
     paths:
       - internal/**
+      - !internal/l10n/locales/**
       - go.mod
       - go.sum
   workflow_dispatch: {}
