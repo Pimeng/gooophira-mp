@@ -104,6 +104,31 @@ chat-maintenance-enabled = The server has entered maintenance mode; new players 
 chat-maintenance-disabled = Server maintenance is over; back to normal
 chat-server-stopping = The server is shutting down for maintenance; you will be disconnected after the current game
 chat-waiting-reconnect = "{ $user }" disconnected unexpectedly; waiting for reconnect — the game will end in { $seconds }s if they don't return
+chat-record-send-template =
+
+    { $user }[{ $userid }] result:
+    Score: { $score }, Accuracy: { $acc }%{ $hasStd ->
+    [true] , Std: ±{ $std }ms, Std Score: { $stdScore }
+    *[false] {""}
+    }{ $fc ->
+    [true] , Full Combo
+    *[false] {""}
+    }
+    Perfect: { $perfect }, Good: { $good }, Bad: { $bad }, Miss: { $miss }{ $hasMod ->
+    [true] , Mods: { $modList }
+    *[false] {""}
+    }
+
+# Record mod display names (bit order matches recordChatMods)
+chat-record-mod-autoplay = Auto Play
+chat-record-mod-flip-x = Flip X
+chat-record-mod-hide-top = Hide Top
+chat-record-mod-hide-bottom = Hide Bottom
+chat-record-mod-club = Club
+chat-record-mod-rainbow = Rainbow
+chat-record-mod-no-shader = No Shaders
+chat-record-mod-sudden-death-ap = Sudden Death (AP)
+chat-record-mod-sudden-death-fc = Sudden Death (FC)
 cli-maintenance-status = Maintenance mode: { $state }
 cli-usage-maintenance = Usage: maintenance <on|off|status> [notice message]
 

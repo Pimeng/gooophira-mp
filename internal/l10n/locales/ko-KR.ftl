@@ -104,6 +104,31 @@ chat-maintenance-enabled = 서버가 점검 모드로 전환되어 신규 참가
 chat-maintenance-disabled = 서버 점검이 끝나 정상으로 돌아왔습니다
 chat-server-stopping = 서버가 곧 점검을 위해 종료됩니다. 현재 게임이 끝나면 연결이 끊깁니다
 chat-waiting-reconnect = "{ $user }" 님의 연결이 끊겼습니다. 재접속을 기다리는 중이며, { $seconds }초 내에 돌아오지 않으면 대국을 종료합니다
+chat-record-send-template =
+
+    { $user }[{ $userid }] 결과 상세:
+    점수: { $score }, 정확도: { $acc }%{ $hasStd ->
+    [true] , 오차: ±{ $std }ms, 무오차 점수: { $stdScore }
+    *[false] {""}
+    }{ $fc ->
+    [true] , 풀 콤보
+    *[false] {""}
+    }
+    Perfect: { $perfect }, Good: { $good }, Bad: { $bad }, Miss: { $miss }{ $hasMod ->
+    [true] , 사용 모드: { $modList }
+    *[false] {""}
+    }
+
+# 성적 모드 표시 이름 (비트 순서는 recordChatMods 참조)
+chat-record-mod-autoplay = 자동 플레이
+chat-record-mod-flip-x = X축 반전
+chat-record-mod-hide-top = 상단 숨김
+chat-record-mod-hide-bottom = 하단 숨김
+chat-record-mod-club = 클럽
+chat-record-mod-rainbow = 무지개
+chat-record-mod-no-shader = 셰이더 없음
+chat-record-mod-sudden-death-ap = 서든 데스 (AP)
+chat-record-mod-sudden-death-fc = 서든 데스 (FC)
 cli-maintenance-status = 점검 모드: { $state }
 cli-usage-maintenance = 사용법: maintenance <on|off|status> [안내 메시지]
 
