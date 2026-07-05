@@ -536,7 +536,8 @@ func TestBroadcastGameRanking_MultiPlayerOrderedByScore(t *testing.T) {
 		t.Fatal("expected ranking chat to be broadcast")
 	}
 	// 默认 ServerLang=zh-CN；故意乱序写入 Results 验证按分数降序排列。
-	want := strings.Repeat("=", 72) + "\n" +
+	// 前导 \n 用于在聊天中与上方消息视觉分隔。
+	want := "\n" + strings.Repeat("=", 72) + "\n" +
 		"本轮排名\n" +
 		"1. alice - 分数：1000000，准度：100.00%，误差：±2ms\n" +
 		"2. bob - 分数：970000，准度：97.00%，误差：±19ms"
