@@ -282,10 +282,8 @@ func (h *Hub) sendReplayRecorderHint(user *User, lang *l10n.Language, name strin
 	if user == nil || lang == nil {
 		return
 	}
-	const key = "chat-replay-recorder-hint"
-	hint := l10n.TL(lang, key, map[string]string{"name": name})
-	// 缺失翻译时 TL 返回 key 本身；此时静默跳过避免发送无意义内容。
-	if hint == "" || hint == key {
+	hint, ok := tlOrSkip(lang, "chat-replay-recorder-hint", map[string]string{"name": name})
+	if !ok {
 		return
 	}
 	user.TrySend(protocol.SrvMessage{Message: protocol.MsgChat{User: h.State.SystemChatUserID(), Content: hint}})
@@ -302,9 +300,8 @@ func (h *Hub) sendLateJoinHint(user *User, lang *l10n.Language) {
 	if user == nil || lang == nil {
 		return
 	}
-	const key = "chat-late-join-hint"
-	hint := l10n.TL(lang, key, nil)
-	if hint == "" || hint == key {
+	hint, ok := tlOrSkip(lang, "chat-late-join-hint", nil)
+	if !ok {
 		return
 	}
 	snapshot := user

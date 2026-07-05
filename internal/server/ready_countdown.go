@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Pimeng/gooophira-mp/internal/l10n"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
 )
 
@@ -59,8 +58,8 @@ func (h *Hub) startReadyCountdown(room *Room) {
 			if ctx.Err() != nil {
 				return
 			}
-			hint := l10n.TL(lang, "chat-ready-countdown", map[string]string{"seconds": strconv.Itoa(sec)})
-			if hint == "" || hint == "chat-ready-countdown" {
+			hint, ok := tlOrSkip(lang, "chat-ready-countdown", map[string]string{"seconds": strconv.Itoa(sec)})
+			if !ok {
 				return
 			}
 			state.Mu.Lock()

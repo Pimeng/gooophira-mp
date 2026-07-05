@@ -18,6 +18,16 @@ func (h *Hub) localize(user *User, key string) string {
 	return l10n.TL(user.Lang, key, nil)
 }
 
+// tlOrSkip 返回本地化文本；若 key 在 lang 中缺失（TL 返回 key 本身或空串）则 ok=false。
+// 用于系统聊天提示这类「缺失即跳过」的场景，统一原本散落的 hint == "" || hint == key 检查。
+func tlOrSkip(lang *l10n.Language, key string, args map[string]string) (text string, ok bool) {
+	s := l10n.TL(lang, key, args)
+	if s == "" || s == key {
+		return "", false
+	}
+	return s, true
+}
+
 // unitResult 运行 fn，成功→Ok(Unit)，失败→按用户语言本地化错误 key 的 Err。
 func (h *Hub) unitResult(user *User, fn func() error) protocol.StringResult[protocol.Unit] {
 	if err := fn(); err != nil {
@@ -269,8 +279,8 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			h.BroadcastRoomMessage(room, protocol.MsgGameStart{User: int32FromInt(user.ID)})
 			// 系统身份提示聊天走 ProtocolHack 延迟调度：让 GameStart 广播先抵达客户端，
 			// 提示紧随其后到达，避免在状态切换动画途中弹出系统聊天。
-			hint := l10n.TL(lc.Lang, "chat-game-start-hint", map[string]string{"user": user.Name})
-			if hint != "" && hint != "chat-game-start-hint" {
+			hint, hasHint := tlOrSkip(lc.Lang, "chat-game-start-hint", map[string]string{"user": user.Name})
+			if hasHint {
 				sysID := h.State.SystemChatUserID()
 				state := h.State
 				roomID := room.ID
@@ -291,7 +301,7 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			room.NotifyWebSocket(lc)
 			// 先推进状态机：单人房或全员就绪会立即 startPlaying（内部 cancelReadyCountdown），
 			// 此时无需启动倒计时；仅在仍处于 WaitForReady 时才启动。
-			if h.CheckRoomAllReady(room) {
+			if room.CheckAllReady(lc) {
 				h.DisbandRoom(room)
 			} else if _, stillWaiting := room.State.(StateWaitForReady); stillWaiting {
 				h.startReadyCountdown(room)
@@ -316,10 +326,11 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 				return errAlreadyReady
 			}
 			st.Started[user.ID] = struct{}{}
-			room.logRoomInfo(h.MakeRoomLifecycle(room), "log-room-ready", map[string]string{"user": user.Name})
+			lc := h.MakeRoomLifecycle(room)
+			room.logRoomInfo(lc, "log-room-ready", map[string]string{"user": user.Name})
 			h.BroadcastRoomMessage(room, protocol.MsgReady{User: int32FromInt(user.ID)})
-			room.NotifyWebSocket(h.MakeRoomLifecycle(room))
-			if h.CheckRoomAllReady(room) {
+			room.NotifyWebSocket(lc)
+			if room.CheckAllReady(lc) {
 				h.DisbandRoom(room)
 			}
 			return nil
@@ -400,8 +411,8 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 			if h.shouldRecord(room) {
 				h.State.ReplayRecorder.SetRecordID(room.ID, user.ID, record.ID)
 			}
-			room.NotifyWebSocket(h.MakeRoomLifecycle(room))
-			if h.CheckRoomAllReady(room) {
+			room.NotifyWebSocket(lc)
+			if room.CheckAllReady(lc) {
 				h.DisbandRoom(room)
 			}
 			return nil
@@ -424,10 +435,11 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 				return errGameAborted
 			}
 			st.Aborted[user.ID] = struct{}{}
-			room.logRoomMark(h.MakeRoomLifecycle(room), "log-room-abort", map[string]string{"user": user.Name})
+			lc := h.MakeRoomLifecycle(room)
+			room.logRoomMark(lc, "log-room-abort", map[string]string{"user": user.Name})
 			h.BroadcastRoomMessage(room, protocol.MsgAbort{User: int32FromInt(user.ID)})
-			room.NotifyWebSocket(h.MakeRoomLifecycle(room))
-			if h.CheckRoomAllReady(room) {
+			room.NotifyWebSocket(lc)
+			if room.CheckAllReady(lc) {
 				h.DisbandRoom(room)
 			}
 			return nil
