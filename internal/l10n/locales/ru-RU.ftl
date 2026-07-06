@@ -382,7 +382,7 @@ cli-broadcast-sent = Трансляция в { $count } комнат
 cli-room-not-found = Комната не найдена
 cli-room-not-found-named = Комната не найдена: { $room }
 cli-room-message-sent = Сообщение отправлено в комнату { $room }
-cli-bad-max-users = Неверное число (1-64)
+cli-bad-max-users = Неверное число (1-32767)
 cli-room-max-users-set = Установлено макс. число пользователей комнаты { $room }: { $count }
 cli-room-disbanded = Комната { $room } распущена
 

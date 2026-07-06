@@ -412,7 +412,7 @@ func (c *Console) cmdMaxUsers(args []string) {
 		return
 	}
 	n, err := strconv.Atoi(args[1])
-	if err != nil || n < 1 || n > 64 {
+	if err != nil || n < 1 || n > 32767 {
 		c.printErr(c.t("cli-bad-max-users", nil))
 		return
 	}

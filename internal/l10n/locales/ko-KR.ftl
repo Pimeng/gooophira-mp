@@ -382,7 +382,7 @@ cli-broadcast-sent = { $count }개 방에 브로드캐스트했습니다
 cli-room-not-found = 방을 찾을 수 없습니다
 cli-room-not-found-named = 방을 찾을 수 없음: { $room }
 cli-room-message-sent = 방 { $room }에 메시지를 보냈습니다
-cli-bad-max-users = 잘못된 인원 수 (1-64)
+cli-bad-max-users = 잘못된 인원 수 (1-32767)
 cli-room-max-users-set = 방 { $room }의 최대 인원을 { $count }로 설정했습니다
 cli-room-disbanded = 방 { $room }을(를) 해산했습니다
 

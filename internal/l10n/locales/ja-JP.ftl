@@ -382,7 +382,7 @@ cli-broadcast-sent = { $count } ルームにブロードキャストしました
 cli-room-not-found = ルームが見つかりません
 cli-room-not-found-named = ルームが見つかりません：{ $room }
 cli-room-message-sent = ルーム { $room } にメッセージを送信しました
-cli-bad-max-users = 無効な人数（1-64）
+cli-bad-max-users = 無効な人数（1-32767）
 cli-room-max-users-set = ルーム { $room } の最大人数を { $count } に設定しました
 cli-room-disbanded = ルーム { $room } を解散しました
 

@@ -24,7 +24,7 @@ const (
 	DefaultLogLevel                 = "INFO"
 	DefaultLogCompressAfterDays     = 14
 	DefaultLogMaxTotalMB            = 500
-	MaxRoomMaxUsers                 = 64
+	MaxRoomMaxUsers                 = 32767
 	DefaultWebhookTimeoutMS         = 5000
 	DefaultWebhookRetries           = 2
 	DefaultStatsDetailRetentionDays = 90

@@ -382,7 +382,7 @@ cli-broadcast-sent = Broadcast to { $count } rooms
 cli-room-not-found = Room not found
 cli-room-not-found-named = Room not found: { $room }
 cli-room-message-sent = Message sent to room { $room }
-cli-bad-max-users = Invalid count (1-64)
+cli-bad-max-users = Invalid count (1-32767)
 cli-room-max-users-set = Set room { $room } max users to { $count }
 cli-room-disbanded = Disbanded room { $room }
 

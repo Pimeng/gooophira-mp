@@ -382,7 +382,7 @@ cli-broadcast-sent = 已向 { $count } 個房間廣播訊息
 cli-room-not-found = 房間不存在
 cli-room-not-found-named = 房間不存在：{ $room }
 cli-room-message-sent = 已向房間 { $room } 傳送訊息
-cli-bad-max-users = 無效的人數（1-64）
+cli-bad-max-users = 無效的人數（1-32767）
 cli-room-max-users-set = 已設定房間 { $room } 最大人數為 { $count }
 cli-room-disbanded = 已解散房間 { $room }
 

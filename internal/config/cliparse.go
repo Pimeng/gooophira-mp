@@ -11,7 +11,7 @@ import (
 // ParsePort 校验端口号（整数，1..65535）。非法返回 ok=false。
 func ParsePort(v any) (int, bool) { return parsePortValue(v) }
 
-// ParseRoomMaxUsers 校验房间最大用户数（整数，>=1，上限 64）。非法返回 ok=false。
+// ParseRoomMaxUsers 校验房间最大用户数（整数，>=1，上限 32767）。非法返回 ok=false。
 func ParseRoomMaxUsers(v any) (int, bool) { return parseRoomMaxUsersValue(v) }
 
 // ParseIntegerList 解析逗号/空白/分号分隔的整数列表（如 MONITORS）。空或无有效项返回 ok=false。

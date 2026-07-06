@@ -60,8 +60,8 @@ func TestExplicitOverridesDefault(t *testing.T) {
 
 func TestBuildFromMap_ParseAndValidate(t *testing.T) {
 	m := map[string]any{
-		"ROOM_MAX_USERS":  100, // 超上限 → 钳到 64
-		"REPLAY_TTL_DAYS": 0,   // 非法（<1）→ 忽略，回退默认 4
+		"ROOM_MAX_USERS":  32777, // 超上限 → 钳到 32767
+		"REPLAY_TTL_DAYS": 0,     // 非法（<1）→ 忽略，回退默认 4
 		"SYSTEM_USER_ID":  12345678,
 		"CHAT_ENABLED":    "off",
 		"PORT":            "8080",
@@ -70,8 +70,8 @@ func TestBuildFromMap_ParseAndValidate(t *testing.T) {
 		"REDIS":           map[string]any{"ENABLED": true, "PORT": 6380},
 	}
 	c := BuildFromMap(m)
-	if c.EffectiveRoomMaxUsers() != 64 {
-		t.Errorf("ROOM_MAX_USERS 100 should clamp to 64, got %d", c.EffectiveRoomMaxUsers())
+	if c.EffectiveRoomMaxUsers() != 32767 {
+		t.Errorf("ROOM_MAX_USERS 32777 should clamp to 32767, got %d", c.EffectiveRoomMaxUsers())
 	}
 	if c.ReplayTTLDays != nil {
 		t.Error("invalid REPLAY_TTL_DAYS should be left unset")
