@@ -312,6 +312,7 @@ func (r *Room) checkWaitForReady(lc *RoomLifecycle, st StateWaitForReady) {
 // SrvChangeState(Playing) 都不发给他们，由调用方自行将未准备玩家送回 SelectChart。
 func (r *Room) startPlaying(lc *RoomLifecycle, unreadyIDs []int) {
 	r.cancelReadyCountdown()
+	r.cancelPlayDeadline()
 	if lc.OnEnterPlaying != nil {
 		lc.OnEnterPlaying(r)
 	}
@@ -393,6 +394,7 @@ func (r *Room) checkPlaying(lc *RoomLifecycle, st StatePlaying) (disband bool) {
 	if lc.OnGameEnd != nil {
 		lc.OnGameEnd(r)
 	}
+	r.cancelPlayDeadline()
 	r.State = StateSelectChart{}
 
 	// 比赛 AutoDisband：不再在此调 lc.DisbandRoom（会自死锁，因调用方持 room.Mu）。

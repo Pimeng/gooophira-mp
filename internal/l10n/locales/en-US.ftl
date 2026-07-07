@@ -103,6 +103,7 @@ chat-server-stopping = The server is shutting down for maintenance; you will be 
 chat-waiting-reconnect = "{ $user }" disconnected unexpectedly; waiting for reconnect — the game will end in { $seconds }s if they don't return
 chat-game-start-hint = Host "{ $user }" has started the game. Please get ready within one minute. Anyone not ready will be unable to join this round.
 chat-ready-countdown = { $seconds } seconds until the game starts. Please get ready.
+chat-play-deadline = The { $seconds }-second settlement deadline has been exceeded. Unsettled players have been automatically aborted. This round has ended.
 chat-record-send-template =
 
     { $user }[{ $userid }] result:

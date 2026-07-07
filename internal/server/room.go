@@ -101,6 +101,10 @@ type Room struct {
 	// nil 表示无活跃倒计时。用 atomic.Pointer 访问，无需持有 Mu。
 	readyCancel atomic.Pointer[context.CancelFunc]
 
+	// playDeadlineCancel 取消「结算超时」：自首位玩家提交成绩起 120 秒强制结束本局，
+	// 将未结算玩家标记为 Aborted。nil 表示无活跃倒计时。用 atomic.Pointer 访问，无需持有 Mu。
+	playDeadlineCancel atomic.Pointer[context.CancelFunc]
+
 	// nextHostID 是管理员通过 CLI 指定的「下一轮房主」候选 ID，仅 cycle 模式下
 	// rotateCycleHost 会消费。nil 表示未指定；一次性使用后清空。访问须持 room.Mu。
 	nextHostID *int

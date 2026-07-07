@@ -408,12 +408,19 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 				return nil
 			}
 			st.Results[user.ID] = record
+			firstResult := len(st.Results) == 1
 			if h.shouldRecord(room) {
 				h.State.ReplayRecorder.SetRecordID(room.ID, user.ID, record.ID)
 			}
 			room.NotifyWebSocket(lc)
 			if room.CheckAllReady(lc) {
 				h.DisbandRoom(room)
+			} else if firstResult && room.Contest == nil {
+				// 首位结算者出现且对局未结束 → 启动结算超时倒计时（仅普通房）。
+				// 到点后将未结算玩家标记为 Aborted 并强制结束本局。
+				if _, stillPlaying := room.State.(StatePlaying); stillPlaying {
+					h.startPlayDeadline(room)
+				}
 			}
 			return nil
 		})}, true

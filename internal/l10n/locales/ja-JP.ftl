@@ -103,6 +103,7 @@ chat-server-stopping = サーバーはまもなくメンテナンスのため停
 chat-waiting-reconnect = 「{ $user }」が切断されました。再接続を待っています。{ $seconds } 秒以内に戻らない場合、対局を終了します
 chat-game-start-hint = ホスト「{ $user }」がゲームを開始しました。1 分以内に準備を完了してください。準備が完了していないプレイヤーはこの対局に参加できません
 chat-ready-countdown = ゲーム開始まであと { $seconds } 秒です。準備を完了してください
+chat-play-deadline = { $seconds } 秒の精算期限を超過しました。未精算のプレイヤーは自動的に中止され、このラウンドは終了しました
 chat-record-send-template =
 
     { $user }[{ $userid }] 結果詳細：

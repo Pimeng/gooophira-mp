@@ -104,6 +104,7 @@ chat-server-stopping = 服务器即将关闭维护，对局结束后连接将断
 chat-waiting-reconnect = “{ $user }” 异常断开，正在等待重连，{ $seconds } 秒后仍未重连将结束本局
 chat-game-start-hint = 房主“{ $user }”已开始游戏，请各位在一分钟内准备，未准备人员将无法加入本局游戏
 chat-ready-countdown = 距离游戏开始还有 { $seconds } 秒，请尽快准备
+chat-play-deadline = 已超过 { $seconds } 秒结算时限，未结算玩家已自动中止，本局结束
 chat-record-send-template =
 
     { $user }[{$userid}] 结算详情：

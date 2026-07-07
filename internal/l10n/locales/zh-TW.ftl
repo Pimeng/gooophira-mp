@@ -103,6 +103,7 @@ chat-server-stopping = 伺服器即將關閉維護，對局結束後連線將斷
 chat-waiting-reconnect = “{ $user }” 異常斷線，正在等待重連，{ $seconds } 秒後仍未重連將結束本局
 chat-game-start-hint = 房主“{ $user }”已開始遊戲，請各位在一分鐘內準備，未準備人員將無法加入本局遊戲
 chat-ready-countdown = 距離遊戲開始還有 { $seconds } 秒，請盡快準備
+chat-play-deadline = 已超過 { $seconds } 秒結算時限，未結算玩家已自動中止，本局結束
 chat-record-send-template =
 
     { $user }[{ $userid }] 結算詳情：

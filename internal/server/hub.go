@@ -471,9 +471,10 @@ func (h *Hub) ProcessJoinRoom(user *User, id protocol.RoomID, monitor bool) (res
 // 内部循环 OnUserLeave 时房间状态已是 StateSelectChart（被 checkPlaying 切回），
 // 故返回的 disband 恒 false，可忽略。
 func (h *Hub) DisbandRoom(room *Room) {
-	// 显式取消「准备倒计时」：避免房间解散后延迟回调仍持有 room 指针，
+	// 显式取消「准备倒计时」与「结算超时」：避免房间解散后延迟回调仍持有 room 指针，
 	// 也避免房间 ID 被复用时回调误广播到新房间。
 	room.cancelReadyCountdown()
+	room.cancelPlayDeadline()
 	lc := h.MakeRoomLifecycle(room)
 	room.Mu.Lock()
 	for _, id := range room.AllParticipantIDs() {
