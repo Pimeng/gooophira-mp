@@ -256,7 +256,7 @@ func (r *Recorder) warnOverflow(it *inFlight) {
 	if !it.overflow {
 		it.overflow = true
 		if r.logger != nil {
-			r.logger.Warn(fmt.Sprintf("[Replay] frame overflow for userId=%d, dropping", it.userID))
+			r.logger.Warn(fmt.Sprintf("[Replay] frame overflow: roomID=%s, userId=%d, chartID=%d, dropping", it.roomKey, it.userID, it.chartID))
 		}
 	}
 }
@@ -289,7 +289,7 @@ func (r *Recorder) EndRoom(roomID protocol.RoomID) {
 	for _, it := range snapshots {
 		if err := r.writeRecordFile(it); err != nil {
 			if r.logger != nil {
-				r.logger.Warn(fmt.Sprintf("[Replay] write failed for userId=%d: %v", it.userID, err))
+				r.logger.Warn(fmt.Sprintf("[Replay] write failed: roomID=%s, userId=%d, path=%s, err=%v", it.roomKey, it.userID, it.path, err))
 			}
 			continue
 		}

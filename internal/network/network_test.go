@@ -122,7 +122,8 @@ func (c *testClient) expectSystemChat() string {
 
 func newTestServer(t *testing.T) (*Server, *server.ServerState) {
 	t.Helper()
-	cfg := &config.ServerConfig{}
+	rateLimitOff := false
+	cfg := &config.ServerConfig{CommandRateLimit: &rateLimitOff}
 	state := server.NewServerState(cfg, nil, "test", "", "")
 	hub := server.NewHub(state, fakePhira{})
 	srv, err := Listen("127.0.0.1:0", state, hub)
@@ -137,7 +138,8 @@ func newTestServerWithReplay(t *testing.T) (*Server, *replay.Recorder) {
 	t.Helper()
 	dir := t.TempDir()
 	enabled := true
-	cfg := &config.ServerConfig{ReplayEnabled: &enabled, ReplayBaseDir: &dir}
+	rateLimitOff := false
+	cfg := &config.ServerConfig{ReplayEnabled: &enabled, ReplayBaseDir: &dir, CommandRateLimit: &rateLimitOff}
 	state := server.NewServerState(cfg, nil, "test", "", "")
 	hub := server.NewHub(state, fakePhira{})
 	recorder := replay.NewRecorder(dir, nil)
@@ -292,6 +294,113 @@ func TestNetwork_DangleReconnectKeepsRoom(t *testing.T) {
 			if sa.Result.Value.Room == nil || sa.Result.Value.Room.ID != "room1" {
 				t.Fatalf("reconnect should restore room1, got %+v", sa.Result.Value.Room)
 			}
+			break
+		}
+	}
+}
+
+// TestNetwork_StaleDangleTimerCancelled 验证重连时 SetSession 取消旧 session 遗留的
+// dangleTimer：断线 → 宽限窗内重连 → 等待宽限窗过期 → 用户应仍在线（旧 timer 被取消，
+// 不会触发 processDangle 误移除）。对应日志中 stale timer 三次误触发的 bug。
+func TestNetwork_StaleDangleTimerCancelled(t *testing.T) {
+	// 用较短窗口让测试快速完成，但需足够长以区分「重连前断线」和「重连后宽限窗过期」。
+	old := time.Duration(dangleWindowNonPlaying.Load())
+	dangleWindowNonPlaying.Store(int64(200 * time.Millisecond))
+	defer dangleWindowNonPlaying.Store(int64(old))
+
+	srv, state := newTestServer(t)
+	defer srv.Close()
+
+	c1 := dial(t, srv.Addr().String())
+	c1.send(protocol.CmdAuthenticate{Token: "aaaaaaaa"})
+	c1.expectAuthOK()
+	c1.send(protocol.CmdCreateRoom{ID: "room1"})
+	c1.expectResultOK("CreateRoom")
+	c1.close() // 断线 → dangle，200ms 后 timer 会触发
+
+	// 等服务端进入 dangling。
+	waitFor(t, func() bool {
+		state.Mu.Lock()
+		defer state.Mu.Unlock()
+		u := state.Users[100]
+		return u != nil && u.Session == nil
+	})
+
+	// 宽限窗内重连。
+	c2 := dial(t, srv.Addr().String())
+	defer c2.close()
+	c2.send(protocol.CmdAuthenticate{Token: "aaaaaaaa"})
+	c2.expectAuthOK()
+
+	// 等待宽限窗过期（500ms >> 200ms），旧 timer 应已被 SetSession 取消。
+	time.Sleep(500 * time.Millisecond)
+
+	// 用户应仍在线（绑定到 c2），未被旧 stale timer 移除。
+	state.Mu.Lock()
+	u := state.Users[100]
+	online := u != nil && u.Session != nil
+	state.Mu.Unlock()
+	if !online {
+		t.Fatal("user should still be online after dangle window expired (stale timer should be cancelled)")
+	}
+
+	// 房间也应保留。
+	state.Mu.Lock()
+	_, roomKept := state.Rooms["room1"]
+	state.Mu.Unlock()
+	if !roomKept {
+		t.Fatal("room should be kept after reconnect")
+	}
+}
+
+// TestNetwork_RapidReconnectCycle 验证快速断线-重连循环中不会累积 stale timer：
+// 多次断线-重连后，用户最终保持在线且无异常移除。
+func TestNetwork_RapidReconnectCycle(t *testing.T) {
+	old := time.Duration(dangleWindowNonPlaying.Load())
+	dangleWindowNonPlaying.Store(int64(300 * time.Millisecond))
+	defer dangleWindowNonPlaying.Store(int64(old))
+
+	srv, state := newTestServer(t)
+	defer srv.Close()
+
+	// 3 轮断线-重连，每轮间隔 100ms（在 300ms 宽限窗内）。
+	for i := 0; i < 3; i++ {
+		c := dial(t, srv.Addr().String())
+		c.send(protocol.CmdAuthenticate{Token: "aaaaaaaa"})
+		c.expectAuthOK()
+		c.close() // 断线 → dangle
+
+		// 等 dangling。
+		waitFor(t, func() bool {
+			state.Mu.Lock()
+			defer state.Mu.Unlock()
+			u := state.Users[100]
+			return u != nil && u.Session == nil
+		})
+	}
+
+	// 第 4 次重连后保持在线。
+	c4 := dial(t, srv.Addr().String())
+	defer c4.close()
+	c4.send(protocol.CmdAuthenticate{Token: "aaaaaaaa"})
+	c4.expectAuthOK()
+
+	// 等待所有旧宽限窗过期（3 次 × 300ms = 900ms，等 1.2s 确保全部过期）。
+	time.Sleep(1200 * time.Millisecond)
+
+	// 用户应仍在线。
+	state.Mu.Lock()
+	u := state.Users[100]
+	online := u != nil && u.Session != nil
+	state.Mu.Unlock()
+	if !online {
+		t.Fatal("user should still be online after rapid reconnect cycle")
+	}
+
+	// 验证能正常通信（未被误移除）。
+	c4.send(protocol.CmdPing{})
+	for {
+		if _, ok := c4.next().(protocol.SrvPong); ok {
 			break
 		}
 	}

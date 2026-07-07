@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -60,6 +61,9 @@ func (ph *ProtocolHack) forceSyncHost(room *Room, user *User) {
 		return
 	}
 	isHost := room.HostID == user.ID
+	if lg := ph.hub.State.Logger; lg != nil && lg.DebugEnabled() {
+		lg.Debug(fmt.Sprintf("ProtocolHack forceSyncHost：房间“%s”，用户“%s”（id=%d），isHost=%t", string(room.ID), user.Name, user.ID, isHost))
+	}
 	ph.schedule(func() {
 		user.TrySend(protocol.SrvChangeHost{IsHost: isHost})
 	})
@@ -84,6 +88,9 @@ func (ph *ProtocolHack) forceSyncInfo(room *Room, user *User) {
 	lang := hub.State.ServerLang
 	recorder := hub.State.ReplayRecorder
 	live := room.IsLive()
+	if lg := hub.State.Logger; lg != nil && lg.DebugEnabled() {
+		lg.Debug(fmt.Sprintf("ProtocolHack forceSyncInfo：房间“%s”，用户“%s”（id=%d），live=%t", string(room.ID), user.Name, user.ID, live))
+	}
 
 	ph.schedule(func() {
 		// 1) 房主状态对齐
@@ -140,6 +147,9 @@ func (ph *ProtocolHack) FixClientRoomState(room *Room, user *User) {
 // 假定房间 Chart 字段非 nil。
 func (ph *ProtocolHack) fixClientRoomState0(room *Room, user *User) {
 	cid := int32(room.Chart.ID)
+	if lg := ph.hub.State.Logger; lg != nil && lg.DebugEnabled() {
+		lg.Debug(fmt.Sprintf("ProtocolHack fixClientRoomState0：房间“%s”，用户“%s”（id=%d），chartID=%d", string(room.ID), user.Name, user.ID, room.Chart.ID))
+	}
 	user.TrySend(protocol.SrvChangeState{State: protocol.RoomStateSelectChart{ID: &cid}})
 	delay := ph.delay
 	time.AfterFunc(delay, func() {

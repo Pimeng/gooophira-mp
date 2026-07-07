@@ -182,6 +182,14 @@ func (r *Room) ResetGameTime(usersByID func(id int) *User) {
 //
 // 两者互斥：shouldDrop=true 时房间已空，CheckAllReady 不会进 checkPlaying，disband 必为 false。
 func (r *Room) OnUserLeave(lc *RoomLifecycle, user *User) (shouldDrop bool, disband bool) {
+	if lc.Logger != nil && lc.Logger.DebugEnabled() {
+		lc.Logger.Debug(fmt.Sprintf("房间 “%s” 用户离开：%s（id=%d，观战=%t，房主=%t）",
+			string(r.ID), user.Name, user.ID, user.Monitor, r.HostID == user.ID))
+		defer func() {
+			lc.Logger.Debug(fmt.Sprintf("房间 “%s” 离开结算：%s，shouldDrop=%t，disband=%t，剩余玩家=%d",
+				string(r.ID), user.Name, shouldDrop, disband, len(r.users)))
+		}()
+	}
 	r.Send(lc, protocol.MsgLeaveRoom{User: int32FromInt(user.ID), Name: user.Name})
 	user.Room = nil
 
@@ -204,6 +212,7 @@ func (r *Room) OnUserLeave(lc *RoomLifecycle, user *User) (shouldDrop bool, disb
 		r.logRoomInfo(lc, "log-room-host-changed-offline", map[string]string{
 			"old": fmt.Sprintf("%d", user.ID), "next": fmt.Sprintf("%d", newHost),
 		})
+		r.logHostTransferDetail(lc, user.ID, user.Name, newHost, len(r.users))
 		r.Send(lc, protocol.MsgNewHost{User: int32(newHost)})
 		if nh := lc.UsersByID(newHost); nh != nil {
 			nh.TrySend(protocol.SrvChangeHost{IsHost: true})
@@ -239,6 +248,17 @@ func (r *Room) logRoomMark(lc *RoomLifecycle, key string, args map[string]string
 	lc.Logger.Mark(l10n.TL(lc.Lang, key, args))
 }
 
+// logHostTransferDetail 以 DEBUG 级记录房主离线转移详情（含旧/新房主名与剩余玩家数）。
+// 调用方须持 room.Mu。
+func (r *Room) logHostTransferDetail(lc *RoomLifecycle, oldID int, oldName string, newID, remaining int) {
+	if lc.Logger == nil || !lc.Logger.DebugEnabled() {
+		return
+	}
+	newName := r.nameOf(lc, newID)
+	lc.Logger.Debug(fmt.Sprintf("房间 “%s” 房主离线转移：旧房主=%d（%s），新房主=%d（%s），剩余玩家=%d",
+		string(r.ID), oldID, oldName, newID, newName, remaining))
+}
+
 // joinIntIDs 把整型 ID 列表用 sep 连接成字符串（用于日志中的玩家/观战者列表）。
 func joinIntIDs(ids []int, sep string) string {
 	parts := make([]string, len(ids))
@@ -265,13 +285,23 @@ func (r *Room) CheckAllReady(lc *RoomLifecycle) (disband bool) {
 }
 
 func (r *Room) checkWaitForReady(lc *RoomLifecycle, st StateWaitForReady) {
+	if lc.Logger != nil && lc.Logger.DebugEnabled() {
+		lc.Logger.Debug(fmt.Sprintf("房间 “%s” 检查就绪：总参与 %d，已就绪 %d，比赛手动开赛=%t",
+			string(r.ID), len(r.AllParticipantIDs()), len(st.Started), r.Contest != nil && r.Contest.ManualStart))
+	}
 	for _, id := range r.AllParticipantIDs() {
 		if _, ok := st.Started[id]; !ok {
 			return // 还有人未就绪
 		}
 	}
 	if r.Contest != nil && r.Contest.ManualStart {
+		if lc.Logger != nil && lc.Logger.DebugEnabled() {
+			lc.Logger.Debug(fmt.Sprintf("房间 “%s” 全员就绪但比赛房等待管理员手动开赛", string(r.ID)))
+		}
 		return // 比赛房：全员就绪后仍等待管理员手动开赛
+	}
+	if lc.Logger != nil && lc.Logger.DebugEnabled() {
+		lc.Logger.Debug(fmt.Sprintf("房间 “%s” 全员就绪，进入 Playing", string(r.ID)))
 	}
 	r.startPlaying(lc, nil)
 }
@@ -318,6 +348,9 @@ func (r *Room) startPlaying(lc *RoomLifecycle, unreadyIDs []int) {
 	startCmd := protocol.SrvMessage{Message: protocol.MsgStartPlaying{}}
 	stateCmd := protocol.SrvChangeState{State: r.ClientRoomState()}
 	if len(unreadyIDs) > 0 {
+		if lc.Logger != nil && lc.Logger.DebugEnabled() {
+			lc.Logger.Debug(fmt.Sprintf("房间 “%s” 强制开赛，排除未准备玩家 %v", string(r.ID), unreadyIDs))
+		}
 		excludeSet := make(map[int]struct{}, len(unreadyIDs))
 		for _, id := range unreadyIDs {
 			excludeSet[id] = struct{}{}
@@ -333,13 +366,18 @@ func (r *Room) startPlaying(lc *RoomLifecycle, unreadyIDs []int) {
 
 func (r *Room) checkPlaying(lc *RoomLifecycle, st StatePlaying) (disband bool) {
 	finished := true
+	var unfinished []int
 	for _, id := range r.users {
 		_, hasResult := st.Results[id]
 		_, hasAbort := st.Aborted[id]
 		if !hasResult && !hasAbort {
 			finished = false
-			break
+			unfinished = append(unfinished, id)
 		}
+	}
+	if lc.Logger != nil && lc.Logger.DebugEnabled() {
+		lc.Logger.Debug(fmt.Sprintf("房间 “%s” 检查对局：玩家 %d，已结算 %d，已放弃 %d，未完成 %v",
+			string(r.ID), len(r.users), len(st.Results), len(st.Aborted), unfinished))
 	}
 	if !finished {
 		r.notifyDanglingReconnect(lc, &st)
@@ -360,10 +398,16 @@ func (r *Room) checkPlaying(lc *RoomLifecycle, st StatePlaying) (disband bool) {
 	// 比赛 AutoDisband：不再在此调 lc.DisbandRoom（会自死锁，因调用方持 room.Mu）。
 	// 返回 true 让调用方在 room.Mu 释放后执行 DisbandRoom。
 	if r.Contest != nil && r.Contest.AutoDisband {
+		if lc.Logger != nil && lc.Logger.DebugEnabled() {
+			lc.Logger.Debug(fmt.Sprintf("房间 “%s” 比赛 AutoDisband，返回 true 让调用方解散", string(r.ID)))
+		}
 		return true
 	}
 
 	if r.IsCycle() && len(r.users) > 1 {
+		if lc.Logger != nil && lc.Logger.DebugEnabled() {
+			lc.Logger.Debug(fmt.Sprintf("房间 “%s” cycle 模式轮换房主", string(r.ID)))
+		}
 		r.rotateCycleHost(lc)
 	}
 
@@ -482,16 +526,35 @@ func (r *Room) rotateCycleHost(lc *RoomLifecycle) {
 		if cand != oldHost && r.ContainsUser(cand) {
 			newHost = cand
 			designated = true
+			if lc.Logger != nil && lc.Logger.DebugEnabled() {
+				lc.Logger.Debug(fmt.Sprintf("房间 “%s” cycle 房主轮换：使用指定 nextHostID=%d（命中）", string(r.ID), cand))
+			}
+		} else {
+			if lc.Logger != nil && lc.Logger.DebugEnabled() {
+				reason := "未知"
+				if cand == oldHost {
+					reason = "与当前房主相同"
+				} else if !r.ContainsUser(cand) {
+					reason = "指定用户不在房间内"
+				}
+				lc.Logger.Debug(fmt.Sprintf("房间 “%s” cycle 房主轮换：指定 nextHostID=%d 未命中（%s），回退默认轮换", string(r.ID), cand, reason))
+			}
 		}
 	}
 	if !designated {
 		next, ok := lc.PickNextHostID(r.UserIDs(), oldHost)
 		if !ok {
+			if lc.Logger != nil && lc.Logger.DebugEnabled() {
+				lc.Logger.Debug(fmt.Sprintf("房间 “%s” cycle 房主轮换：PickNextHostID 无候选，放弃轮换", string(r.ID)))
+			}
 			return
 		}
 		newHost = next
 	}
 	r.HostID = newHost
+	if lc.Logger != nil && lc.Logger.DebugEnabled() {
+		lc.Logger.Debug(fmt.Sprintf("房间 “%s” cycle 房主轮换结果：%d → %d", string(r.ID), oldHost, newHost))
+	}
 	r.logRoomInfo(lc, "log-room-host-changed-cycle", map[string]string{
 		"old": fmt.Sprintf("%d", oldHost), "next": fmt.Sprintf("%d", newHost),
 	})

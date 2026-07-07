@@ -145,6 +145,7 @@ func main() {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
 	phiraClient := phira.NewClient(phiraEndpoint)
+	phiraClient.SetLogger(logger)
 	hub := server.NewHub(state, phiraClient)
 	hub.SetContext(rootCtx)
 

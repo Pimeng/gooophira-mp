@@ -92,6 +92,56 @@ func TestSetSession_ClearsDangleToken(t *testing.T) {
 	}
 }
 
+// TestSetSession_CancelsDangleTimer 验证 SetSession 取消 User 上的 dangleTimer，
+// 防止旧 session 断线后遗留的 stale timer 在重连后触发 processDangle 误移除用户。
+func TestSetSession_CancelsDangleTimer(t *testing.T) {
+	h := newHarness()
+	u := h.addUser(1, "alice")
+
+	fired := make(chan struct{}, 1)
+	timer := time.AfterFunc(50*time.Millisecond, func() { close(fired) })
+	u.SetDangleTimer(timer)
+
+	// SetSession 应停止 timer，fired 通道不应被关闭。
+	u.SetSession(nil)
+
+	// 等待足够久，确认 timer 确实被取消（50ms 已过）。
+	time.Sleep(100 * time.Millisecond)
+	select {
+	case <-fired:
+		t.Fatal("SetSession should cancel dangleTimer, but it fired")
+	default:
+	}
+}
+
+// TestClearDangle_ClearsAllState 验证 ClearDangle 同时清理 token、deadline 和 timer。
+func TestClearDangle_ClearsAllState(t *testing.T) {
+	h := newHarness()
+	u := h.addUser(1, "alice")
+
+	fired := make(chan struct{}, 1)
+	timer := time.AfterFunc(50*time.Millisecond, func() { close(fired) })
+	deadline := int64(time.Now().Add(10 * time.Second).UnixMilli())
+	token := u.MarkDangle(&deadline)
+	u.SetDangleTimer(timer)
+
+	u.ClearDangle()
+
+	if u.IsStillDangling(token) {
+		t.Error("ClearDangle should clear dangleToken")
+	}
+	if u.DangleDeadline != nil {
+		t.Error("ClearDangle should clear DangleDeadline")
+	}
+	// 等待确认 timer 被取消。
+	time.Sleep(100 * time.Millisecond)
+	select {
+	case <-fired:
+		t.Fatal("ClearDangle should cancel dangleTimer, but it fired")
+	default:
+	}
+}
+
 // ---------- dangleDeadlineMs 边界 ----------
 
 func TestDangleDeadlineMs_NilDeadline(t *testing.T) {

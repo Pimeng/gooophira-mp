@@ -32,38 +32,94 @@ func TestCategorize(t *testing.T) {
 	}
 }
 
-func TestRateLimiter_BucketAndRefill(t *testing.T) {
+// TestRateLimiter_OperationLimit 验证离散操作每秒最多 2 次（操作桶容量 2、补充 2/s）。
+func TestRateLimiter_OperationLimit(t *testing.T) {
 	now := time.Now()
 	l := newCommandRateLimiter(now)
 
-	// chat 容量 10：前 10 放行，第 11 拒绝。
-	for i := range 10 {
+	// 前 2 个操作放行（操作桶容量 2，同时消耗 2 个总包令牌）。
+	for i := range 2 {
 		if !l.allow(catChat, now) {
-			t.Fatalf("chat %d should be allowed", i)
+			t.Fatalf("op %d should be allowed", i)
 		}
 	}
+	// 第 3 个操作被操作桶拒绝（总包桶仍有余量）。
 	if l.allow(catChat, now) {
-		t.Error("11th chat should be denied (bucket empty)")
+		t.Error("3rd op should be denied (op bucket empty)")
 	}
-	// 1 秒后补充 3 个令牌（refill 3/s）→ 可再放行 3 个。
+	// 1 秒后操作桶补充 2 个令牌 → 可再放行 2 个。
 	later := now.Add(time.Second)
-	for i := range 3 {
-		if !l.allow(catChat, later) {
-			t.Fatalf("refilled chat %d should be allowed", i)
+	for i := range 2 {
+		if !l.allow(catRoom, later) {
+			t.Fatalf("refilled op %d should be allowed", i)
 		}
 	}
-	if l.allow(catChat, later) {
-		t.Error("4th after 1s refill should be denied")
+	if l.allow(catAPI, later) {
+		t.Error("3rd op after 1s refill should be denied")
 	}
 }
 
-func TestRateLimiter_NoneNeverLimited(t *testing.T) {
+// TestRateLimiter_TotalPacketLimit 验证所有命令包每秒最多 15 个（含 catNone 实时数据）。
+func TestRateLimiter_TotalPacketLimit(t *testing.T) {
 	now := time.Now()
 	l := newCommandRateLimiter(now)
-	for range 1000 {
+
+	// catNone（Touches/Judges）不消耗操作令牌，但消耗总包令牌：前 15 个放行。
+	for i := range 15 {
 		if !l.allow(catNone, now) {
-			t.Fatal("catNone should never be limited")
+			t.Fatalf("catNone %d should be allowed within total budget", i)
 		}
+	}
+	// 第 16 个被总包桶拒绝。
+	if l.allow(catNone, now) {
+		t.Error("16th catNone should be denied (total bucket empty)")
+	}
+	// 1 秒后总包桶补满 15 个。
+	later := now.Add(time.Second)
+	for i := range 15 {
+		if !l.allow(catNone, later) {
+			t.Fatalf("refilled catNone %d should be allowed", i)
+		}
+	}
+}
+
+// TestRateLimiter_TotalExhaustedBlocksOperations 验证总包桶耗尽时连操作也被拒。
+func TestRateLimiter_TotalExhaustedBlocksOperations(t *testing.T) {
+	now := time.Now()
+	l := newCommandRateLimiter(now)
+
+	// 先用 15 个 catNone 耗尽总包桶（操作桶仍满）。
+	for range 15 {
+		if !l.allow(catNone, now) {
+			t.Fatal("catNone should be allowed within total budget")
+		}
+	}
+	// 操作桶虽满，但总包桶空 → 操作也应被拒。
+	if l.allow(catChat, now) {
+		t.Error("op should be denied when total bucket exhausted")
+	}
+}
+
+// TestRateLimiter_TotalCountsOperationsAndNone 验证操作与实时数据共享总包桶。
+func TestRateLimiter_TotalCountsOperationsAndNone(t *testing.T) {
+	now := time.Now()
+	l := newCommandRateLimiter(now)
+
+	// 2 个操作（消耗 2 操作 + 2 总包）。
+	for i := range 2 {
+		if !l.allow(catChat, now) {
+			t.Fatalf("op %d should be allowed", i)
+		}
+	}
+	// 操作桶空，但总包桶还剩 13 → catNone 仍可放行 13 个。
+	for i := range 13 {
+		if !l.allow(catNone, now) {
+			t.Fatalf("catNone %d should be allowed (total remaining)", i)
+		}
+	}
+	// 总包桶空 → catNone 被拒。
+	if l.allow(catNone, now) {
+		t.Error("catNone should be denied (total exhausted)")
 	}
 }
 

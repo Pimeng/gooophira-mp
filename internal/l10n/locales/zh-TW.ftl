@@ -158,7 +158,6 @@ client-ping-in-flight = 上一次 ping 尚未完成
 client-heartbeat-timeout = 心跳逾時
 client-timeout = 逾時
 
-log-new-connection = 收到新連線，連線ID：{ $id }，來源：{ $remote }
 log-handshake-ok = 連線交握完成，連線ID：{ $id }，協定版本：「{ $version }」
 log-handshake-failed = 連線交握失敗，連線ID：{ $id }：{ $reason }
 
@@ -185,7 +184,6 @@ log-config-reloaded = 設定已重載：{ $items }
 log-config-reload-restart = 以下設定變更需重新啟動後生效：{ $items }
 
 log-heartbeat-timeout-disconnect = 心跳逾時，準備中斷連線（連線ID：{ $id }）
-log-auth-ok = 連線ID：{ $id }，「 { $user } 」 { $monitorSuffix } 認證成功，協定版本：「{ $version }」
 log-auth-failed = 連線ID：{ $id } 認證失敗：{ $reason }
 
 log-player-join = 「{ $user }({ $id })」{ $monitorSuffix } 加入了伺服器
@@ -200,8 +198,6 @@ log-user-dangle = 「{ $user }」 斷線，進入掛起等待重連
 log-user-dangle-timeout-remove = 「{ $user }」 掛起逾時，移除使用者並退出房間 「{ $room }」
 
 log-user-chat = 「{ $user }」 在房間 「{ $room }」 傳送聊天訊息
-log-user-touches = 「{ $user }」 在房間 「{ $room }」 回報觸控影格 { $count } 條
-log-user-judges = 「{ $user }」 在房間 「{ $room }」 回報判定事件 { $count } 條
 
 log-room-created = 「{ $user }」 建立房間 「{ $room }」
 log-room-joined = 「{ $user }」{ $suffix } 加入房間 「{ $room }」

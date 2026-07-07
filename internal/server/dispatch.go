@@ -129,9 +129,8 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 		}
 		// DEBUG 帧日志：先短路判断等级，避免热路径上无谓的格式化与分配。
 		if lg := h.State.Logger; lg != nil && lg.DebugEnabled() {
-			lg.Debug(l10n.TL(h.State.ServerLang, "log-user-touches", map[string]string{
-				"user": user.Name, "room": string(room.ID), "count": strconv.Itoa(len(c.Frames)),
-			}))
+			lg.Debug(fmt.Sprintf("“%s” 在房间 “%s” 上报触控帧 %s 条",
+				user.Name, string(room.ID), strconv.Itoa(len(c.Frames))))
 		}
 		if room.MonitorCount() > 0 {
 			h.forwardTouches(room, user.ID, c.Frames)
@@ -151,9 +150,8 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 		}
 		// DEBUG 帧日志：先短路判断等级，避免热路径上无谓的格式化与分配。
 		if lg := h.State.Logger; lg != nil && lg.DebugEnabled() {
-			lg.Debug(l10n.TL(h.State.ServerLang, "log-user-judges", map[string]string{
-				"user": user.Name, "room": string(room.ID), "count": strconv.Itoa(len(c.Judges)),
-			}))
+			lg.Debug(fmt.Sprintf("“%s” 在房间 “%s” 上报判定事件 %s 条",
+				user.Name, string(room.ID), strconv.Itoa(len(c.Judges))))
 		}
 		if room.MonitorCount() > 0 {
 			h.forwardJudges(room, user.ID, c.Judges)

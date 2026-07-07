@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -265,7 +266,12 @@ func (h *Hub) isBanned(user *User) bool {
 // ---------- 房间生命周期操作 ----------
 
 // ProcessCreateRoom 处理建房：封禁/维护/开关/已在房 校验，占用与数量上限检查，建房并广播。
-func (h *Hub) ProcessCreateRoom(user *User, id protocol.RoomID) error {
+func (h *Hub) ProcessCreateRoom(user *User, id protocol.RoomID) (err error) {
+	defer func() {
+		if err != nil && h.State.Logger != nil && h.State.Logger.DebugEnabled() {
+			h.State.Logger.Debug(fmt.Sprintf("建房失败：用户“%s”，房间ID=%s，原因=%v", user.Name, string(id), err))
+		}
+	}()
 	if h.isBanned(user) {
 		return errUserBanned
 	}
@@ -387,7 +393,12 @@ func (h *Hub) sendFakeMonitorJoin(targetUser *User, room *Room) {
 
 // ProcessJoinRoom 处理加入房间：封禁/维护/已在房 校验，房间封禁/存在/加入合法性检查，
 // 加入并广播 OnJoinRoom + JoinRoom 消息，返回 JoinRoomResponse。
-func (h *Hub) ProcessJoinRoom(user *User, id protocol.RoomID, monitor bool) (protocol.JoinRoomResponse, error) {
+func (h *Hub) ProcessJoinRoom(user *User, id protocol.RoomID, monitor bool) (resp protocol.JoinRoomResponse, err error) {
+	defer func() {
+		if err != nil && h.State.Logger != nil && h.State.Logger.DebugEnabled() {
+			h.State.Logger.Debug(fmt.Sprintf("加入房间失败：用户“%s”，房间ID=%s，观战=%t，原因=%v", user.Name, string(id), monitor, err))
+		}
+	}()
 	var zero protocol.JoinRoomResponse
 	if h.isBanned(user) {
 		return zero, errUserBanned
@@ -479,8 +490,9 @@ func (h *Hub) DisbandRoom(room *Room) {
 
 // ---------- Phira 取数 ----------
 
-// fetchTimeout 是 Hub 派生上游 HTTP 调用 ctx 的超时（对齐 phira.fetchTimeout）。
-const fetchTimeout = 10 * time.Second
+// fetchTimeout 是 Hub 派生上游 HTTP 调用 ctx 的超时上限。
+// 设为 20s 与 phira.Client 内部的全局重试超时一致，避免 parent ctx 提前截断重试窗口。
+const fetchTimeout = 20 * time.Second
 
 // FetchChart 取谱面（缓存由 phira.Client 层管理，Hub 不再缓存）。
 func (h *Hub) FetchChart(user *User, id int) (config.Chart, error) {

@@ -158,7 +158,6 @@ client-ping-in-flight = Previous ping still pending
 client-heartbeat-timeout = Heartbeat timeout
 client-timeout = Timeout
 
-log-new-connection = New connection. id={ $id }, remote={ $remote }
 log-handshake-ok = Handshake OK. id={ $id }, version="{ $version }"
 log-handshake-failed = Handshake failed. id={ $id }, reason={ $reason }
 
@@ -185,7 +184,6 @@ log-config-reloaded = Config reloaded: { $items }
 log-config-reload-restart = Config changes require restart to take effect: { $items }
 
 log-heartbeat-timeout-disconnect = Heartbeat timeout. Disconnecting (id={ $id })
-log-auth-ok = Auth OK. id={ $id }, user="{ $user }"{ $monitorSuffix }, proto="{ $version }"
 log-auth-failed = Auth failed. id={ $id }, reason={ $reason }
 
 log-player-join = Player { $user }({ $id }){ $monitorSuffix } joined the server
@@ -200,8 +198,6 @@ log-user-dangle = "{ $user }" disconnected, waiting for reconnect
 log-user-dangle-timeout-remove = "{ $user }" reconnect timeout, removed and left room "{ $room }"
 
 log-user-chat = "{ $user }" sent chat in room "{ $room }"
-log-user-touches = "{ $user }" reported { $count } touch frames in room "{ $room }"
-log-user-judges = "{ $user }" reported { $count } judge events in room "{ $room }"
 
 log-room-created = "{ $user }" created room "{ $room }"
 log-room-joined = "{ $user }"{ $suffix } joined room "{ $room }"

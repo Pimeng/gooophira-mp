@@ -5,6 +5,9 @@ package network
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -62,11 +65,9 @@ type Session struct {
 	done      chan struct{}
 	closeOnce sync.Once
 
-	// closing 由 Server.Close 标记：cleanup 走立即移除路径，不再设置 dangleTimer。
+	// closing由 Server.Close 标记：cleanup 走立即移除路径，不再设置 dangleTimer。
 	// 避免关闭后 timer 触发访问已不稳定的状态。
 	closing atomic.Bool
-	// dangleTimer 保存 cleanup 设置的断线宽限 timer 引用，供关闭时取消。
-	dangleTimer atomic.Pointer[time.Timer]
 }
 
 // 确保 Session 满足 server.Session。
@@ -162,6 +163,9 @@ func (s *Session) trySendFrame(frame []byte) {
 	default:
 		// 慢消费者：异步关闭。closeOnce 防止重复清理；s.done 由 Close 关闭，
 		// 即便下个广播再调用此处也会被 done 分支短路。
+		if lg := s.state.Logger; lg != nil && lg.DebugEnabled() {
+			lg.Debug(fmt.Sprintf("连接ID：%s，慢消费者：发送缓冲已满，异步关闭", s.id))
+		}
 		go s.Close()
 	}
 }
@@ -177,12 +181,12 @@ func (s *Session) Close() {
 
 // closeForShutdown 由 Server.Close 调用：标记关闭中并关闭会话。
 // closing=true 让 cleanup 走立即移除路径（不设 dangleTimer），避免关闭后 timer 触发；
-// 同时取消已设置的 dangleTimer（边缘情况：cleanup 在 closing 标志前已执行）。
+// 同时取消 User 上已设置的 dangleTimer（边缘情况：cleanup 在 closing 标志前已执行）。
 // 取消 timer 后 dangling 用户不会被 processDangle 清理，但进程退出时仅内存操作，无副作用。
 func (s *Session) closeForShutdown() {
 	s.closing.Store(true)
-	if t := s.dangleTimer.Swap(nil); t != nil {
-		t.Stop()
+	if s.user != nil {
+		s.user.StopDangleTimer()
 	}
 	s.Close()
 }
@@ -221,12 +225,20 @@ func (s *Session) cleanup() {
 		return // 已被顶号或未认证
 	}
 	u.SetSession(nil)
+	s.logDisconnectDetail(u)
 
 	// 被封禁用户、宽限为 0、或服务器关闭中：不等待重连，立即移除。
 	_, banned := s.state.BannedUsers[u.ID]
 	grace := s.dangleGrace(u)
 	if banned || grace <= 0 || s.closing.Load() {
 		// 对齐原版：封禁用户记 INFO 挂起日志；宽限为 0（对局态配置或非对局窗口）且仍在房间则记房间作用域 WARN（强制退出）。
+		reason := "grace-zero"
+		if banned {
+			reason = "banned"
+		} else if s.closing.Load() {
+			reason = "server-closing"
+		}
+		s.logDangleSkip(u, reason)
 		if banned {
 			s.logLocalized("INFO", "log-user-dangle", map[string]string{"user": u.Name})
 		} else if u.Room != nil {
@@ -237,12 +249,70 @@ func (s *Session) cleanup() {
 		return
 	}
 	// 否则标记 dangling，保留房间/用户一段时间，等待同账号重连（重连时 SetSession 清 token）。
+	s.logDangleGrace(u, grace)
 	s.logLocalized("INFO", "log-user-dangle", map[string]string{"user": u.Name})
 	deadline := time.Now().Add(grace).UnixMilli()
 	token := u.MarkDangle(&deadline)
 	s.state.Mu.Unlock()
 	t := time.AfterFunc(grace, func() { s.processDangle(u, token) })
-	s.dangleTimer.Store(t)
+	u.SetDangleTimer(t)
+}
+
+// logDisconnectDetail 在 cleanup 入口记录 DEBUG 级断线详情（含房间状态），便于排查重连链路。
+// 调用方须持 state.Mu。
+func (s *Session) logDisconnectDetail(u *server.User) {
+	lg := s.state.Logger
+	if lg == nil || !lg.DebugEnabled() {
+		return
+	}
+	inRoom, roomID, roomState := s.snapshotUserRoom(u)
+	lg.Debug(fmt.Sprintf("连接ID：%s，“%s” 断线清理：在房间=%s，房间ID=%s，房间状态=%s",
+		s.id, u.Name, strconv.FormatBool(inRoom), roomID, roomState))
+}
+
+// logDangleGrace 记录 DEBUG 级挂起宽限详情（含对局态判定）。
+// 调用方须持 state.Mu。
+func (s *Session) logDangleGrace(u *server.User, grace time.Duration) {
+	lg := s.state.Logger
+	if lg == nil || !lg.DebugEnabled() {
+		return
+	}
+	playing := false
+	roomID := ""
+	if u.Room != nil {
+		roomID = string(u.Room.ID)
+		u.Room.Mu.Lock()
+		_, playing = u.Room.State.(server.StatePlaying)
+		u.Room.Mu.Unlock()
+	}
+	lg.Debug(fmt.Sprintf("“%s” 进入挂起：宽限 %s 秒，对局态=%s，房间 “%s”",
+		u.Name, strconv.Itoa(int(grace.Seconds())), strconv.FormatBool(playing), roomID))
+}
+
+// logDangleSkip 记录 DEBUG 级跳过挂起立即移除原因。
+// 调用方须持 state.Mu。
+func (s *Session) logDangleSkip(u *server.User, reason string) {
+	lg := s.state.Logger
+	if lg == nil || !lg.DebugEnabled() {
+		return
+	}
+	roomID := ""
+	if u.Room != nil {
+		roomID = string(u.Room.ID)
+	}
+	lg.Debug(fmt.Sprintf("“%s” 跳过挂起立即移除：原因=%s，房间=%s", u.Name, reason, roomID))
+}
+
+// snapshotUserRoom 读取用户当前房间状态（无锁读取 room.State 须持 room.Mu；调用方持 state.Mu）。
+func (s *Session) snapshotUserRoom(u *server.User) (inRoom bool, roomID, roomState string) {
+	if u.Room == nil {
+		return false, "", ""
+	}
+	roomID = string(u.Room.ID)
+	u.Room.Mu.Lock()
+	roomState = fmt.Sprintf("%T", u.Room.State)
+	u.Room.Mu.Unlock()
+	return true, roomID, roomState
 }
 
 // dangleGrace 返回该用户断线后的保留窗口：对局态用配置宽限（0=立即），否则非对局窗口。
@@ -278,22 +348,53 @@ func (s *Session) removeUser(u *server.User) {
 	}
 	delete(s.state.Users, u.ID)
 	s.state.CleanupUserData(u.ID)
+	// 清除 dangle 状态：防止残留 dangleToken 导致旧 session 的 stale timer
+	// 在 IsStillDangling 中误判为 true（removeUser 不清 token 是原 bug 的根源之一）。
+	u.ClearDangle()
 }
 
 // processDangle 在宽限窗到期后检查用户是否仍 dangling（未重连），是则移除。
 func (s *Session) processDangle(u *server.User, token *server.DangleToken) {
-	// 清空 timer 引用（timer 已触发，无需再 Stop）。
-	s.dangleTimer.Store(nil)
 	s.state.Mu.Lock()
 	defer s.state.Mu.Unlock()
-	if !u.IsStillDangling(token) {
-		return // 已重连（SetSession 清除了 token）
+	// 防御：用户可能已被先前 timer 或其他路径移除（stale timer 场景）。
+	// SetSession 重连时已取消本 timer，正常不会走到这里；此守卫防御 timer.Stop
+	// 返回 false（timer 已触发）但 goroutine 已启动的竞态。
+	if _, exists := s.state.Users[u.ID]; !exists {
+		s.logDangleStaleSkip(u)
+		return
+	}
+	stillDangling := u.IsStillDangling(token)
+	s.logDangleTimerFire(u, stillDangling)
+	if !stillDangling {
+		return // 已重连（SetSession 清除了 token 并取消了 timer）
 	}
 	// 对齐原版：挂起超时移除时，若仍在房间内记房间作用域 WARN。
 	if u.Room != nil {
 		s.logLocalized("WARN", "log-user-dangle-timeout-remove", map[string]string{"user": u.Name, "room": string(u.Room.ID)})
 	}
 	s.removeUser(u)
+}
+
+// logDangleTimerFire 记录 DEBUG 级挂起宽限到期检查结果。
+// 调用方须持 state.Mu。
+func (s *Session) logDangleTimerFire(u *server.User, stillDangling bool) {
+	lg := s.state.Logger
+	if lg == nil || !lg.DebugEnabled() {
+		return
+	}
+	lg.Debug(fmt.Sprintf("“%s” 挂起宽限到期，检查重连状态：仍挂起=%s",
+		u.Name, strconv.FormatBool(stillDangling)))
+}
+
+// logDangleStaleSkip 记录 DEBUG 级 stale timer 跳过：用户已不在 state.Users 中。
+// 调用方须持 state.Mu。
+func (s *Session) logDangleStaleSkip(u *server.User) {
+	lg := s.state.Logger
+	if lg == nil || !lg.DebugEnabled() {
+		return
+	}
+	lg.Debug(fmt.Sprintf("“%s” 挂起 timer 触发但用户已不在用户表（stale timer 跳过）", u.Name))
 }
 
 // logLocalized 按级别记录一条本地化日志（连接/挂起生命周期用，nil 日志器时静默）。
@@ -308,6 +409,74 @@ func (s *Session) logLocalized(level, key string, args map[string]string) {
 	} else {
 		lg.Info(msg)
 	}
+}
+
+// logAuthStart 在认证开始时记录 DEBUG（含 token 脱敏前缀），便于关联 phira 重试链路。
+func (s *Session) logAuthStart(token string) {
+	lg := s.state.Logger
+	if lg == nil || !lg.DebugEnabled() {
+		return
+	}
+	prefix := token
+	if len(prefix) > 8 {
+		prefix = prefix[:8]
+	} else if len(prefix) == 0 {
+		prefix = "(empty)"
+	}
+	lg.Debug(fmt.Sprintf("连接ID：%s，开始 Phira 认证（token 前缀：%s…）", s.id, prefix))
+}
+
+// logAuthFetchError 在 Phira 获取用户信息失败时记录 DEBUG（含原始翻译键/错误串），
+// 上层 failAuth 仍只记 WARN 本地化原因；此处补充 DEBUG 用于排查上游问题。
+func (s *Session) logAuthFetchError(err error) {
+	lg := s.state.Logger
+	if lg == nil || !lg.DebugEnabled() || err == nil {
+		return
+	}
+	lg.Debug(fmt.Sprintf("连接ID：%s，Phira 获取用户信息失败：%s", s.id, err.Error()))
+}
+
+// logReconnectDetected 在重连路径识别后记录 DEBUG（含房间信息）。调用方须持 state.Mu。
+func (s *Session) logReconnectDetected(u *server.User, room *server.Room, roomStateStr string) {
+	lg := s.state.Logger
+	if lg == nil || !lg.DebugEnabled() {
+		return
+	}
+	inRoom := room != nil
+	roomID := ""
+	if inRoom {
+		roomID = string(room.ID)
+	}
+	lg.Debug(fmt.Sprintf("连接ID：%s，“%s” 走重连路径：在房间=%s，房间ID=%s，房间状态=%s",
+		s.id, u.Name, strconv.FormatBool(inRoom), roomID, roomStateStr))
+}
+
+// logReconnectStaleKicked 记录 DEBUG 级重连顶号事件。
+func (s *Session) logReconnectStaleKicked(u *server.User, stale server.Session) {
+	lg := s.state.Logger
+	if lg == nil || !lg.DebugEnabled() {
+		return
+	}
+	lg.Debug(fmt.Sprintf("“%s” 重连顶号：踢出旧会话，旧连接ID=%s", u.Name, stale.ID()))
+}
+
+// logReconnectRoomRestored 记录 DEBUG 级重连房间状态恢复结果。
+func (s *Session) logReconnectRoomRestored(u *server.User, room *server.Room, roomStateStr string, hack bool) {
+	lg := s.state.Logger
+	if lg == nil || !lg.DebugEnabled() {
+		return
+	}
+	lg.Debug(fmt.Sprintf("“%s” 重连恢复房间状态：房间 “%s”，状态=%s，触发协议修正=%s",
+		u.Name, string(room.ID), roomStateStr, strconv.FormatBool(hack)))
+}
+
+// logReconnectNoRoom 记录 DEBUG 级重连时已无房间。
+func (s *Session) logReconnectNoRoom(u *server.User) {
+	lg := s.state.Logger
+	if lg == nil || !lg.DebugEnabled() {
+		return
+	}
+	lg.Debug(fmt.Sprintf("“%s” 重连时已无房间（可能已超时移除或房间解散）", u.Name))
 }
 
 // run 启动写循环并运行读循环（阻塞至连接结束）。
@@ -328,10 +497,8 @@ func (s *Session) logNewConnection() {
 	if lg == nil {
 		return
 	}
-	msg := l10n.TL(s.state.ServerLang, "log-new-connection", map[string]string{
-		"id":     s.id,
-		"remote": net.JoinHostPort(s.remoteIP, strconv.Itoa(s.remotePort)),
-	})
+	msg := fmt.Sprintf("收到新连接，连接ID：%s，来源：%s",
+		s.id, net.JoinHostPort(s.remoteIP, strconv.Itoa(s.remotePort)))
 	if cl, ok := lg.(connLogger); ok {
 		cl.ConnectionLog(s.remoteIP, msg)
 		return
@@ -346,6 +513,9 @@ func (s *Session) writeLoop() {
 			return
 		case frame := <-s.sendCh:
 			if _, err := s.conn.Write(frame); err != nil {
+				if lg := s.state.Logger; lg != nil {
+					lg.Warn(fmt.Sprintf("连接ID：%s，写循环 Write 失败：%v", s.id, err))
+				}
 				s.Close()
 				return
 			}
@@ -372,9 +542,15 @@ func (s *Session) readLoop() {
 	_ = s.conn.SetReadDeadline(time.Now().Add(handshakeTimeout))
 	ver, err := r.ReadByte()
 	if err != nil {
+		if lg := s.state.Logger; lg != nil && lg.DebugEnabled() {
+			lg.Debug(fmt.Sprintf("连接ID：%s，握手读取失败：%v", s.id, err))
+		}
 		return
 	}
 	if ver != protocolVersion {
+		if lg := s.state.Logger; lg != nil && lg.DebugEnabled() {
+			lg.Debug(fmt.Sprintf("连接ID：%s，握手版本不符：期望 %d 实际 %d", s.id, protocolVersion, ver))
+		}
 		return // 版本不符：直接断开（不触发认证）
 	}
 
@@ -384,6 +560,15 @@ func (s *Session) readLoop() {
 		_ = s.conn.SetReadDeadline(time.Now().Add(heartbeatTimeout))
 		n, err := r.Read(tmp)
 		if err != nil {
+			if lg := s.state.Logger; lg != nil {
+				if errors.Is(err, io.EOF) {
+					if lg.DebugEnabled() {
+						lg.Debug(fmt.Sprintf("连接ID：%s，读循环结束（EOF）", s.id))
+					}
+				} else {
+					lg.Warn(fmt.Sprintf("连接ID：%s，读循环 Read 失败：%v", s.id, err))
+				}
+			}
 			return
 		}
 		buf = append(buf, tmp[:n]...)
@@ -393,6 +578,9 @@ func (s *Session) readLoop() {
 				break
 			}
 			if res.Kind == protocol.FrameError {
+				if lg := s.state.Logger; lg != nil && lg.DebugEnabled() {
+					lg.Debug(fmt.Sprintf("连接ID：%s，帧解码错误，断开", s.id))
+				}
 				return
 			}
 			cmd, derr := protocol.DecodePacket(res.Payload, protocol.DecodeClientCommand)
@@ -401,6 +589,9 @@ func (s *Session) readLoop() {
 			copy(buf, res.Remaining)
 			buf = buf[:remaining]
 			if derr != nil {
+				if lg := s.state.Logger; lg != nil && lg.DebugEnabled() {
+					lg.Debug(fmt.Sprintf("连接ID：%s，包解码错误：%v", s.id, derr))
+				}
 				return
 			}
 			s.onCommand(cmd)
@@ -431,10 +622,13 @@ func (s *Session) onCommand(cmd protocol.ClientCommand) {
 		}
 		return // 认证前忽略其他命令
 	}
-	// 命令级限流：放行心跳与实时数据（catNone），挡下异常高频的聊天/房间/上游 API 命令。
-	// 可由 COMMAND_RATE_LIMIT=false 关闭（内网/比赛）。
+	// 命令级限流：操作桶限制离散操作（聊天/房间/API）≤2 次/秒，总包桶限制所有命令包
+	// （含 Touches/Judges）≤15 个/秒。可由 COMMAND_RATE_LIMIT=false 关闭（内网/比赛）。
 	if s.state.Config.EffectiveCommandRateLimit() {
 		if cat := categorize(cmd); !s.rl.allow(cat, time.Now()) {
+			if lg := s.state.Logger; lg != nil && lg.DebugEnabled() {
+				lg.Debug(fmt.Sprintf("连接ID：%s，用户“%s”触发限流：命令=%T，分类=%v", s.id, s.user.Name, cmd, cat))
+			}
 			if resp, ok := rateLimitedResponse(s.user.Lang, cmd); ok {
 				s.TrySend(resp)
 			}
@@ -468,6 +662,7 @@ func (s *Session) onCommand(cmd protocol.ClientCommand) {
 }
 
 func (s *Session) handleAuthenticate(token string) {
+	s.logAuthStart(token)
 	if len(token) > 32 {
 		s.failAuth("auth-invalid-token")
 		return
@@ -475,6 +670,7 @@ func (s *Session) handleAuthenticate(token string) {
 	// Phira HTTP 认证：阻塞调用，不持锁。Hub 内部派生 ctx 控制超时与关闭取消。
 	info, err := s.hub.FetchUserInfo(token)
 	if err != nil {
+		s.logAuthFetchError(err)
 		s.failAuth(err.Error())
 		return
 	}
@@ -513,10 +709,12 @@ func (s *Session) handleAuthenticate(token string) {
 
 		// 断线重连：构建客户端房间状态
 		var room *server.Room
+		var roomStateStr string
 		if user.Room != nil {
 			room = user.Room
 			room.Mu.Lock()
 			cs := room.ClientState(user, func(id int) *server.User { return s.state.Users[id] })
+			roomStateStr = fmt.Sprintf("%T", room.State)
 			// ProtocolHack：WaitForReady 态但已选谱 → 伪装为 SelectChart 让客户端先获知谱面 ID，
 			// 随后 session 在延迟 20ms 后再切回 WaitingForReady。
 			if _, wfr := room.State.(server.StateWaitForReady); wfr && room.Chart != nil {
@@ -529,10 +727,12 @@ func (s *Session) handleAuthenticate(token string) {
 		}
 		me := user.ToInfo()
 		monitor := user.Monitor
+		s.logReconnectDetected(user, room, roomStateStr)
 		s.state.Mu.Unlock()
 
 		// 踢旧会话（锁外）。此时 user.Session 已指向新会话，旧会话 cleanup 将短路，不会退房。
 		if stale != nil {
+			s.logReconnectStaleKicked(user, stale)
 			stale.TrySend(protocol.SrvMessage{Message: protocol.MsgChat{
 				User:    0,
 				Content: l10n.TL(s.state.ServerLang, "error-logged-in-elsewhere", nil),
@@ -547,6 +747,11 @@ func (s *Session) handleAuthenticate(token string) {
 		if restoreChartID != nil && room != nil {
 			ph := s.hub.NewProtocolHack()
 			ph.FixClientRoomState(room, user)
+			s.logReconnectRoomRestored(user, room, roomStateStr, true)
+		} else if room != nil {
+			s.logReconnectRoomRestored(user, room, roomStateStr, false)
+		} else {
+			s.logReconnectNoRoom(user)
 		}
 
 		s.logAuthSuccess(user, monitor)
@@ -612,9 +817,8 @@ func (s *Session) logAuthSuccess(user *server.User, monitor bool) {
 	if monitor {
 		suffix = l10n.TL(s.state.ServerLang, "label-monitor-suffix", nil)
 	}
-	lg.Debug(l10n.TL(s.state.ServerLang, "log-auth-ok", map[string]string{
-		"id": s.id, "user": user.Name, "monitorSuffix": suffix, "version": strconv.Itoa(protocolVersion),
-	}))
+	lg.Debug(fmt.Sprintf("连接ID：%s，“ %s ” %s 认证成功，协议版本：“%s”",
+		s.id, user.Name, suffix, strconv.Itoa(protocolVersion)))
 	lg.Info(l10n.TL(s.state.ServerLang, "log-player-join", map[string]string{
 		"user": user.Name, "id": strconv.Itoa(user.ID), "monitorSuffix": suffix,
 	}))

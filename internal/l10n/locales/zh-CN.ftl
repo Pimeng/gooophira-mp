@@ -160,7 +160,6 @@ client-ping-in-flight = 上一次 ping 尚未完成
 client-heartbeat-timeout = 心跳超时
 client-timeout = 超时
 
-log-new-connection = 收到新连接，连接ID：{ $id }，来源：{ $remote }
 log-handshake-ok = 连接握手完成，连接ID：{ $id }，协议版本：“{ $version }”
 log-handshake-failed = 连接握手失败，连接ID：{ $id }：{ $reason }
 
@@ -187,7 +186,6 @@ log-config-reloaded = 配置已重载：{ $items }
 log-config-reload-restart = 以下配置变更需重启后生效：{ $items }
 
 log-heartbeat-timeout-disconnect = 心跳超时，准备断开连接（连接ID：{ $id }）
-log-auth-ok = 连接ID：{ $id }，“ { $user } ” { $monitorSuffix } 认证成功，协议版本：“{ $version }”
 log-auth-failed = 连接ID：{ $id } 认证失败：{ $reason }
 
 log-player-join = “{ $user }({ $id })”{ $monitorSuffix } 加入了服务器
@@ -202,8 +200,6 @@ log-user-dangle = “{ $user }” 断线，进入挂起等待重连
 log-user-dangle-timeout-remove = “{ $user }” 挂起超时，移除用户并退出房间 “{ $room }”
 
 log-user-chat = “{ $user }” 在房间 “{ $room }” 发送聊天消息
-log-user-touches = “{ $user }” 在房间 “{ $room }” 上报触控帧 { $count } 条
-log-user-judges = “{ $user }” 在房间 “{ $room }” 上报判定事件 { $count } 条
 
 log-room-created = “{ $user }” 创建房间 “{ $room }”
 log-room-joined = “{ $user }”{ $suffix } 加入房间 “{ $room }”

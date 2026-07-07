@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
@@ -58,6 +59,9 @@ type User struct {
 	dangleToken *DangleToken
 	// DangleDeadline 是断线挂起截止时间（Unix 毫秒）；nil = 当前未挂起。
 	DangleDeadline *int64
+	// dangleTimer 是断线宽限 timer，存在 User 上（而非 Session）以便重连时
+	// SetSession 能直接取消旧 session 遗留的 timer，防止 stale timer 触发误移除。
+	dangleTimer *time.Timer
 }
 
 // NewUser 创建用户实例。
@@ -99,9 +103,15 @@ func (u *User) CanMonitor() bool {
 	return slices.Contains(u.Server.Config.EffectiveMonitors(), u.ID)
 }
 
-// SetSession 设置/清除关联会话；设置新会话时清除 dangling 状态。
+// SetSession 设置/清除关联会话；设置新会话时清除 dangling 状态并取消挂起 timer。
+// 取消 timer 是关键：旧 session 断线时设置的 dangleTimer 存在 User 上，若不取消，
+// 重连后旧 timer 仍会触发 processDangle（stale timer），可能误移除已重连的用户。
 func (u *User) SetSession(session Session) {
 	u.Mu.Lock()
+	if u.dangleTimer != nil {
+		u.dangleTimer.Stop()
+		u.dangleTimer = nil
+	}
 	u.Session = session
 	u.dangleToken = nil
 	u.DangleDeadline = nil
@@ -160,6 +170,37 @@ func (u *User) IsStillDangling(token *DangleToken) bool {
 	same := u.dangleToken == token
 	u.Mu.RUnlock()
 	return same
+}
+
+// SetDangleTimer 存储挂起宽限 timer 引用（供 SetSession/重连时取消）。
+// 须由调用方持 state.Mu（与 MarkDangle 同一临界区后调用）。
+func (u *User) SetDangleTimer(t *time.Timer) {
+	u.Mu.Lock()
+	u.dangleTimer = t
+	u.Mu.Unlock()
+}
+
+// StopDangleTimer 停止并清除挂起 timer（若存在）。安全可重入，用于 closeForShutdown。
+func (u *User) StopDangleTimer() {
+	u.Mu.Lock()
+	if u.dangleTimer != nil {
+		u.dangleTimer.Stop()
+		u.dangleTimer = nil
+	}
+	u.Mu.Unlock()
+}
+
+// ClearDangle 清除所有挂起状态（token、deadline、timer）。在 removeUser 后调用，
+// 防止残留 dangleToken 导致旧 timer 的 IsStillDangling 误判为 true。须由调用方持 state.Mu。
+func (u *User) ClearDangle() {
+	u.Mu.Lock()
+	if u.dangleTimer != nil {
+		u.dangleTimer.Stop()
+		u.dangleTimer = nil
+	}
+	u.dangleToken = nil
+	u.DangleDeadline = nil
+	u.Mu.Unlock()
 }
 
 // IsConnected 报告用户当前是否有活跃会话（true = 在线，false = 离线/挂起）。

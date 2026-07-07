@@ -22,7 +22,17 @@ import (
 // DefaultEndpoint 是 Phira API 默认端点。
 const DefaultEndpoint = "https://phira.5wyxi.com"
 
-const fetchTimeout = 10 * time.Second
+// 重试策略：网络错误或 5xx 时按线性退避重试。
+//   - maxRetries=3：初始 1 次 + 重试 3 次 = 4 次总尝试
+//   - retryBaseDelay=500ms：线性退避，第 n 次重试前等待 n*500ms（500ms / 1s / 1.5s）
+//   - fetchGlobalTimeout=20s：整个重试过程的全局超时上限
+//
+// 用 var 而非 const 便于测试临时调短退避时间，避免 3s 等待；运行时视为只读。
+var (
+	maxRetries         = 3
+	retryBaseDelay     = 500 * time.Millisecond
+	fetchGlobalTimeout = 20 * time.Second
+)
 
 // 进程级共享缓存（对齐 TS phiraApiClient 的 tokenCache / recordCache）。
 // token 缓存不落盘（含凭证，仅驻内存）；record / chart 缓存落盘（不可变，重启后仍有效）。
@@ -37,6 +47,9 @@ var (
 type Client struct {
 	Endpoint string
 	HTTP     *http.Client
+
+	// Logger 可选；非 nil 且开启 DEBUG 时，记录重试与请求详情用于排查上游问题。
+	Logger server.Logger
 
 	// stop 关闭后台刷新 goroutine；done 在 goroutine 退出时关闭。
 	// NewClient 初始化 stop；StartRefresh 初始化 done。
@@ -60,7 +73,75 @@ func NewClient(endpoint string) *Client {
 	}
 }
 
+// SetLogger 注入日志器，便于在 DEBUG 级别输出重试详情。
+func (c *Client) SetLogger(l server.Logger) { c.Logger = l }
+
+// logDebug 在 DEBUG 开启时记录一条 phira 请求日志。
+func (c *Client) logDebug(msg string) {
+	if c.Logger != nil && c.Logger.DebugEnabled() {
+		c.Logger.Debug(msg)
+	}
+}
+
+// tokenPrefix 返回 token 的脱敏前缀（仅前 8 字符），用于日志排查且不泄露完整凭证。
+func tokenPrefix(token string) string {
+	if len(token) <= 8 {
+		return strings.Repeat("*", len(token))
+	}
+	return token[:8]
+}
+
 func (c *Client) get(ctx context.Context, path string, header map[string]string) (*http.Response, error) {
+	// 全局超时覆盖整个重试过程：即使 parent ctx 未设超时，phira 侧也保证 20s 上限。
+	retryCtx, cancel := context.WithTimeout(ctx, fetchGlobalTimeout)
+	defer cancel()
+
+	totalAttempts := maxRetries + 1
+	c.logDebug(fmt.Sprintf("[phira] GET %s 开始（最多 %d 次尝试，全局超时 %s）", path, totalAttempts, fetchGlobalTimeout))
+
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			// 线性退避：第 1 次重试等 500ms，第 2 次 1s，第 3 次 1.5s。
+			delay := retryBaseDelay * time.Duration(attempt)
+			c.logDebug(fmt.Sprintf("[phira] GET %s 第 %d/%d 次重试（等待 %s，上次错误：%v）", path, attempt+1, totalAttempts, delay, lastErr))
+			select {
+			case <-retryCtx.Done():
+				c.logDebug(fmt.Sprintf("[phira] GET %s 全局超时中断（已尝试 %d/%d 次，最后错误：%v）", path, attempt, totalAttempts, lastErr))
+				if lastErr != nil {
+					return nil, lastErr
+				}
+				return nil, retryCtx.Err()
+			case <-time.After(delay):
+			}
+		}
+
+		resp, err := c.getOnce(retryCtx, path, header)
+		if err != nil {
+			lastErr = err
+			c.logDebug(fmt.Sprintf("[phira] GET %s 第 %d/%d 次请求失败（网络错误）：%v", path, attempt+1, totalAttempts, err))
+			continue // 网络错误/超时：重试
+		}
+		// 5xx 服务器错误：关闭 body 后重试。
+		if resp.StatusCode >= 500 {
+			lastErr = fmt.Errorf("phira-server-error-%d", resp.StatusCode)
+			c.logDebug(fmt.Sprintf("[phira] GET %s 第 %d/%d 次收到 HTTP %d（5xx 触发重试）", path, attempt+1, totalAttempts, resp.StatusCode))
+			_ = resp.Body.Close()
+			continue
+		}
+		c.logDebug(fmt.Sprintf("[phira] GET %s 第 %d/%d 次成功（状态码 %d）", path, attempt+1, totalAttempts, resp.StatusCode))
+		// 2xx 成功或 4xx 客户端错误（不可重试）：交由调用方处理状态码。
+		return resp, nil
+	}
+	c.logDebug(fmt.Sprintf("[phira] GET %s 重试耗尽（共 %d 次，最后错误：%v）", path, totalAttempts, lastErr))
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, retryCtx.Err()
+}
+
+// getOnce 发起单次 GET 请求（无重试）。resp.Body 由调用方负责关闭。
+func (c *Client) getOnce(ctx context.Context, path string, header map[string]string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Endpoint+path, nil)
 	if err != nil {
 		return nil, err
@@ -81,12 +162,15 @@ func (c *Client) FetchUserInfo(ctx context.Context, token string) (server.PhiraU
 
 func (c *Client) fetchUserInfo(ctx context.Context, token string) (server.PhiraUserInfo, error) {
 	var zero server.PhiraUserInfo
+	c.logDebug(fmt.Sprintf("[phira] /me 认证请求（token 前缀：%s…）", tokenPrefix(token)))
 	resp, err := c.get(ctx, "/me", map[string]string{"Authorization": "Bearer " + token})
 	if err != nil {
+		c.logDebug(fmt.Sprintf("[phira] /me 请求失败（底层错误）：%v", err))
 		return zero, fmt.Errorf("auth-fetch-me-failed")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
+		c.logDebug(fmt.Sprintf("[phira] /me 认证被拒（HTTP %d）", resp.StatusCode))
 		return zero, fmt.Errorf("auth-fetch-me-failed")
 	}
 	var data struct {
@@ -95,12 +179,15 @@ func (c *Client) fetchUserInfo(ctx context.Context, token string) (server.PhiraU
 		Language string `json:"language"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		c.logDebug(fmt.Sprintf("[phira] /me 响应解码失败：%v", err))
 		return zero, fmt.Errorf("auth-invalid-response")
 	}
 	name := strings.TrimSpace(data.Name)
 	if name == "" {
+		c.logDebug(fmt.Sprintf("[phira] /me 返回空用户名（id=%d）", data.ID))
 		return zero, fmt.Errorf("auth-invalid-user-name")
 	}
+	c.logDebug(fmt.Sprintf("[phira] /me 认证成功（id=%d, name=%s）", data.ID, name))
 	return server.PhiraUserInfo{ID: data.ID, Name: name, Language: data.Language}, nil
 }
 
