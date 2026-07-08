@@ -608,7 +608,11 @@ func TestClientState(t *testing.T) {
 // benchDispatch 是 mustDispatch 的 testing.B 版本。
 func benchDispatch(b *testing.B, h *Hub, user *User, cmd protocol.ClientCommand) protocol.ServerCommand {
 	b.Helper()
+	// 与生产代码一致：非 room-only 命令须在 state.Mu 保护下派发，
+	// 否则 CmdRequestStart 调度的异步 timer 读取 state.Rooms 会与 CmdCreateRoom 写入竞争。
+	h.State.Mu.Lock()
 	resp, ok := h.ProcessClientCommand(user, cmd)
+	h.State.Mu.Unlock()
 	if !ok {
 		b.Fatalf("expected a response for %T", cmd)
 	}
@@ -648,11 +652,13 @@ func benchmarkRoomLifecycle(b *testing.B, n int) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		// 重置状态（每次迭代独立）
+		// 重置状态（每次迭代独立）。state.Rooms 受 state.Mu 约束，须持锁替换。
+		h.state.Mu.Lock()
 		h.state.Rooms = make(map[protocol.RoomID]*Room)
 		for _, u := range players {
 			u.Room = nil
 		}
+		h.state.Mu.Unlock()
 
 		// 1) 创建房间
 		benchDispatch(b, hub, players[0], protocol.CmdCreateRoom{ID: "bench"})
@@ -720,12 +726,21 @@ func BenchmarkRoomGameplay(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
+	room := alice.Room
 	for b.Loop() {
-		// 模拟 Playing 阶段的帧数据收发
+		// Touches/Judges 是 room-only 命令，生产代码持 room.Mu 派发。
+		room.Mu.Lock()
 		hub.ProcessClientCommand(alice, touches)
+		room.Mu.Unlock()
+		room.Mu.Lock()
 		hub.ProcessClientCommand(bob, touches)
+		room.Mu.Unlock()
+		room.Mu.Lock()
 		hub.ProcessClientCommand(alice, judges)
+		room.Mu.Unlock()
+		room.Mu.Lock()
 		hub.ProcessClientCommand(bob, judges)
+		room.Mu.Unlock()
 	}
 }
 
@@ -738,8 +753,10 @@ func BenchmarkRoomCreateMany(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		// 每次迭代先清理
+		// 每次迭代先清理。state.Rooms 受 state.Mu 约束，须持锁替换。
+		h.state.Mu.Lock()
 		h.state.Rooms = make(map[protocol.RoomID]*Room)
+		h.state.Mu.Unlock()
 
 		// 创建 N=100 个房间，每个 1 个用户
 		for j := range 100 {

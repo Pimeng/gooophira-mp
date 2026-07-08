@@ -70,11 +70,15 @@ jobs:
       - name: run micro benchmarks
         run: |
           mkdir -p tmp/profiles/micro
-          go test -bench=Benchmark -benchmem -count=3 \
-            -cpuprofile=tmp/profiles/micro/cpu.out \
-            -memprofile=tmp/profiles/micro/mem.out \
-            -run='^$' \
-            ./internal/protocol/... ./internal/server/... 2>&1 | tee tmp/profiles/micro/bench.txt
+          # go test 的 -cpuprofile/-memprofile 不支持多包同时测试，按包分别运行
+          for pkg in ./internal/protocol/... ./internal/server/...; do
+            tag="${pkg%/...}"; tag="${tag##*/}"
+            go test -bench=Benchmark -benchmem -count=3 \
+              -cpuprofile="tmp/profiles/micro/cpu_${tag}.out" \
+              -memprofile="tmp/profiles/micro/mem_${tag}.out" \
+              -run='^$' \
+              "$pkg" 2>&1 | tee -a tmp/profiles/micro/bench.txt
+          done
 
       - name: run micro benchmarks (lock profiles)
         run: |
@@ -114,6 +118,7 @@ jobs:
         run: |
           jq -r '
             .results[0] as $r |
+            ($r.cycle_latency.count > 0) as $has_cycle |
             "## Load Test - \($r.name)",
             "",
             "| Metric | Value |",
@@ -121,10 +126,10 @@ jobs:
             "| Clients | \($r.clients) |",
             "| Rooms | \($r.rooms) |",
             "| Duration | \($r.duration / 1000000000)s |",
-            "| Throughput | \($r.commands_per_sec | floor) cmd/s |",
-            "| Cycles/sec | \($r.cycles_per_sec | floor) |",
-            "| Latency avg/min/max | \($r.cycle_latency.mean/1000 | floor)us / \($r.cycle_latency.min/1000 | floor)us / \($r.cycle_latency.max/1000 | floor)us |",
-            "| Latency p50/p90/p99 | \($r.cycle_latency.p50/1000 | floor)us / \($r.cycle_latency.p90/1000 | floor)us / \($r.cycle_latency.p99/1000 | floor)us |",
+            "| Throughput | \(($r.commands_per_sec * 100 | floor) / 100) cmd/s |",
+            "| Cycles/sec | \(($r.cycles_per_sec * 100 | floor) / 100) |",
+            "| Latency avg/min/max | \(if $has_cycle then "\($r.cycle_latency.mean/1000 | floor)us / \($r.cycle_latency.min/1000 | floor)us / \($r.cycle_latency.max/1000 | floor)us" else "N/A" end) |",
+            "| Latency p50/p90/p99 | \(if $has_cycle then "\($r.cycle_latency.p50/1000 | floor)us / \($r.cycle_latency.p90/1000 | floor)us / \($r.cycle_latency.p99/1000 | floor)us" else "N/A" end) |",
             "| Peak goroutines | \($r.peak_goroutines) |",
             "| Peak heap | \(($r.peak_heap_mb * 10 | floor) / 10) MB |",
             "| GC count | \($r.num_gc) |",
@@ -150,6 +155,7 @@ jobs:
         run: |
           jq -r '
             .results[0] as $r |
+            ($r.cycle_latency.count > 0) as $has_cycle |
             "## TCP Connect Load Test - \($r.name)",
             "",
             "| Metric | Value |",
@@ -157,13 +163,13 @@ jobs:
             "| Clients | \($r.clients) |",
             "| Rooms | \($r.rooms) |",
             "| Duration | \($r.duration / 1000000000)s |",
-            "| Throughput | \($r.commands_per_sec | floor) cmd/s |",
+            "| Throughput | \(($r.commands_per_sec * 100 | floor) / 100) cmd/s |",
             "| TCP connect avg/min/max | \($r.connect_latency.mean/1000 | floor)us / \($r.connect_latency.min/1000 | floor)us / \($r.connect_latency.max/1000 | floor)us |",
             "| TCP connect p50/p90/p99 | \($r.connect_latency.p50/1000 | floor)us / \($r.connect_latency.p90/1000 | floor)us / \($r.connect_latency.p99/1000 | floor)us |",
             "| Auth RTT avg/min/max | \($r.auth_latency.mean/1000 | floor)us / \($r.auth_latency.min/1000 | floor)us / \($r.auth_latency.max/1000 | floor)us |",
             "| Auth RTT p50/p90/p99 | \($r.auth_latency.p50/1000 | floor)us / \($r.auth_latency.p90/1000 | floor)us / \($r.auth_latency.p99/1000 | floor)us |",
-            "| Cycle latency avg/min/max | \($r.cycle_latency.mean/1000 | floor)us / \($r.cycle_latency.min/1000 | floor)us / \($r.cycle_latency.max/1000 | floor)us |",
-            "| Cycle latency p50/p90/p99 | \($r.cycle_latency.p50/1000 | floor)us / \($r.cycle_latency.p90/1000 | floor)us / \($r.cycle_latency.p99/1000 | floor)us |",
+            "| Cycle latency avg/min/max | \(if $has_cycle then "\($r.cycle_latency.mean/1000 | floor)us / \($r.cycle_latency.min/1000 | floor)us / \($r.cycle_latency.max/1000 | floor)us" else "N/A" end) |",
+            "| Cycle latency p50/p90/p99 | \(if $has_cycle then "\($r.cycle_latency.p50/1000 | floor)us / \($r.cycle_latency.p90/1000 | floor)us / \($r.cycle_latency.p99/1000 | floor)us" else "N/A" end) |",
             "| Peak goroutines | \($r.peak_goroutines) |",
             "| Peak heap | \(($r.peak_heap_mb * 10 | floor) / 10) MB |",
             "| GC count | \($r.num_gc) |",

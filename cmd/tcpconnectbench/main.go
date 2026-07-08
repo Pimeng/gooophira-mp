@@ -829,6 +829,7 @@ func runConnectionStormScenario(bc benchConfig, mc *metricsCollector, addr strin
 	result := scenarioResult{
 		Name:    "connection-storm",
 		Clients: bc.Clients,
+		Rooms:   bc.Rooms,
 	}
 	startTime := time.Now()
 

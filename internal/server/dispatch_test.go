@@ -782,12 +782,16 @@ func BenchmarkDispatch_AllCommands(b *testing.B) {
 	alice := h.addUser(1, "alice")
 	bob := h.addUser(2, "bob")
 
-	// 设置一个进行中的房间用于需要房间上下文的命令
+	// 设置一个进行中的房间用于需要房间上下文的命令。
+	// 与生产代码一致：非 room-only 命令须在 state.Mu 保护下派发，
+	// 否则 CmdRequestStart 调度的异步 timer 读取 state.Rooms 会与后续 CmdCreateRoom 写入竞争。
+	h.state.Mu.Lock()
 	hub.ProcessClientCommand(alice, protocol.CmdCreateRoom{ID: "bench"})
 	hub.ProcessClientCommand(bob, protocol.CmdJoinRoom{ID: "bench", Monitor: false})
 	hub.ProcessClientCommand(alice, protocol.CmdSelectChart{ID: 1})
 	hub.ProcessClientCommand(alice, protocol.CmdRequestStart{})
 	hub.ProcessClientCommand(bob, protocol.CmdReady{})
+	h.state.Mu.Unlock()
 
 	cmds := []protocol.ClientCommand{
 		protocol.CmdPing{},
@@ -810,7 +814,9 @@ func BenchmarkDispatch_AllCommands(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		for _, cmd := range cmds {
+			h.state.Mu.Lock()
 			hub.ProcessClientCommand(alice, cmd)
+			h.state.Mu.Unlock()
 		}
 	}
 }
