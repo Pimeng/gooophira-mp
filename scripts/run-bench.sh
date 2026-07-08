@@ -226,27 +226,35 @@ run_load() {
     return 1
   fi
 
-  if [[ "$HAVE_JQ" == true ]]; then
+  if [[ "$HAVE_JQ" == true && -s "$LOAD_DIR/result.json" ]]; then
     jq -r '
-      .results[0] as $r |
-      ($r.cycle_latency.count > 0) as $has_cycle |
-      "## Load Test",
-      "",
-      "| Metric | Value |",
-      "|---|---|",
-      "| Scenario | \($r.name) |",
-      "| Clients | \($r.clients) |",
-      "| Rooms | \($r.rooms) |",
-      "| Duration | \($r.duration / 1000000000)s |",
-      "| Throughput | \(($r.commands_per_sec * 100 | floor) / 100) cmd/s |",
-      "| Cycles/sec | \(($r.cycles_per_sec * 100 | floor) / 100) |",
-      "| Latency avg/min/max | \(if $has_cycle then "\($r.cycle_latency.mean/1000 | floor)us / \($r.cycle_latency.min/1000 | floor)us / \($r.cycle_latency.max/1000 | floor)us" else "N/A" end) |",
-      "| Latency p50/p90/p99 | \(if $has_cycle then "\($r.cycle_latency.p50/1000 | floor)us / \($r.cycle_latency.p90/1000 | floor)us / \($r.cycle_latency.p99/1000 | floor)us" else "N/A" end) |",
-      "| Peak goroutines | \($r.peak_goroutines) |",
-      "| Peak heap | \(($r.peak_heap_mb * 10 | floor) / 10) MB |",
-      "| GC count | \($r.num_gc) |",
-      "| Errors | \($r.errors) |",
-      ""
+      if (.results | length) > 0 then
+        .results[0] as $r |
+        (($r.cmd_latency.count // 0) > 0) as $has_lat |
+        ($r.duration // 0) as $dur_ns |
+        "## Load Test",
+        "",
+        "| Metric | Value |",
+        "|---|---|",
+        "| Scenario | \($r.name) |",
+        "| Clients | \($r.config.clients // "N/A") |",
+        "| Rooms | \($r.config.rooms // "N/A") |",
+        "| Duration | \(if $dur_ns > 0 then ($dur_ns / 1000000000) else 0 end)s |",
+        "| Throughput | \((($r.throughput.avg_cmds_per_sec // 0) * 100 | floor) / 100) cmd/s |",
+        "| Cycles/sec | \(if $dur_ns > 0 then ((($r.throughput.cycles_completed // 0) / ($dur_ns / 1000000000)) * 100 | floor) / 100 else 0 end) |",
+        "| Latency avg/min/max | \(if $has_lat then "\(($r.cmd_latency.mean // 0)/1000 | floor)us / \(($r.cmd_latency.min // 0)/1000 | floor)us / \(($r.cmd_latency.max // 0)/1000 | floor)us" else "N/A" end) |",
+        "| Latency p50/p90/p99 | \(if $has_lat then "\(($r.cmd_latency.p50 // 0)/1000 | floor)us / \(($r.cmd_latency.p90 // 0)/1000 | floor)us / \(($r.cmd_latency.p99 // 0)/1000 | floor)us" else "N/A" end) |",
+        "| Peak goroutines | \($r.runtime.peak_goroutines // "N/A") |",
+        "| Peak heap | \((($r.runtime.peak_heap_mb // 0) * 10 | floor) / 10) MB |",
+        "| GC count | \($r.runtime.num_gc // "N/A") |",
+        "| Errors | \($r.errors.total // 0) |",
+        ""
+      else
+        "## Load Test",
+        "",
+        "_(no results — bench failed to produce output)_",
+        ""
+      end
     ' "$LOAD_DIR/result.json" > "$LOAD_DIR/summary.md"
     cat "$LOAD_DIR/summary.md"
   else
@@ -281,30 +289,38 @@ run_tcp() {
     return 1
   fi
 
-  if [[ "$HAVE_JQ" == true ]]; then
+  if [[ "$HAVE_JQ" == true && -s "$TCP_DIR/result.json" ]]; then
     jq -r '
-      .results[0] as $r |
-      ($r.cycle_latency.count > 0) as $has_cycle |
-      "## TCP Connect Load Test",
-      "",
-      "| Metric | Value |",
-      "|---|---|",
-      "| Scenario | \($r.name) |",
-      "| Clients | \($r.clients) |",
-      "| Rooms | \($r.rooms) |",
-      "| Duration | \($r.duration / 1000000000)s |",
-      "| Throughput | \(($r.commands_per_sec * 100 | floor) / 100) cmd/s |",
-      "| TCP connect avg/min/max | \($r.connect_latency.mean/1000 | floor)us / \($r.connect_latency.min/1000 | floor)us / \($r.connect_latency.max/1000 | floor)us |",
-      "| TCP connect p50/p90/p99 | \($r.connect_latency.p50/1000 | floor)us / \($r.connect_latency.p90/1000 | floor)us / \($r.connect_latency.p99/1000 | floor)us |",
-      "| Auth RTT avg/min/max | \($r.auth_latency.mean/1000 | floor)us / \($r.auth_latency.min/1000 | floor)us / \($r.auth_latency.max/1000 | floor)us |",
-      "| Auth RTT p50/p90/p99 | \($r.auth_latency.p50/1000 | floor)us / \($r.auth_latency.p90/1000 | floor)us / \($r.auth_latency.p99/1000 | floor)us |",
-      "| Cycle latency avg/min/max | \(if $has_cycle then "\($r.cycle_latency.mean/1000 | floor)us / \($r.cycle_latency.min/1000 | floor)us / \($r.cycle_latency.max/1000 | floor)us" else "N/A" end) |",
-      "| Cycle latency p50/p90/p99 | \(if $has_cycle then "\($r.cycle_latency.p50/1000 | floor)us / \($r.cycle_latency.p90/1000 | floor)us / \($r.cycle_latency.p99/1000 | floor)us" else "N/A" end) |",
-      "| Peak goroutines | \($r.peak_goroutines) |",
-      "| Peak heap | \(($r.peak_heap_mb * 10 | floor) / 10) MB |",
-      "| GC count | \($r.num_gc) |",
-      "| Errors | \($r.errors) |",
-      ""
+      if (.results | length) > 0 then
+        .results[0] as $r |
+        (($r.cmd_latency.count // 0) > 0) as $has_lat |
+        ($r.duration // 0) as $dur_ns |
+        "## TCP Connect Load Test",
+        "",
+        "| Metric | Value |",
+        "|---|---|",
+        "| Scenario | \($r.name) |",
+        "| Clients | \($r.config.clients // "N/A") |",
+        "| Rooms | \($r.config.rooms // "N/A") |",
+        "| Duration | \(if $dur_ns > 0 then ($dur_ns / 1000000000) else 0 end)s |",
+        "| Throughput | \((($r.throughput.avg_cmds_per_sec // 0) * 100 | floor) / 100) cmd/s |",
+        "| TCP connect avg/min/max | \(($r.connect_latency.mean // 0)/1000 | floor)us / \(($r.connect_latency.min // 0)/1000 | floor)us / \(($r.connect_latency.max // 0)/1000 | floor)us |",
+        "| TCP connect p50/p90/p99 | \(($r.connect_latency.p50 // 0)/1000 | floor)us / \(($r.connect_latency.p90 // 0)/1000 | floor)us / \(($r.connect_latency.p99 // 0)/1000 | floor)us |",
+        "| Auth RTT avg/min/max | \(($r.auth_latency.mean // 0)/1000 | floor)us / \(($r.auth_latency.min // 0)/1000 | floor)us / \(($r.auth_latency.max // 0)/1000 | floor)us |",
+        "| Auth RTT p50/p90/p99 | \(($r.auth_latency.p50 // 0)/1000 | floor)us / \(($r.auth_latency.p90 // 0)/1000 | floor)us / \(($r.auth_latency.p99 // 0)/1000 | floor)us |",
+        "| Cmd latency avg/min/max | \(if $has_lat then "\(($r.cmd_latency.mean // 0)/1000 | floor)us / \(($r.cmd_latency.min // 0)/1000 | floor)us / \(($r.cmd_latency.max // 0)/1000 | floor)us" else "N/A" end) |",
+        "| Cmd latency p50/p90/p99 | \(if $has_lat then "\(($r.cmd_latency.p50 // 0)/1000 | floor)us / \(($r.cmd_latency.p90 // 0)/1000 | floor)us / \(($r.cmd_latency.p99 // 0)/1000 | floor)us" else "N/A" end) |",
+        "| Peak goroutines | \($r.runtime.peak_goroutines // "N/A") |",
+        "| Peak heap | \((($r.runtime.peak_heap_mb // 0) * 10 | floor) / 10) MB |",
+        "| GC count | \($r.runtime.num_gc // "N/A") |",
+        "| Errors | \($r.errors.total // 0) |",
+        ""
+      else
+        "## TCP Connect Load Test",
+        "",
+        "_(no results — bench failed to produce output)_",
+        ""
+      end
     ' "$TCP_DIR/result.json" > "$TCP_DIR/summary.md"
     cat "$TCP_DIR/summary.md"
   else
