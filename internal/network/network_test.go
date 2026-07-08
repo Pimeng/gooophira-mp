@@ -469,12 +469,14 @@ func TestNetwork_FullFlowOverTCP(t *testing.T) {
 	// 给服务端一点时间推进状态机
 	waitFor(t, func() bool {
 		state.Mu.Lock()
-		defer state.Mu.Unlock()
 		room := state.Rooms["room1"]
+		state.Mu.Unlock()
 		if room == nil {
 			return false
 		}
+		room.Mu.Lock()
 		_, playing := room.State.(server.StatePlaying)
+		room.Mu.Unlock()
 		return playing
 	})
 
@@ -483,12 +485,14 @@ func TestNetwork_FullFlowOverTCP(t *testing.T) {
 	c.expectResultOK("Played")
 	waitFor(t, func() bool {
 		state.Mu.Lock()
-		defer state.Mu.Unlock()
 		room := state.Rooms["room1"]
+		state.Mu.Unlock()
 		if room == nil {
 			return false
 		}
+		room.Mu.Lock()
 		_, sel := room.State.(server.StateSelectChart)
+		room.Mu.Unlock()
 		return sel
 	})
 }

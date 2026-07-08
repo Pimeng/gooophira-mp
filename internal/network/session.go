@@ -192,8 +192,13 @@ func (s *Session) Close() {
 // 取消 timer 后 dangling 用户不会被 processDangle 清理，但进程退出时仅内存操作，无副作用。
 func (s *Session) closeForShutdown() {
 	s.closing.Store(true)
-	if s.user != nil {
-		s.user.StopDangleTimer()
+	// s.user 由 readLoop goroutine 在 handleAuthenticate 中写（持 state.Mu），
+	// 此处从 Server.Close goroutine 调用，须持 state.Mu 同步避免 data race。
+	s.state.Mu.Lock()
+	u := s.user
+	s.state.Mu.Unlock()
+	if u != nil {
+		u.StopDangleTimer()
 	}
 	s.Close()
 }
