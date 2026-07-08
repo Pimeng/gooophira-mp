@@ -112,7 +112,7 @@ func (s *Service) handleAdminBanUser(w http.ResponseWriter, r *http.Request, lan
 	var sess server.Session
 	if disconnect {
 		if u := s.state.Users[id]; u != nil {
-			sess = u.Session
+			sess = u.Session()
 		}
 	}
 	s.state.Mu.Unlock()
@@ -227,7 +227,7 @@ func (s *Service) handleAdminDisconnect(w http.ResponseWriter, lang *l10n.Langua
 	s.state.Mu.Lock()
 	var sess server.Session
 	if u := s.state.Users[id]; u != nil {
-		sess = u.Session
+		sess = u.Session()
 	}
 	s.state.Mu.Unlock()
 	if sess == nil {

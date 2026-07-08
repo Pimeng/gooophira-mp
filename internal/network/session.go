@@ -30,7 +30,7 @@ const (
 	// heartbeatTimeout 是无数据断连阈值（对应 protocol.HeartbeatDisconnectTimeoutMS）。
 	heartbeatTimeout = time.Duration(protocol.HeartbeatDisconnectTimeoutMS) * time.Millisecond
 	maxFrameSize     = 4 * 1024 * 1024
-	readChunk        = 4096
+	readChunk        = 16 * 1024 // 4KB→16KB：一次读可容纳多帧，syscall 频率降 4x；100k 连接 × 32KB(bufio+tmp) = 3.2GB 可接受
 	sendChanBuffer   = 256
 )
 
@@ -74,6 +74,13 @@ type Session struct {
 var _ server.Session = (*Session)(nil)
 
 func newSession(conn net.Conn, state *server.ServerState, hub *server.Hub) *Session {
+	// TCP 优化：NODELAY 禁用 Nagle（小帧立即发，避免 40ms 合并延迟）；
+	// 64KB 读写缓冲减少 syscall 频率（默认 4KB 在高频小包下 syscall 过多）。
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		_ = tcp.SetNoDelay(true)
+		_ = tcp.SetWriteBuffer(64 * 1024)
+		_ = tcp.SetReadBuffer(64 * 1024)
+	}
 	host, port := splitHostPort(conn.RemoteAddr())
 	return &Session{
 		id:         protocol.NewUUID(),
@@ -211,7 +218,7 @@ func (s *Session) detachKeepRoom() {
 	s.state.Mu.Lock()
 	defer s.state.Mu.Unlock()
 	u := s.user
-	if u == nil || u.Session != server.Session(s) {
+	if u == nil || u.Session() != server.Session(s) {
 		return // 已被顶号或未认证
 	}
 	u.SetSession(nil)
@@ -220,7 +227,7 @@ func (s *Session) detachKeepRoom() {
 func (s *Session) cleanup() {
 	s.state.Mu.Lock()
 	u := s.user
-	if u == nil || u.Session != server.Session(s) {
+	if u == nil || u.Session() != server.Session(s) {
 		s.state.Mu.Unlock()
 		return // 已被顶号或未认证
 	}
@@ -506,19 +513,38 @@ func (s *Session) logNewConnection() {
 	lg.Debug(msg)
 }
 
+// writeLoop 用 net.Buffers.WriteTo 批量写：先取一帧，再 non-blocking 拉空 sendCh，
+// 合并到一次 writev（Linux）或顺序 Write（其他平台）。单帧时退化为普通 Write，
+// 多帧时把 N 次 syscall 合并为 1 次。预分配 64 长度的数组避免 append 扩容分配。
+//
+// 注意：net.Buffers.WriteTo 的 fallback 路径（非 Linux TCPConn）会消费 *v
+// （*v = (*v)[1:]），所以每次循环必须重新构造 buffers 切片头，不能复用。
 func (s *Session) writeLoop() {
+	var bufArr [64][]byte
 	for {
+		buffers := net.Buffers(bufArr[:0])
 		select {
 		case <-s.done:
 			return
 		case frame := <-s.sendCh:
-			if _, err := s.conn.Write(frame); err != nil {
-				if lg := s.state.Logger; lg != nil {
-					lg.Warn(fmt.Sprintf("连接ID：%s，写循环 Write 失败：%v", s.id, err))
-				}
-				s.Close()
-				return
+			buffers = append(buffers, frame)
+		}
+		// non-blocking 拉空 sendCh，最多合并 64 帧（受 bufArr 容量限制）。
+		drained := false
+		for !drained && len(buffers) < cap(buffers) {
+			select {
+			case f := <-s.sendCh:
+				buffers = append(buffers, f)
+			default:
+				drained = true
 			}
+		}
+		if _, err := buffers.WriteTo(s.conn); err != nil {
+			if lg := s.state.Logger; lg != nil {
+				lg.Warn(fmt.Sprintf("连接ID：%s，写循环 Write 失败：%v", s.id, err))
+			}
+			s.Close()
+			return
 		}
 	}
 }
@@ -554,7 +580,9 @@ func (s *Session) readLoop() {
 		return // 版本不符：直接断开（不触发认证）
 	}
 
-	var buf []byte
+	// buf 预分配 readChunk*2 容量，避免从 nil 起步多次扩容；
+	// 处理完帧后若 cap 远大于 len 会缩容，防止大缓冲长期驻留。
+	buf := make([]byte, 0, readChunk*2)
 	tmp := make([]byte, readChunk)
 	for {
 		_ = s.conn.SetReadDeadline(time.Now().Add(heartbeatTimeout))
@@ -596,16 +624,23 @@ func (s *Session) readLoop() {
 			}
 			s.onCommand(cmd)
 		}
+		// 缩容：buf 曾因大帧膨胀（cap > 32KB）但当前残留很少（< 8KB）时，
+		// 重新分配小切片释放大块内存，避免每个 session 长期持有 4MB 缓冲。
+		if cap(buf) > readChunk*2 && len(buf) < readChunk/2 {
+			newBuf := make([]byte, len(buf), readChunk*2)
+			copy(newBuf, buf)
+			buf = newBuf
+		}
 	}
 }
 
 // isRoomOnlyCmd 判断命令是否仅需房间级锁（不需要全局 state.Mu）。
-// Touches/Judges 是 Playing 阶段高频命令，无房间间依赖，可用分段锁并行。
-// CmdPlayed 会广播并触发全局结算（CheckAllReady → DisbandRoom → delete(state.Rooms)），
-// 仍需全局锁，故不在此列。
+// Touches/Judges/CmdPlayed 是 Playing 阶段高频命令，无房间间依赖，可用分段锁并行。
+// CmdPlayed 触发的 DisbandRoom（delete state.Rooms）由 handlePlayed 异步执行，
+// 不在 room.Mu 临界区内同步获取 state.Mu，避免 lock ordering inversion。
 func isRoomOnlyCmd(cmd protocol.ClientCommand) bool {
 	switch cmd.(type) {
-	case protocol.CmdTouches, protocol.CmdJudges:
+	case protocol.CmdTouches, protocol.CmdJudges, protocol.CmdPlayed:
 		return true
 	}
 	return false
@@ -636,7 +671,7 @@ func (s *Session) onCommand(cmd protocol.ClientCommand) {
 		}
 	}
 	// 已认证：持锁调度命令。
-	// Touches/Judges 仅持 room.Mu（分段锁，房间间并行），其余命令持 state.Mu（全局串行）。
+	// Touches/Judges/Played 仅持 room.Mu（分段锁，房间间并行），其余命令持 state.Mu（全局串行）。
 	var resp protocol.ServerCommand
 	var has bool
 	if isRoomOnlyCmd(cmd) {
@@ -700,8 +735,8 @@ func (s *Session) handleAuthenticate(token string) {
 	existing := s.state.Users[info.ID]
 	if existing != nil {
 		// ---- 重连路径：全程持锁（需读取/修改 Session、Room 等状态） ----
-		if existing.Session != nil && existing.Session != server.Session(s) {
-			stale = existing.Session
+		if existing.Session() != nil && existing.Session() != server.Session(s) {
+			stale = existing.Session()
 		}
 		existing.SetSession(s) // 先重绑到新会话——旧会话随后 Close 时 cleanup 会因此短路、保留房间
 		user = existing
@@ -770,8 +805,8 @@ func (s *Session) handleAuthenticate(token string) {
 	if existing := s.state.Users[info.ID]; existing != nil {
 		// 极低概率的竞态：另一个连接在我们 unlock→relock 间注册了同 ID 用户。
 		var stale server.Session
-		if existing.Session != nil && existing.Session != server.Session(s) {
-			stale = existing.Session
+		if existing.Session() != nil && existing.Session() != server.Session(s) {
+			stale = existing.Session()
 		}
 		s.state.Mu.Unlock()
 		// 关键：丢弃的 user 仍持有 s 的引用（user.SetSession(s) 已建立反向指针），

@@ -15,15 +15,23 @@ import (
 // 事件」（对应 TS 用空对象 `{}` 的身份比较）。
 type DangleToken struct{}
 
+// sessionHolder 包装 Session 接口值，使 atomic.Pointer 能存储「可能为 nil 的会话」。
+// SetSession(nil) 时 Store(nil 指针) 表示离线；SetSession(s) 时 Store(&sessionHolder{s: s})。
+type sessionHolder struct {
+	s Session
+}
+
 // User 代表一个在线用户：基本信息、会话关联（支持断线重连）、房间关联、观战权限、
 // 游戏时间跟踪与 dangling 状态。
 //
 // 并发安全分组（明确边界，避免 Go 与 Java 版混用锁时引入隐性数据竞争）：
 //   - state.Mu（全局）：保护 Room 字段与 Monitor 字段的「跨命令」一致性读写。
 //     所有 ProcessXxx 与 BuildXxx 路径都至少持 state.Mu。
-//   - User.Mu（细粒度 RWMutex）：保护 Session、dangleToken、DangleDeadline。
-//     写入只发生在 readLoop goroutine 或 cleanup 持 state.Mu 期间，读取分散在
-//     dispatch（持 state.Mu）、notifyDanglingReconnect（持 state.Mu）等路径。
+//   - session（atomic.Pointer）：无锁读取当前关联会话。广播扇出热路径
+//     （TrySendFrameOwned）从 RWMutex 改为 atomic.Load，消除 64 用户房间广播时的
+//     RLock 竞争。SetSession 在重连时原子替换，不阻塞并发广播。
+//   - dangleMu（细粒度 Mutex）：保护 dangleToken、DangleDeadline、dangleTimer。
+//     与 session 原子读写分离，避免 dangling 管理阻塞广播路径。
 //   - gameTimeBits（atomic.Uint64）：GameTime 字段用 bit-cast 存储，Touches 热路径
 //     无锁写；admin/build 路径原子读后 bit-cast 还原，避免被 room.Mu 锁外读取。
 //   - infoCache（atomic.Pointer）：消除原版本「指针字段 + 普通赋值」造成的 race
@@ -38,11 +46,11 @@ type User struct {
 	// Server 是全局状态引用。
 	Server *ServerState
 
-	// Mu 保护 Session、dangleToken、DangleDeadline 的并发访问。
-	Mu sync.RWMutex
+	// session 是当前关联会话的原子指针（nil = 离线/断线）。
+	// 用 atomic.Pointer 替代原 RWMutex：广播扇出路径（TrySendFrameOwned）无锁读，
+	// 重连（SetSession）原子替换不阻塞广播。
+	session atomic.Pointer[sessionHolder]
 
-	// Session 是当前关联会话（nil = 离线/断线）。
-	Session Session
 	// Room 是当前所在房间（nil = 不在任何房间）。由 state.Mu 保护。
 	Room *Room
 	// Monitor 标记是否为观战者。由 state.Mu 保护。
@@ -56,12 +64,22 @@ type User struct {
 	// 还原。atomic 写避免与 admin 视图路径形成交叉锁。
 	gameTimeBits atomic.Uint64
 
-	dangleToken *DangleToken
-	// DangleDeadline 是断线挂起截止时间（Unix 毫秒）；nil = 当前未挂起。
+	// dangleMu 保护 dangleToken、DangleDeadline、dangleTimer。
+	// 与 session 原子读写分离，避免 dangling 管理阻塞广播路径。
+	dangleMu       sync.Mutex
+	dangleToken    *DangleToken
 	DangleDeadline *int64
 	// dangleTimer 是断线宽限 timer，存在 User 上（而非 Session）以便重连时
 	// SetSession 能直接取消旧 session 遗留的 timer，防止 stale timer 触发误移除。
 	dangleTimer *time.Timer
+}
+
+// Session 返回当前关联会话（nil = 离线/断线）。无锁原子读取，可安全并发调用。
+func (u *User) Session() Session {
+	if p := u.session.Load(); p != nil {
+		return p.s
+	}
+	return nil
 }
 
 // NewUser 创建用户实例。
@@ -107,116 +125,106 @@ func (u *User) CanMonitor() bool {
 // 取消 timer 是关键：旧 session 断线时设置的 dangleTimer 存在 User 上，若不取消，
 // 重连后旧 timer 仍会触发 processDangle（stale timer），可能误移除已重连的用户。
 func (u *User) SetSession(session Session) {
-	u.Mu.Lock()
+	u.dangleMu.Lock()
 	if u.dangleTimer != nil {
 		u.dangleTimer.Stop()
 		u.dangleTimer = nil
 	}
-	u.Session = session
 	u.dangleToken = nil
 	u.DangleDeadline = nil
-	u.Mu.Unlock()
+	u.dangleMu.Unlock()
+	// 原子替换会话指针：广播路径下次 Load 即看到新会话，不阻塞并发读取。
+	var p *sessionHolder
+	if session != nil {
+		p = &sessionHolder{s: session}
+	}
+	u.session.Store(p)
 }
 
 // TrySend 尝试向用户发送命令；无活跃会话时静默忽略。
 func (u *User) TrySend(cmd protocol.ServerCommand) {
-	u.Mu.RLock()
-	s := u.Session
-	u.Mu.RUnlock()
-	if s == nil {
-		return
+	if s := u.Session(); s != nil {
+		s.TrySend(cmd)
 	}
-	s.TrySend(cmd)
 }
 
 // TrySendFrame 尝试向用户发送预编码的二进制帧；无活跃会话时静默忽略。
 func (u *User) TrySendFrame(frame []byte) {
-	u.Mu.RLock()
-	s := u.Session
-	u.Mu.RUnlock()
-	if s == nil {
-		return
+	if s := u.Session(); s != nil {
+		s.TrySendFrame(frame)
 	}
-	s.TrySendFrame(frame)
 }
 
 // TrySendFrameOwned 同 TrySendFrame，但假设 frame 由调用方拥有所有权，不再拷贝。
 func (u *User) TrySendFrameOwned(frame []byte) {
-	u.Mu.RLock()
-	s := u.Session
-	u.Mu.RUnlock()
-	if s == nil {
-		return
+	if s := u.Session(); s != nil {
+		s.TrySendFrameOwned(frame)
 	}
-	s.TrySendFrameOwned(frame)
 }
 
 // MarkDangle 标记用户为 dangling（断线等待重连），返回用于校验重连的 token。
 // deadlineMs 是 Unix 毫秒的挂起截止时间（用于播报「等待重连」剩余秒数），
 // nil 表示不显示倒计时（极短宽限等场景）。须由调用方持 state.Mu。
 func (u *User) MarkDangle(deadlineMs *int64) *DangleToken {
-	u.Mu.Lock()
+	u.dangleMu.Lock()
 	token := &DangleToken{}
 	u.dangleToken = token
 	u.DangleDeadline = deadlineMs
-	u.Mu.Unlock()
+	u.dangleMu.Unlock()
 	return token
 }
 
 // IsStillDangling 报告用户是否仍处于由 token 标识的 dangling 状态。
 // 须由调用方持 state.Mu。
 func (u *User) IsStillDangling(token *DangleToken) bool {
-	u.Mu.RLock()
+	u.dangleMu.Lock()
 	same := u.dangleToken == token
-	u.Mu.RUnlock()
+	u.dangleMu.Unlock()
 	return same
 }
 
 // SetDangleTimer 存储挂起宽限 timer 引用（供 SetSession/重连时取消）。
 // 须由调用方持 state.Mu（与 MarkDangle 同一临界区后调用）。
 func (u *User) SetDangleTimer(t *time.Timer) {
-	u.Mu.Lock()
+	u.dangleMu.Lock()
 	u.dangleTimer = t
-	u.Mu.Unlock()
+	u.dangleMu.Unlock()
 }
 
 // StopDangleTimer 停止并清除挂起 timer（若存在）。安全可重入，用于 closeForShutdown。
 func (u *User) StopDangleTimer() {
-	u.Mu.Lock()
+	u.dangleMu.Lock()
 	if u.dangleTimer != nil {
 		u.dangleTimer.Stop()
 		u.dangleTimer = nil
 	}
-	u.Mu.Unlock()
+	u.dangleMu.Unlock()
 }
 
 // ClearDangle 清除所有挂起状态（token、deadline、timer）。在 removeUser 后调用，
 // 防止残留 dangleToken 导致旧 timer 的 IsStillDangling 误判为 true。须由调用方持 state.Mu。
 func (u *User) ClearDangle() {
-	u.Mu.Lock()
+	u.dangleMu.Lock()
 	if u.dangleTimer != nil {
 		u.dangleTimer.Stop()
 		u.dangleTimer = nil
 	}
 	u.dangleToken = nil
 	u.DangleDeadline = nil
-	u.Mu.Unlock()
+	u.dangleMu.Unlock()
 }
 
 // IsConnected 报告用户当前是否有活跃会话（true = 在线，false = 离线/挂起）。
-// Session 由 User.Mu 保护，调用方无需持 state.Mu。
+// 通过 atomic.Pointer 无锁读取，调用方无需持任何锁。
 func (u *User) IsConnected() bool {
-	u.Mu.RLock()
-	connected := u.Session != nil
-	u.Mu.RUnlock()
-	return connected
+	return u.session.Load() != nil
 }
 
 // dangleDeadlineMs 返回挂起剩余毫秒数（0 = 无挂起或已到期），用于播报「等待重连」。
 // 须由调用方持 state.Mu。
 func (u *User) dangleDeadlineMs(nowMs int64) int64 {
-	u.Mu.RLock()
-	defer u.Mu.RUnlock()
+	u.dangleMu.Lock()
+	defer u.dangleMu.Unlock()
 	if u.DangleDeadline == nil {
 		return 0
 	}

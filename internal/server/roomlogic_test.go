@@ -67,7 +67,7 @@ func (h *testHarness) addUser(id int, name string) *User {
 
 // sentTo 返回某用户 mock 会话收到的全部命令的副本。
 func sentTo(u *User) []protocol.ServerCommand {
-	ms, ok := u.Session.(*mockSession)
+	ms, ok := u.Session().(*mockSession)
 	if !ok {
 		return nil
 	}
@@ -608,8 +608,20 @@ func TestClientState(t *testing.T) {
 // benchDispatch 是 mustDispatch 的 testing.B 版本。
 func benchDispatch(b *testing.B, h *Hub, user *User, cmd protocol.ClientCommand) protocol.ServerCommand {
 	b.Helper()
-	// 与生产代码一致：非 room-only 命令须在 state.Mu 保护下派发，
-	// 否则 CmdRequestStart 调度的异步 timer 读取 state.Rooms 会与 CmdCreateRoom 写入竞争。
+	// 与生产代码对齐：room-only 命令（Touches/Judges/Played）持 room.Mu，
+	// 其余命令持 state.Mu（全局串行，保护 state.Rooms 等全局 map）。
+	switch cmd.(type) {
+	case protocol.CmdTouches, protocol.CmdJudges, protocol.CmdPlayed:
+		if room := user.Room; room != nil {
+			room.Mu.Lock()
+			resp, ok := h.ProcessClientCommand(user, cmd)
+			room.Mu.Unlock()
+			if !ok {
+				b.Fatalf("expected a response for %T", cmd)
+			}
+			return resp
+		}
+	}
 	h.State.Mu.Lock()
 	resp, ok := h.ProcessClientCommand(user, cmd)
 	h.State.Mu.Unlock()

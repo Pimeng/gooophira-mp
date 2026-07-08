@@ -47,17 +47,43 @@ func (r *Room) AddUser(user *User, monitor bool) bool {
 	if monitor {
 		if !slices.Contains(r.monitors, user.ID) {
 			r.monitors = append(r.monitors, user.ID)
-			r.monitorUsers[user.ID] = user
 		}
+		r.monitorUsers[user.ID] = user
+		r.refreshParticipantsSnapshot()
 		return true
 	}
-	if len(r.users) >= r.MaxUsers {
+	if len(r.users) >= r.MaxUsers && !slices.Contains(r.users, user.ID) {
 		return false
 	}
 	if !slices.Contains(r.users, user.ID) {
 		r.users = append(r.users, user.ID)
 	}
+	r.usersMap[user.ID] = user
+	r.refreshParticipantsSnapshot()
 	return true
+}
+
+// refreshParticipantsSnapshot 重建参与者快照（玩家+观战者的 *User 指针列表）。
+// 调用方须持 room.Mu。BroadcastRoom 通过 atomic.Pointer 无锁读取快照，
+// 消除 AllParticipantIDs() 的 []int 分配 + state.Users map 查找。
+func (r *Room) refreshParticipantsSnapshot() {
+	snap := make([]*User, 0, len(r.users)+len(r.monitors))
+	for _, u := range r.usersMap {
+		snap = append(snap, u)
+	}
+	for _, u := range r.monitorUsers {
+		snap = append(snap, u)
+	}
+	r.participantsSnapshot.Store(&snap)
+}
+
+// ParticipantsSnapshot 返回当前参与者快照（无锁原子读取）。BroadcastRoom 热路径使用。
+// 返回的切片由 room 拥有，调用方只读不写；下次刷新后旧切片自然失效。
+func (r *Room) ParticipantsSnapshot() []*User {
+	if p := r.participantsSnapshot.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // ClientState 组装发给指定用户的完整房间状态视图（含成员 UserInfo）。
@@ -196,8 +222,11 @@ func (r *Room) OnUserLeave(lc *RoomLifecycle, user *User) (shouldDrop bool, disb
 	if user.Monitor {
 		r.monitors = removeInt(r.monitors, user.ID)
 		delete(r.monitorUsers, user.ID)
+		r.refreshParticipantsSnapshot()
 	} else {
 		r.users = removeInt(r.users, user.ID)
+		delete(r.usersMap, user.ID)
+		r.refreshParticipantsSnapshot()
 	}
 
 	if r.HostID == user.ID {
@@ -436,10 +465,7 @@ func (r *Room) notifyDanglingReconnect(lc *RoomLifecycle, st *StatePlaying) {
 			dangling = append(dangling, id)
 			continue
 		}
-		sessionMissing := false
-		u.Mu.RLock()
-		sessionMissing = u.Session == nil
-		u.Mu.RUnlock()
+		sessionMissing := u.Session() == nil
 		if sessionMissing {
 			dangling = append(dangling, id)
 		}

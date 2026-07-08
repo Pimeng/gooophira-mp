@@ -256,9 +256,8 @@ func (c *Console) cmdListUsers() {
 	}
 	c.print(c.t("cli-users-total", map[string]string{"count": strconv.Itoa(len(users))}))
 	for id, u := range users {
-		u.Mu.RLock()
 		status := c.t("cli-user-status-offline", nil)
-		if u.Session != nil {
+		if u.IsConnected() {
 			status = c.t("cli-user-status-online", nil)
 		}
 		role := c.t("cli-user-role-player", nil)
@@ -270,7 +269,6 @@ func (c *Console) cmdListUsers() {
 			room = string(u.Room.ID)
 		}
 		name := u.Name
-		u.Mu.RUnlock()
 		bannedTag := ""
 		c.state.Mu.Lock()
 		if _, banned := c.state.BannedUsers[id]; banned {
@@ -297,8 +295,7 @@ func (c *Console) cmdUserInfo(args []string) {
 		c.printErr(c.t("cli-user-not-found", map[string]string{"id": args[0]}))
 		return
 	}
-	u.Mu.RLock()
-	connected := u.Session != nil
+	connected := u.IsConnected()
 	monitor := u.Monitor
 	room := c.t("cli-none", nil)
 	if u.Room != nil {
@@ -310,7 +307,6 @@ func (c *Console) cmdUserInfo(args []string) {
 		lang = u.Lang.Tag
 	}
 	name := u.Name
-	u.Mu.RUnlock()
 	_, banned := c.state.BannedUsers[id]
 	c.state.Mu.Unlock()
 
@@ -481,7 +477,7 @@ func (c *Console) userAndSession(id int) (*server.User, server.Session) {
 	if u == nil {
 		return nil, nil
 	}
-	return u, u.Session
+	return u, u.Session()
 }
 
 // adminDisconnecter 是会话的「管理员断开（可保留房间）」可选能力（network.Session 实现之）。
@@ -559,9 +555,7 @@ func (c *Console) cmdBan(args []string) {
 	c.state.BannedUsers[id] = struct{}{}
 	var sess server.Session
 	if u := c.state.Users[id]; u != nil {
-		u.Mu.RLock()
-		sess = u.Session
-		u.Mu.RUnlock()
+		sess = u.Session()
 	}
 	c.state.Mu.Unlock()
 	if sess != nil {

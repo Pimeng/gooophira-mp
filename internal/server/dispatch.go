@@ -5,6 +5,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
@@ -32,6 +33,16 @@ func tlOrSkip(lang *l10n.Language, key string, args map[string]string) (text str
 // unitResult 运行 fn，成功→Ok(Unit)，失败→按用户语言本地化错误 key 的 Err。
 func (h *Hub) unitResult(user *User, fn func() error) protocol.StringResult[protocol.Unit] {
 	if err := fn(); err != nil {
+		return protocol.Errr[protocol.Unit](h.localize(user, err.Error()))
+	}
+	return protocol.Ok(protocol.Unit{})
+}
+
+// unitResultFromError 同 unitResult，但直接接收 error 而非闭包。
+// 用于热路径（如 CmdPlayed）：避免闭包捕获 h/user/c 导致的堆分配
+// （room-cycle 场景下闭包分配约 2.9 GB，占总分配 28%）。
+func (h *Hub) unitResultFromError(user *User, err error) protocol.StringResult[protocol.Unit] {
+	if err != nil {
 		return protocol.Errr[protocol.Unit](h.localize(user, err.Error()))
 	}
 	return protocol.Ok(protocol.Unit{})
@@ -370,60 +381,7 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 		})}, true
 
 	case protocol.CmdPlayed:
-		return protocol.SrvPlayed{Result: h.unitResult(user, func() error {
-			room, err := h.RequireRoom(user)
-			if err != nil {
-				return err
-			}
-			// 已完成（成绩已交 / 中断 / 迟到加入自动标记）则静默成功，避免重复取数、广播与计入。
-			if st, ok := room.State.(StatePlaying); ok {
-				if _, done := st.Results[user.ID]; done {
-					return nil
-				}
-				if _, aborted := st.Aborted[user.ID]; aborted {
-					return nil
-				}
-			}
-			record, err := h.FetchRecord(user, int(c.ID))
-			if err != nil {
-				return err
-			}
-			if record.Player != user.ID {
-				return errRecordInvalid
-			}
-			// 反作弊：成绩须对应本房间当前谱面；record.Chart 缺失（nil）时跳过（fail-open）。
-			if room.Chart != nil && record.Chart != nil && *record.Chart != room.Chart.ID {
-				return errRecordChartMismatch
-			}
-			lc := h.MakeRoomLifecycle(room)
-			room.logRoomMark(lc, "log-room-played", map[string]string{
-				"user": user.Name, "score": strconv.Itoa(record.Score), "acc": fmt.Sprintf("%v", record.Accuracy),
-			})
-			h.BroadcastRoomMessage(room, protocol.MsgChat{
-				User:    h.State.SystemChatUserID(),
-				Content: l10n.TL(lc.Lang, "chat-record-send-template", buildChatRecordMap(lc.Lang, user, record)),
-			})
-			st, ok := room.State.(StatePlaying)
-			if !ok {
-				return nil
-			}
-			st.Results[user.ID] = record
-			firstResult := len(st.Results) == 1
-			if h.shouldRecord(room) {
-				h.State.ReplayRecorder.SetRecordID(room.ID, user.ID, record.ID)
-			}
-			room.NotifyWebSocket(lc)
-			if room.CheckAllReady(lc) {
-				h.DisbandRoom(room)
-			} else if firstResult && room.Contest == nil {
-				// 首位结算者出现且对局未结束 → 启动结算超时倒计时（仅普通房）。
-				// 到点后将未结算玩家标记为 Aborted 并强制结束本局。
-				if _, stillPlaying := room.State.(StatePlaying); stillPlaying {
-					h.startPlayDeadline(room)
-				}
-			}
-			return nil
-		})}, true
+		return protocol.SrvPlayed{Result: h.unitResultFromError(user, h.handlePlayed(user, c))}, true
 
 	case protocol.CmdAbort:
 		return protocol.SrvAbort{Result: h.unitResult(user, func() error {
@@ -457,6 +415,83 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 	}
 }
 
+// handlePlayed 处理 CmdPlayed 的核心逻辑，返回 error。
+// 从 ProcessClientCommand 的内联闭包提取为独立方法，避免每次调用创建捕获 h/user/c 的闭包
+// 堆分配（room-cycle 场景下该闭包约 2.9 GB，占总分配 28%）。
+func (h *Hub) handlePlayed(user *User, c protocol.CmdPlayed) error {
+	room, err := h.RequireRoom(user)
+	if err != nil {
+		return err
+	}
+	// 已完成（成绩已交 / 中断 / 迟到加入自动标记）则静默成功，避免重复取数、广播与计入。
+	if st, ok := room.State.(StatePlaying); ok {
+		if _, done := st.Results[user.ID]; done {
+			return nil
+		}
+		if _, aborted := st.Aborted[user.ID]; aborted {
+			return nil
+		}
+	}
+	record, err := h.FetchRecord(user, int(c.ID))
+	if err != nil {
+		return err
+	}
+	if record.Player != user.ID {
+		return errRecordInvalid
+	}
+	// 反作弊：成绩须对应本房间当前谱面；record.Chart 缺失（nil）时跳过（fail-open）。
+	if room.Chart != nil && record.Chart != nil && *record.Chart != room.Chart.ID {
+		return errRecordChartMismatch
+	}
+	lc := h.MakeRoomLifecycle(room)
+	logArgs := acquireStringMap()
+	logArgs["user"] = user.Name
+	logArgs["score"] = strconv.Itoa(record.Score)
+	logArgs["acc"] = strconv.FormatFloat(record.Accuracy, 'g', -1, 64)
+	room.logRoomMark(lc, "log-room-played", logArgs)
+	releaseStringMap(logArgs)
+	args := acquireStringMap()
+	fillChatRecordMap(args, lc.Lang, user, record)
+	content := l10n.TL(lc.Lang, "chat-record-send-template", args)
+	releaseStringMap(args)
+	h.BroadcastRoomMessage(room, protocol.MsgChat{
+		User:    h.State.SystemChatUserID(),
+		Content: content,
+	})
+	st, ok := room.State.(StatePlaying)
+	if !ok {
+		return nil
+	}
+	st.Results[user.ID] = record
+	firstResult := len(st.Results) == 1
+	if h.shouldRecord(room) {
+		h.State.ReplayRecorder.SetRecordID(room.ID, user.ID, record.ID)
+	}
+	room.NotifyWebSocket(lc)
+	if room.CheckAllReady(lc) {
+		// CmdPlayed 是 room-only 命令（持 room.Mu），不能同步调 DisbandRoom：
+		// DisbandRoom 内部 room.Mu.Lock() 会自死锁，且 delete(state.Rooms) 需 state.Mu
+		// （持 room.Mu 获取 state.Mu 会 lock ordering inversion）。
+		// 异步执行：网络层释放 room.Mu 后，goroutine 按 state.Mu → room.Mu 顺序获取锁。
+		// 指针比较防 room ID 复用边缘情况。
+		roomPtr := room
+		go func() {
+			h.State.Mu.Lock()
+			if h.State.Rooms[roomPtr.ID] == roomPtr {
+				h.DisbandRoom(roomPtr)
+			}
+			h.State.Mu.Unlock()
+		}()
+	} else if firstResult && room.Contest == nil {
+		// 首位结算者出现且对局未结束 → 启动结算超时倒计时（仅普通房）。
+		// 到点后将未结算玩家标记为 Aborted 并强制结束本局。
+		if _, stillPlaying := room.State.(StatePlaying); stillPlaying {
+			h.startPlayDeadline(room)
+		}
+	}
+	return nil
+}
+
 // recordChatMods 记录 mod 位掩码到本地化键的映射。位值对齐 Phira 客户端 mod 协议：
 // 0=自动游玩, 1=X轴翻转, 2=上隐, 3=下隐, 4=夜店, 5=彩虹, 6=无着色器,
 // 7=突然死亡(AP), 8=突然死亡(FC)。新增 mod 时按位追加。
@@ -475,28 +510,44 @@ var recordChatMods = []struct {
 	{1 << 8, "chat-record-mod-sudden-death-fc"},
 }
 
-func buildChatRecordMap(lang *l10n.Language, user *User, record config.RecordData) map[string]string {
+// stringMapPool 复用 map[string]string，避免 CmdPlayed 热路径上的 map 分配。
+// 用途：fillChatRecordMap 的翻译参数 map、logRoomMark 的日志参数 map。
+var stringMapPool = sync.Pool{
+	New: func() any { return make(map[string]string, 16) },
+}
+
+func acquireStringMap() map[string]string {
+	m := stringMapPool.Get().(map[string]string)
+	for k := range m {
+		delete(m, k)
+	}
+	return m
+}
+
+func releaseStringMap(m map[string]string) {
+	stringMapPool.Put(m)
+}
+
+func fillChatRecordMap(m map[string]string, lang *l10n.Language, user *User, record config.RecordData) {
 	hasStd := record.Std != nil && record.StdScore != nil
 	hasMod := record.Mod != 0
 
-	m := map[string]string{
-		"user":    user.Name,
-		"userid":  strconv.Itoa(user.ID),
-		"score":   strconv.Itoa(record.Score),
-		"acc":     fmt.Sprintf("%v", record.Accuracy*100),
-		"hasStd":  strconv.FormatBool(hasStd),
-		"fc":      strconv.FormatBool(record.FullCombo),
-		"isAp":    strconv.FormatBool(math.Round(record.Accuracy*100) == 100),
-		"perfect": strconv.Itoa(record.Perfect),
-		"good":    strconv.Itoa(record.Good),
-		"bad":     strconv.Itoa(record.Bad),
-		"miss":    strconv.Itoa(record.Miss),
-		"hasMod":  strconv.FormatBool(hasMod),
-	}
+	m["user"] = user.Name
+	m["userid"] = strconv.Itoa(user.ID)
+	m["score"] = strconv.Itoa(record.Score)
+	m["acc"] = strconv.FormatFloat(record.Accuracy*100, 'g', -1, 64)
+	m["hasStd"] = strconv.FormatBool(hasStd)
+	m["fc"] = strconv.FormatBool(record.FullCombo)
+	m["isAp"] = strconv.FormatBool(math.Round(record.Accuracy*100) == 100)
+	m["perfect"] = strconv.Itoa(record.Perfect)
+	m["good"] = strconv.Itoa(record.Good)
+	m["bad"] = strconv.Itoa(record.Bad)
+	m["miss"] = strconv.Itoa(record.Miss)
+	m["hasMod"] = strconv.FormatBool(hasMod)
 
 	if hasStd {
-		m["std"] = fmt.Sprintf("%v", float64(int64((*record.Std*1000)*1e6))/1e6)
-		m["stdScore"] = fmt.Sprintf("%v", *record.StdScore)
+		m["std"] = strconv.FormatFloat(float64(int64((*record.Std*1000)*1e6))/1e6, 'g', -1, 64)
+		m["stdScore"] = strconv.FormatFloat(*record.StdScore, 'g', -1, 64)
 	}
 
 	if hasMod {
@@ -508,6 +559,4 @@ func buildChatRecordMap(lang *l10n.Language, user *User, record config.RecordDat
 		}
 		m["modList"] = strings.Join(mods, ", ")
 	}
-
-	return m
 }

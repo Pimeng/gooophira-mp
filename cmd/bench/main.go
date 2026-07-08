@@ -24,11 +24,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"runtime/pprof"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -64,8 +65,10 @@ func parseFlags() benchConfig {
 		profileDir = flag.String("profile-dir", "./tmp/profiles", "pprof 文件输出目录")
 		jsonOut    = flag.Bool("json", false, "输出 JSON 格式结果")
 		verbose    = flag.Bool("v", false, "详细输出")
+		gcPct      = flag.Int("gc", 400, "GOGC 百分比（bench 存活堆很小，默认 100 会导致 GC 过频）")
 	)
 	flag.Parse()
+	debug.SetGCPercent(*gcPct)
 	return benchConfig{
 		Clients:    *clients,
 		Rooms:      *rooms,
@@ -97,6 +100,130 @@ type histoBucket struct {
 	Label string  `json:"label"` // e.g. "1-100ns"
 	Count int64   `json:"count"`
 	Pct   float64 `json:"pct"`
+}
+
+// latencyHistogram 在线收集延迟统计，O(1) 内存、O(1) 每次记录。
+// 替代存储每个样本的 []time.Duration 切片——在 gameplay 场景下
+// 4.5M 周期/秒 × 8 字节 = 36 MB/s 的分配会导致堆膨胀到 GB 级。
+type latencyHistogram struct {
+	mu      sync.Mutex
+	count   int64
+	min     time.Duration
+	max     time.Duration
+	sum     int64   // 纳秒累加，用于计算 mean
+	sumSq   float64 // 纳秒平方累加，用于计算 stddev
+	zero    int64   // 0ns 样本数
+	buckets [numLatBuckets]int64
+}
+
+const numLatBuckets = 11
+
+var latBucketEdges = [numLatBuckets]time.Duration{
+	0,                      // 0: 精确 0ns
+	100 * time.Nanosecond,  // 1: 1-100ns
+	500 * time.Nanosecond,  // 2: 101-500ns
+	1 * time.Microsecond,   // 3: 501ns-1µs
+	10 * time.Microsecond,  // 4: 1-10µs
+	100 * time.Microsecond, // 5: 10-100µs
+	1 * time.Millisecond,   // 6: 100µs-1ms
+	10 * time.Millisecond,  // 7: 1-10ms
+	100 * time.Millisecond, // 8: 10-100ms
+	1 * time.Second,        // 9: 100ms-1s
+	time.Hour,              // 10: >1s
+}
+
+var latBucketLabels = [numLatBuckets]string{
+	"0ns", "1-100ns", "101-500ns", "501ns-1µs", "1-10µs",
+	"10-100µs", "100µs-1ms", "1-10ms", "10-100ms", "100ms-1s", ">1s",
+}
+
+func (h *latencyHistogram) record(d time.Duration) {
+	ns := int64(d)
+	h.mu.Lock()
+	h.count++
+	h.sum += ns
+	h.sumSq += float64(ns) * float64(ns)
+	if h.count == 1 || d < h.min {
+		h.min = d
+	}
+	if d > h.max {
+		h.max = d
+	}
+	idx := 0
+	if ns > 0 {
+		for i := 1; i < numLatBuckets; i++ {
+			if ns <= int64(latBucketEdges[i]) {
+				idx = i
+				break
+			}
+		}
+		if idx == 0 {
+			idx = numLatBuckets - 1
+		}
+	}
+	h.buckets[idx]++
+	if ns == 0 {
+		h.zero++
+	}
+	h.mu.Unlock()
+}
+
+// stats 从在线直方图生成 latencyStats。百分位通过桶累积计数近似（取桶上界），
+// 精度取决于桶粒度但对 bench 足够——分布桶本身就是主要输出。
+func (h *latencyHistogram) stats() latencyStats {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.count == 0 {
+		return latencyStats{}
+	}
+	n := h.count
+	mean := time.Duration(h.sum / n)
+	variance := h.sumSq/float64(n) - float64(h.sum)*float64(h.sum)/float64(n)/float64(n)
+	if variance < 0 {
+		variance = 0
+	}
+	stdDev := time.Duration(math.Sqrt(variance))
+
+	buckets := make([]histoBucket, numLatBuckets)
+	total := float64(n)
+	for i := range numLatBuckets {
+		buckets[i] = histoBucket{
+			Label: latBucketLabels[i],
+			Count: h.buckets[i],
+			Pct:   float64(h.buckets[i]) / total * 100,
+		}
+	}
+
+	p50 := percentileFromBuckets(h.buckets, n, 0.50)
+	p90 := percentileFromBuckets(h.buckets, n, 0.90)
+	p99 := percentileFromBuckets(h.buckets, n, 0.99)
+
+	return latencyStats{
+		Count:   int(n),
+		Min:     h.min,
+		Max:     h.max,
+		Mean:    mean,
+		P50:     p50,
+		P90:     p90,
+		P99:     p99,
+		StdDev:  stdDev,
+		Zero:    h.zero,
+		Buckets: buckets,
+	}
+}
+
+// percentileFromBuckets 通过桶累积计数近似百分位值。
+// 找到包含目标百分位的桶，返回该桶的上界（粗粒度但对 bench 足够）。
+func percentileFromBuckets(buckets [numLatBuckets]int64, n int64, p float64) time.Duration {
+	target := int64(float64(n) * p)
+	var cum int64
+	for i := 0; i < numLatBuckets; i++ {
+		cum += buckets[i]
+		if cum >= target {
+			return latBucketEdges[i]
+		}
+	}
+	return latBucketEdges[numLatBuckets-1]
 }
 
 type scenarioResult struct {
@@ -197,10 +324,11 @@ func (p *profiler) writeProfiles(dir string) {
 // ---------- 指标收集 ----------
 
 type metricsCollector struct {
+	cycle   latencyHistogram
+	connect latencyHistogram
+	auth    latencyHistogram
+
 	mu              sync.Mutex
-	cycleDurs       []time.Duration
-	connectDurs     []time.Duration
-	authDurs        []time.Duration
 	commandsSent    int64
 	cyclesCompleted int64
 	errors          int64
@@ -208,23 +336,9 @@ type metricsCollector struct {
 	maxHeap         uint64
 }
 
-func (mc *metricsCollector) recordConnect(d time.Duration) {
-	mc.mu.Lock()
-	mc.connectDurs = append(mc.connectDurs, d)
-	mc.mu.Unlock()
-}
-
-func (mc *metricsCollector) recordAuth(d time.Duration) {
-	mc.mu.Lock()
-	mc.authDurs = append(mc.authDurs, d)
-	mc.mu.Unlock()
-}
-
-func (mc *metricsCollector) recordCycle(d time.Duration) {
-	mc.mu.Lock()
-	mc.cycleDurs = append(mc.cycleDurs, d)
-	mc.mu.Unlock()
-}
+func (mc *metricsCollector) recordConnect(d time.Duration) { mc.connect.record(d) }
+func (mc *metricsCollector) recordAuth(d time.Duration)    { mc.auth.record(d) }
+func (mc *metricsCollector) recordCycle(d time.Duration)   { mc.cycle.record(d) }
 
 func (mc *metricsCollector) addCommands(n int64) {
 	mc.mu.Lock()
@@ -254,78 +368,6 @@ func (mc *metricsCollector) sample() {
 	}
 	if g := runtime.NumGoroutine(); g > mc.peakGoroutines {
 		mc.peakGoroutines = g
-	}
-}
-
-func computeLatencyStats(durs []time.Duration) latencyStats {
-	if len(durs) == 0 {
-		return latencyStats{}
-	}
-	sorted := make([]time.Duration, len(durs))
-	copy(sorted, durs)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-
-	var sum int64
-	for _, d := range sorted {
-		sum += int64(d)
-	}
-	n := len(sorted)
-	mean := time.Duration(sum / int64(n))
-
-	var variance float64
-	for _, d := range sorted {
-		diff := float64(d - mean)
-		variance += diff * diff
-	}
-	variance /= float64(n)
-	stdDev := time.Duration(math.Sqrt(variance))
-
-	// 桶分布：按界值统计
-	type edge struct {
-		hi    time.Duration
-		label string
-	}
-	edges := []edge{
-		{0, "0ns"},
-		{100 * time.Nanosecond, "1-100ns"},
-		{500 * time.Nanosecond, "101-500ns"},
-		{1 * time.Microsecond, "501ns-1µs"},
-		{10 * time.Microsecond, "1-10µs"},
-		{100 * time.Microsecond, "10-100µs"},
-		{1 * time.Millisecond, "100µs-1ms"},
-		{10 * time.Millisecond, "1-10ms"},
-		{100 * time.Millisecond, "10-100ms"},
-		{time.Second, "100ms-1s"},
-		{time.Hour, ">1s"},
-	}
-
-	buckets := make([]histoBucket, len(edges))
-	var zero int64
-	var idx int
-	total := float64(n)
-	for i, e := range edges {
-		count := int64(0)
-		for idx < n && sorted[idx] <= e.hi {
-			count++
-			idx++
-		}
-		if i == 0 {
-			zero = count
-		}
-		buckets[i] = histoBucket{Label: e.label, Count: count, Pct: float64(count) / total * 100}
-	}
-
-	return latencyStats{
-		Count:   n,
-		Min:     sorted[0],
-		Max:     sorted[n-1],
-		Mean:    mean,
-		P50:     sorted[int(float64(n-1)*0.50)],
-		P90:     sorted[int(float64(n-1)*0.90)],
-		P99:     sorted[int(float64(n-1)*0.99)],
-		StdDev:  stdDev,
-		Zero:    zero,
-		Buckets: buckets,
 	}
 }
 
@@ -371,17 +413,14 @@ func newBenchClient(state *server.ServerState, hub *server.Hub, id int, name str
 }
 
 // dispatch 发送命令并等待响应。
-// 对齐真实 session.go 的锁逻辑：Touches/Judges 持 room.Mu（分段锁，房间间并行），
+// 对齐真实 session.go 的锁逻辑：Touches/Judges/Played 持 room.Mu（分段锁，房间间并行），
 // 其余命令持 state.Mu（全局串行，保护 state.Rooms 等全局 map）。
-// 之前直接调用 ProcessClientCommand 不持锁，导致 schedule 回调读 state.Rooms 与
-// CmdReady/CmdPlayed 触发的 DisbandRoom 写 state.Rooms 并发，触发
-// "concurrent map read and map write" fatal。
 func (c *benchClient) dispatch(cmd protocol.ClientCommand) (protocol.ServerCommand, error) {
-	sess := c.user.Session.(*benchSession)
+	sess := c.user.Session().(*benchSession)
 	before := len(sess.sentCmds)
 
 	switch cmd.(type) {
-	case protocol.CmdTouches, protocol.CmdJudges:
+	case protocol.CmdTouches, protocol.CmdJudges, protocol.CmdPlayed:
 		if room := c.user.Room; room != nil {
 			room.Mu.Lock()
 			c.hub.ProcessClientCommand(c.user, cmd)
@@ -538,16 +577,14 @@ func runRoomCycleScenario(bc benchConfig, mc *metricsCollector) scenarioResult {
 
 				t0 := time.Now()
 
-				// room-cycle 场景 touches 与 played 交替：CmdPlayed 会写 room.State
-				// （CheckAllReady → checkPlaying），CmdTouches 读 room.State（playingStateFor）。
-				// room.Mu 与 state.Mu 不互斥，若 touches 持 room.Mu、played 持 state.Mu 会
-				// 触发 "concurrent map read and map write"。故本场景统一持 state.Mu 串行化；
-				// touches 的 room.Mu 分段锁并发性能由 gameplay 场景单独验证。
+				// room-cycle 场景 touches 与 played 交替：两者均为 room-only 命令，持 room.Mu。
+				// room.Mu 是分段锁，不同房间间完全并行——这是 100K 连接场景下的核心吞吐路径。
+				// 之前 played 持 state.Mu（全局串行），50 连接即消耗 15% CPU 在 mutex spin。
 				if room := cl.user.Room; room != nil {
-					state.Mu.Lock()
+					room.Mu.Lock()
 					hub.ProcessClientCommand(cl.user, touches)
 					hub.ProcessClientCommand(cl.user, played)
-					state.Mu.Unlock()
+					room.Mu.Unlock()
 				}
 
 				mc.recordCycle(time.Since(t0))
@@ -581,7 +618,7 @@ func runRoomCycleScenario(bc benchConfig, mc *metricsCollector) scenarioResult {
 	result.CyclesCompleted = mc.cyclesCompleted
 	result.CommandsPerSec = float64(mc.commandsSent) / elapsed.Seconds()
 	result.CyclesPerSec = float64(mc.cyclesCompleted) / elapsed.Seconds()
-	result.CycleLatency = computeLatencyStats(mc.cycleDurs)
+	result.CycleLatency = mc.cycle.stats()
 	result.Errors = mc.errors
 	result.PeakGoroutines = mc.peakGoroutines
 	result.PeakHeapMB = float64(mc.maxHeap) / 1024 / 1024
@@ -647,7 +684,7 @@ func runConnectionStormScenario(bc benchConfig, mc *metricsCollector) scenarioRe
 	result.Duration = elapsed.Round(time.Millisecond)
 	result.CommandsSent = mc.commandsSent
 	result.CommandsPerSec = float64(mc.commandsSent) / elapsed.Seconds()
-	result.ConnectLatency = computeLatencyStats(mc.connectDurs)
+	result.ConnectLatency = mc.connect.stats()
 	result.Errors = mc.errors
 	result.PeakGoroutines = mc.peakGoroutines
 	result.PeakHeapMB = float64(mc.maxHeap) / 1024 / 1024
@@ -726,7 +763,7 @@ func runSteadyStateScenario(bc benchConfig, mc *metricsCollector) scenarioResult
 	result.Duration = elapsed.Round(time.Millisecond)
 	result.CommandsSent = mc.commandsSent
 	result.CommandsPerSec = float64(mc.commandsSent) / elapsed.Seconds()
-	result.CycleLatency = computeLatencyStats(mc.cycleDurs)
+	result.CycleLatency = mc.cycle.stats()
 	result.Errors = mc.errors
 	result.PeakGoroutines = mc.peakGoroutines
 	result.PeakHeapMB = float64(mc.maxHeap) / 1024 / 1024
@@ -888,7 +925,7 @@ func runGameplayScenario(bc benchConfig, mc *metricsCollector) scenarioResult {
 	result.CommandsPerSec = float64(mc.commandsSent) / elapsed.Seconds()
 	result.CyclesCompleted = mc.commandsSent / 2 // 每轮 = 1 Touches + 1 Judges
 	result.CyclesPerSec = result.CommandsPerSec / 2
-	result.CycleLatency = computeLatencyStats(mc.cycleDurs)
+	result.CycleLatency = mc.cycle.stats()
 	result.Errors = mc.errors
 	result.PeakGoroutines = mc.peakGoroutines
 	result.PeakHeapMB = float64(mc.maxHeap) / 1024 / 1024
@@ -896,6 +933,29 @@ func runGameplayScenario(bc benchConfig, mc *metricsCollector) scenarioResult {
 	result.NumGC = m.NumGC
 
 	return result
+}
+
+// runMixedScenario 串行执行全部子场景（room-cycle → gameplay → steady-state → connection-storm），
+// 每个子场景使用独立 metricsCollector 并各自运行 bc.Duration，总时长约为 4 × bc.Duration。
+// 适合生成覆盖完整负载形态的 pprof 快照。
+func runMixedScenario(bc benchConfig, out io.Writer) []scenarioResult {
+	type step struct {
+		name string
+		run  func(benchConfig, *metricsCollector) scenarioResult
+	}
+	steps := []step{
+		{"room-cycle", runRoomCycleScenario},
+		{"gameplay", runGameplayScenario},
+		{"steady-state", runSteadyStateScenario},
+		{"connection-storm", runConnectionStormScenario},
+	}
+	results := make([]scenarioResult, 0, len(steps))
+	for i, s := range steps {
+		fmt.Fprintf(out, "  [mixed] (%d/%d) %s ...\n", i+1, len(steps), s.name)
+		mc := &metricsCollector{}
+		results = append(results, s.run(bc, mc))
+	}
+	return results
 }
 
 // ---------- main ----------
@@ -942,17 +1002,18 @@ func main() {
 
 	// 运行测试
 	fmt.Fprintln(out, "  [2/2] 运行测试...")
-	mc := &metricsCollector{}
-	var result scenarioResult
+	var results []scenarioResult
 	switch bc.Scenario {
-	case "room-cycle", "mixed":
-		result = runRoomCycleScenario(bc, mc)
+	case "mixed":
+		results = runMixedScenario(bc, out)
+	case "room-cycle":
+		results = []scenarioResult{runRoomCycleScenario(bc, &metricsCollector{})}
 	case "gameplay":
-		result = runGameplayScenario(bc, mc)
+		results = []scenarioResult{runGameplayScenario(bc, &metricsCollector{})}
 	case "connection-storm":
-		result = runConnectionStormScenario(bc, mc)
+		results = []scenarioResult{runConnectionStormScenario(bc, &metricsCollector{})}
 	case "steady-state":
-		result = runSteadyStateScenario(bc, mc)
+		results = []scenarioResult{runSteadyStateScenario(bc, &metricsCollector{})}
 	default:
 		fmt.Fprintf(os.Stderr, "未知场景: %s\n", bc.Scenario)
 		os.Exit(1)
@@ -965,14 +1026,16 @@ func main() {
 		Title:     "Phira MP Bench",
 		Timestamp: time.Now().Unix(),
 		Config:    bc,
-		Results:   []scenarioResult{result},
+		Results:   results,
 	}
 
 	if bc.JSONOut {
 		enc := json.NewEncoder(os.Stdout)
 		_ = enc.Encode(report)
 	} else {
-		printResult(result)
+		for _, r := range results {
+			printResult(r)
+		}
 	}
 
 	if bc.Profile != "" && bc.Profile != "none" {

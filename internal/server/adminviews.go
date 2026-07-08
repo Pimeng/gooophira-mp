@@ -130,9 +130,7 @@ func (s *ServerState) buildAdminRoom(id protocol.RoomID, room *Room) AdminRoomDa
 	hostConnected := false
 	if host != nil {
 		hostName = host.Name
-		host.Mu.RLock()
-		hostConnected = host.Session != nil
-		host.Mu.RUnlock()
+		hostConnected = host.IsConnected()
 	}
 
 	stateView := AdminRoomState{Type: adminStateString(room.State)}
@@ -155,9 +153,7 @@ func (s *ServerState) buildAdminRoom(id protocol.RoomID, room *Room) AdminRoomDa
 		u := s.Users[uid]
 		connected := false
 		if u != nil {
-			u.Mu.RLock()
-			connected = u.Session != nil
-			u.Mu.RUnlock()
+			connected = u.IsConnected()
 		}
 		uv := AdminUserView{
 			ID: uid, Name: nameOrID(u, uid), Connected: connected,
@@ -182,9 +178,7 @@ func (s *ServerState) buildAdminRoom(id protocol.RoomID, room *Room) AdminRoomDa
 		u := s.Users[mid]
 		connected := false
 		if u != nil {
-			u.Mu.RLock()
-			connected = u.Session != nil
-			u.Mu.RUnlock()
+			connected = u.IsConnected()
 		}
 		monitors = append(monitors, AdminMonitorView{
 			ID: mid, Name: nameOrID(u, mid), Connected: connected, Language: s.lang(u),
@@ -275,9 +269,7 @@ func (s *ServerState) BuildRoomUpdate(id protocol.RoomID) *RoomUpdateData {
 	hostName := nameOrID(host, room.HostID)
 	hostConnected := false
 	if host != nil {
-		host.Mu.RLock()
-		hostConnected = host.Session != nil
-		host.Mu.RUnlock()
+		hostConnected = host.IsConnected()
 	}
 	// 拷贝 Started 集合：原集合是 StateWaitForReady 的内部字段（map 引用语义），
 	// 直接别名会让外部观察者修改到房间内部状态。
@@ -292,9 +284,7 @@ func (s *ServerState) BuildRoomUpdate(id protocol.RoomID) *RoomUpdateData {
 		u := s.Users[uid]
 		connected := false
 		if u != nil {
-			u.Mu.RLock()
-			connected = u.Session != nil
-			u.Mu.RUnlock()
+			connected = u.IsConnected()
 		}
 		_, ready := started[uid]
 		users = append(users, RoomUpdateUser{ID: uid, Name: nameOrID(u, uid), IsReady: ready, Connected: connected})
@@ -304,9 +294,7 @@ func (s *ServerState) BuildRoomUpdate(id protocol.RoomID) *RoomUpdateData {
 		u := s.Users[mid]
 		connected := false
 		if u != nil {
-			u.Mu.RLock()
-			connected = u.Session != nil
-			u.Mu.RUnlock()
+			connected = u.IsConnected()
 		}
 		monitors = append(monitors, RoomUpdateMonitor{ID: mid, Name: nameOrID(u, mid), Connected: connected})
 	}
@@ -347,9 +335,7 @@ func (s *ServerState) BuildOnlineUsers() []AdminOnlineUser {
 			room = string(u.Room.ID)
 		}
 		connected := false
-		u.Mu.RLock()
-		connected = u.Session != nil
-		u.Mu.RUnlock()
+		connected = u.IsConnected()
 		_, banned := s.BannedUsers[id]
 		out = append(out, AdminOnlineUser{
 			ID: id, Name: u.Name, Connected: connected, Monitor: u.Monitor,

@@ -7,7 +7,7 @@ package server
 // 目标房间通过入房校验且未满。成功后用户被加入目标房间、退出源房间（源空则解散），并更新其
 // monitor 标记与所属房间。
 func (h *Hub) MoveUser(user *User, toRoom *Room, monitor bool) error {
-	if user.Session != nil {
+	if user.IsConnected() {
 		return errUserMustDisconnect
 	}
 	from := user.Room

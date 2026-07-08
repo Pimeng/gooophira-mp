@@ -30,7 +30,7 @@ func (r *Room) cancelPlayDeadline() {
 // startPlayDeadline 启动「结算超时」：自首位玩家提交成绩起 120 秒后强制结束本局。
 // 到点后将未结算玩家标记为 Aborted 并广播 MsgAbort，发送系统聊天通知，
 // 然后调 CheckAllReady 触发正常结算流程（排名/GameEnd/回到 SelectChart）。
-// 比赛房不启动此倒计时（由管理员手动管理）。调用方必须持有 state.Mu。
+// 比赛房不启动此倒计时（由管理员手动管理）。调用方须持 room.Mu；延迟回调自行获取 state.Mu。
 func (h *Hub) startPlayDeadline(room *Room) {
 	if room.Contest != nil {
 		return

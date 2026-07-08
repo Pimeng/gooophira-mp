@@ -90,9 +90,15 @@ type Room struct {
 	users    []int
 	monitors []int
 
-	// monitorUsers 是 monitors 的 user 指针缓存，供 touches/judges 热路径直接广播使用，
-	// 避免访问全局 state.Users 引入额外锁竞争。
+	// usersMap/monitorUsers 是 user 指针缓存，供 participantsSnapshot 刷新使用，
+	// 避免广播路径访问全局 state.Users 引入额外锁竞争。
+	usersMap     map[int]*User
 	monitorUsers map[int]*User
+
+	// participantsSnapshot 是所有参与者（玩家+观战者）的 *User 指针快照，
+	// 每次 users/monitors 变更时在 room.Mu 内刷新。BroadcastRoom 无锁读取，
+	// 消除 AllParticipantIDs() 的 []int 分配 + state.Users map 查找。
+	participantsSnapshot atomic.Pointer[[]*User]
 
 	// Chart 当前选中的谱面（nil = 未选）。
 	Chart *config.Chart
@@ -115,6 +121,10 @@ type Room struct {
 	// 与测试路径不兼容。logMu 是叶级锁，仅围绕切片操作短临界区，零嵌套风险。
 	logMu      sync.Mutex
 	recentLogs []RoomLog
+
+	// lifecycle 缓存 MakeRoomLifecycle 的结果。RoomLifecycle 捕获 h 和 room，
+	// 两者在房间生命周期内不变，故只需创建一次。用 atomic.Pointer 支持无锁读取。
+	lifecycle atomic.Pointer[RoomLifecycle]
 }
 
 // NewRoom 创建新房间，房主默认加入用户列表。
@@ -126,6 +136,7 @@ func NewRoom(id protocol.RoomID, hostID, maxUsers int, replayEligible bool) *Roo
 		HostID:         hostID,
 		State:          StateSelectChart{},
 		users:          []int{hostID},
+		usersMap:       make(map[int]*User),
 		monitorUsers:   make(map[int]*User),
 	}
 }

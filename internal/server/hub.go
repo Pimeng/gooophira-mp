@@ -107,18 +107,10 @@ var (
 // ---------- 广播 ----------
 
 // BroadcastRoom 向房间所有参与者发送一条命令（预编码一次，广播给所有用户）。
+// 用 room.ParticipantsSnapshot() 无锁读取参与者列表，消除 AllParticipantIDs()
+// 的 []int 分配 + state.Users map 查找。
 func (h *Hub) BroadcastRoom(room *Room, cmd protocol.ServerCommand) {
-	// 先收集在线用户，若全离线则跳过编码（避免无谓的帧分配与编码开销）。
-	ids := room.AllParticipantIDs()
-	if len(ids) == 0 {
-		return
-	}
-	users := make([]*User, 0, len(ids))
-	for _, id := range ids {
-		if u := h.State.Users[id]; u != nil {
-			users = append(users, u)
-		}
-	}
+	users := room.ParticipantsSnapshot()
 	if len(users) == 0 {
 		return
 	}
@@ -135,19 +127,7 @@ func (h *Hub) BroadcastRoom(room *Room, cmd protocol.ServerCommand) {
 
 // BroadcastRoomExcept 向房间内除 exclude 中用户外的所有在线参与者发送命令。
 func (h *Hub) BroadcastRoomExcept(room *Room, cmd protocol.ServerCommand, exclude map[int]struct{}) {
-	ids := room.AllParticipantIDs()
-	if len(ids) == 0 {
-		return
-	}
-	users := make([]*User, 0, len(ids))
-	for _, id := range ids {
-		if _, skip := exclude[id]; skip {
-			continue
-		}
-		if u := h.State.Users[id]; u != nil {
-			users = append(users, u)
-		}
-	}
+	users := room.ParticipantsSnapshot()
 	if len(users) == 0 {
 		return
 	}
@@ -156,6 +136,9 @@ func (h *Hub) BroadcastRoomExcept(room *Room, cmd protocol.ServerCommand, exclud
 		return
 	}
 	for _, u := range users {
+		if _, skip := exclude[u.ID]; skip {
+			continue
+		}
 		u.TrySendFrameOwned(frame)
 	}
 }
@@ -205,10 +188,17 @@ func (h *Hub) monitorSuffix(monitor bool) string {
 	return l10n.TL(h.State.ServerLang, "label-monitor-suffix", nil)
 }
 
-// MakeRoomLifecycle 为房间构造生命周期依赖注入。
+// MakeRoomLifecycle 为房间构造生命周期依赖注入。结果缓存在 room.lifecycle 上，
+// 因为 RoomLifecycle 捕获的 h 和 room 在房间生命周期内不变——每次命令都重建
+// 会产生 4 个闭包 + 结构体的堆分配（room-cycle 场景下占 2.9 GB 总分配）。
 func (h *Hub) MakeRoomLifecycle(room *Room) *RoomLifecycle {
-	return &RoomLifecycle{
-		UsersByID:           func(id int) *User { return h.State.Users[id] },
+	if lc := room.lifecycle.Load(); lc != nil {
+		return lc
+	}
+	lc := &RoomLifecycle{
+		// UsersByID 从 room.usersMap 查找（持 room.Mu 时安全），避免读全局
+		// state.Users 引入 data race（room-only 命令持 room.Mu 而非 state.Mu）。
+		UsersByID:           func(id int) *User { return room.usersMap[id] },
 		Broadcast:           func(cmd protocol.ServerCommand) { h.BroadcastRoom(room, cmd) },
 		BroadcastExcept:     func(cmd protocol.ServerCommand, exclude map[int]struct{}) { h.BroadcastRoomExcept(room, cmd, exclude) },
 		BroadcastToMonitors: func(cmd protocol.ServerCommand) { h.broadcastToMonitors(room, cmd) },
@@ -221,6 +211,8 @@ func (h *Hub) MakeRoomLifecycle(room *Room) *RoomLifecycle {
 		WSService:           h.State.WSService,
 		SystemChatUserID:    h.State.SystemChatUserID,
 	}
+	room.lifecycle.Store(lc)
+	return lc
 }
 
 // clientRoomStateForJoin 构造「加入房间时」客户端可见的房间状态：
@@ -296,6 +288,10 @@ func (h *Hub) ProcessCreateRoom(user *User, id protocol.RoomID) (err error) {
 	user.Room = room
 
 	room.Mu.Lock()
+	// NewRoom 只把 hostID 放入 users 切片（无 *User 指针），这里补全 usersMap 并刷新快照，
+	// 否则 BroadcastRoom 的 ParticipantsSnapshot 会漏掉房主。
+	room.usersMap[user.ID] = user
+	room.refreshParticipantsSnapshot()
 	room.RefreshLive(h.State.ReplayEnabled)
 	// 对齐原版：建房时输出 MARK 级控制台日志。
 	lc := h.MakeRoomLifecycle(room)
@@ -477,8 +473,7 @@ func (h *Hub) DisbandRoom(room *Room) {
 	room.cancelPlayDeadline()
 	lc := h.MakeRoomLifecycle(room)
 	room.Mu.Lock()
-	for _, id := range room.AllParticipantIDs() {
-		u := h.State.Users[id]
+	for _, u := range room.ParticipantsSnapshot() {
 		if u == nil || u.Room == nil || u.Room.ID != room.ID {
 			continue
 		}

@@ -273,7 +273,7 @@ func TestNetwork_DangleReconnectKeepsRoom(t *testing.T) {
 		state.Mu.Lock()
 		defer state.Mu.Unlock()
 		u := state.Users[100]
-		return u != nil && u.Session == nil // dangling
+		return u != nil && u.Session() == nil // dangling
 	})
 	state.Mu.Lock()
 	_, roomKept := state.Rooms["room1"]
@@ -323,7 +323,7 @@ func TestNetwork_StaleDangleTimerCancelled(t *testing.T) {
 		state.Mu.Lock()
 		defer state.Mu.Unlock()
 		u := state.Users[100]
-		return u != nil && u.Session == nil
+		return u != nil && u.Session() == nil
 	})
 
 	// 宽限窗内重连。
@@ -338,7 +338,7 @@ func TestNetwork_StaleDangleTimerCancelled(t *testing.T) {
 	// 用户应仍在线（绑定到 c2），未被旧 stale timer 移除。
 	state.Mu.Lock()
 	u := state.Users[100]
-	online := u != nil && u.Session != nil
+	online := u != nil && u.Session() != nil
 	state.Mu.Unlock()
 	if !online {
 		t.Fatal("user should still be online after dangle window expired (stale timer should be cancelled)")
@@ -375,7 +375,7 @@ func TestNetwork_RapidReconnectCycle(t *testing.T) {
 			state.Mu.Lock()
 			defer state.Mu.Unlock()
 			u := state.Users[100]
-			return u != nil && u.Session == nil
+			return u != nil && u.Session() == nil
 		})
 	}
 
@@ -391,7 +391,7 @@ func TestNetwork_RapidReconnectCycle(t *testing.T) {
 	// 用户应仍在线。
 	state.Mu.Lock()
 	u := state.Users[100]
-	online := u != nil && u.Session != nil
+	online := u != nil && u.Session() != nil
 	state.Mu.Unlock()
 	if !online {
 		t.Fatal("user should still be online after rapid reconnect cycle")

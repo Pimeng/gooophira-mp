@@ -205,8 +205,13 @@ func TestPlayDeadline_ContestRoomNoDeadline(t *testing.T) {
 	}
 
 	time.Sleep(200 * time.Millisecond)
-	// 比赛房 AutoDisband：单人提交后 CheckAllReady → checkPlaying → AutoDisband → 房间已解散
-	if h.room("room1") != nil {
+	// 比赛房 AutoDisband：单人提交后 CheckAllReady → checkPlaying → AutoDisband → 房间已解散。
+	// DisbandRoom 由 handlePlayed 异步执行（goroutine 持 state.Mu 删 state.Rooms），
+	// 读取 state.Rooms 须持 state.Mu 避免与异步删除竞争。
+	h.state.Mu.Lock()
+	disbanded := h.room("room1") == nil
+	h.state.Mu.Unlock()
+	if !disbanded {
 		t.Error("contest room should be disbanded after auto-disband")
 	}
 }
