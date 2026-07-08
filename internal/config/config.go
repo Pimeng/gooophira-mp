@@ -12,7 +12,7 @@ import (
 // 内置默认值（对应 TS 各使用点的 `config.x ?? default`）。集中在此，唯一来源。
 const (
 	DefaultServerName               = "Phira MP"
-	DefaultRoomMaxUsers             = 32
+	DefaultRoomMaxUsers             = 512
 	DefaultPlayingReconnectGrace    = 5
 	DefaultHitokotoAPIURL           = "https://v1.hitokoto.cn/"
 	MaxPlayingReconnectGrace        = 120
@@ -197,7 +197,7 @@ func (c *ServerConfig) EffectiveStatsDBMaxMB() int {
 	return intOr(c.StatsDBMaxMB, DefaultStatsDBMaxMB)
 }
 
-// WebhookTimeout 返回单次请求超时（落地默认值）。
+// WebhookTimeoutMS 返回单次请求超时（落地默认值）。
 func (w *WebhookConfig) WebhookTimeoutMS() int {
 	if w == nil || w.TimeoutMS <= 0 {
 		return DefaultWebhookTimeoutMS

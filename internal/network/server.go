@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"errors"
 	"net"
 	"strconv"
@@ -39,7 +40,15 @@ type Server struct {
 
 // Listen 在 addr 上监听 TCP 并开始接受连接。
 func Listen(addr string, state *server.ServerState, hub *server.Hub) (*Server, error) {
-	ln, err := net.Listen("tcp", addr)
+	return ListenConfig(addr, nil, state, hub)
+}
+
+// ListenConfig 使用可选的 net.ListenConfig（bigBacklog 为 true 时设大 SO_RCVBUF）监听 TCP。
+func ListenConfig(addr string, lc *net.ListenConfig, state *server.ServerState, hub *server.Hub) (*Server, error) {
+	if lc == nil {
+		lc = &net.ListenConfig{}
+	}
+	ln, err := lc.Listen(context.Background(), "tcp", addr)
 	if err != nil {
 		return nil, err
 	}
@@ -52,6 +61,7 @@ func Listen(addr string, state *server.ServerState, hub *server.Hub) (*Server, e
 	}
 	// 配置热重载时更新连接限速阈值（限速器实例常驻，仅改阈值）。
 	state.OnConfigReload(func(c *config.ServerConfig) { s.connLimiter.setMaxConns(c.EffectiveConnectionRateLimit()) })
+	go s.acceptLoop()
 	go s.acceptLoop()
 	go s.cleanupLoop()
 	return s, nil

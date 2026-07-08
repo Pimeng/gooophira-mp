@@ -15,7 +15,7 @@ func TestEffectiveDefaults(t *testing.T) {
 		want any
 	}{
 		{"ServerName", c.EffectiveServerName(), "Phira MP"},
-		{"RoomMaxUsers", c.EffectiveRoomMaxUsers(), 32},
+		{"RoomMaxUsers", c.EffectiveRoomMaxUsers(), 512},
 		{"RoomCreationEnabled", c.EffectiveRoomCreationEnabled(), true},
 		{"PlayingReconnectGrace", c.EffectivePlayingReconnectGrace(), 5},
 		{"MaxRooms", c.EffectiveMaxRooms(), 0},
