@@ -196,6 +196,7 @@ func (h *Hub) MakeRoomLifecycle(room *Room) *RoomLifecycle {
 		return lc
 	}
 	lc := &RoomLifecycle{
+		State: h.State,
 		// UsersByID 从 room.usersMap 查找（持 room.Mu 时安全），避免读全局
 		// state.Users 引入 data race（room-only 命令持 room.Mu 而非 state.Mu）。
 		UsersByID:           func(id int) *User { return room.usersMap[id] },
@@ -297,7 +298,7 @@ func (h *Hub) ProcessCreateRoom(user *User, id protocol.RoomID) (err error) {
 	lc := h.MakeRoomLifecycle(room)
 	room.logRoomMark(lc, "log-room-created", map[string]string{"user": user.Name})
 	h.BroadcastRoomMessage(room, protocol.MsgCreateRoom{User: int32FromInt(user.ID)})
-	h.State.EmitEvent(Event{Type: EventRoomCreate, RoomID: room.ID.String(), UserID: user.ID, UserName: user.Name})
+	room.EmitUserEvent(h.State, EventRoomCreate, user)
 	h.sendFakeMonitorJoin(user, room)
 	room.Mu.Unlock()
 	return nil
@@ -447,7 +448,7 @@ func (h *Hub) ProcessJoinRoom(user *User, id protocol.RoomID, monitor bool) (res
 	h.BroadcastRoom(room, protocol.SrvOnJoinRoom{Info: user.ToInfo()})
 	h.BroadcastRoomMessage(room, protocol.MsgJoinRoom{User: int32FromInt(user.ID), Name: user.Name})
 	h.sendFakeMonitorJoin(user, room)
-	h.State.EmitEvent(Event{Type: EventUserJoin, RoomID: room.ID.String(), UserID: user.ID, UserName: user.Name, UserCount: room.UserCount()})
+	room.EmitUserEvent(h.State, EventUserJoin, user)
 
 	users := make([]protocol.UserInfo, 0, room.UserCount()+room.MonitorCount())
 	for _, pid := range room.AllParticipantIDs() {
@@ -481,7 +482,7 @@ func (h *Hub) DisbandRoom(room *Room) {
 	}
 	delete(h.State.Rooms, room.ID)
 	room.Mu.Unlock()
-	h.State.EmitEvent(Event{Type: EventRoomDisband, RoomID: room.ID.String()})
+	room.EmitEvent(h.State, Event{Type: EventRoomDisband})
 }
 
 // ---------- Phira 取数 ----------

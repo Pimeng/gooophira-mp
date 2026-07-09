@@ -28,11 +28,10 @@ func (h *Hub) SetRoomLocked(room *Room, lock bool) {
 	room.Mu.Lock()
 	defer room.Mu.Unlock()
 	room.Locked = lock
-	room.logRoomMark(lc, "log-room-lock", map[string]string{
+	room.MarkAndBroadcast(lc, "log-room-lock", map[string]string{
 		"user": adminActorLabel(lc.Lang),
 		"lock": strconv.FormatBool(lock),
-	})
-	h.BroadcastRoomMessage(room, protocol.MsgLockRoom{Lock: lock})
+	}, protocol.MsgLockRoom{Lock: lock})
 }
 
 // SetRoomCycle 管理员开关循环模式，广播 MsgCycleRoom。
@@ -41,11 +40,10 @@ func (h *Hub) SetRoomCycle(room *Room, cycle bool) {
 	room.Mu.Lock()
 	defer room.Mu.Unlock()
 	room.Cycle = cycle
-	room.logRoomMark(lc, "log-room-cycle", map[string]string{
+	room.MarkAndBroadcast(lc, "log-room-cycle", map[string]string{
 		"user":  adminActorLabel(lc.Lang),
 		"cycle": strconv.FormatBool(cycle),
-	})
-	h.BroadcastRoomMessage(room, protocol.MsgCycleRoom{Cycle: cycle})
+	}, protocol.MsgCycleRoom{Cycle: cycle})
 }
 
 // TransferHost 即时转移房主（不限 cycle 模式）。目标须在房内且非当前房主，否则返回 error。
@@ -64,11 +62,10 @@ func (h *Hub) TransferHost(room *Room, userID int) error {
 	old := room.HostID
 	room.HostID = userID
 	room.ClearNextHost()
-	room.logRoomInfo(lc, "log-room-host-changed-admin", map[string]string{
+	room.LogAndBroadcast(lc, "log-room-host-changed-admin", map[string]string{
 		"old":  strconv.Itoa(old),
 		"next": strconv.Itoa(userID),
-	})
-	h.BroadcastRoomMessage(room, protocol.MsgNewHost{User: int32FromInt(userID)})
+	}, protocol.MsgNewHost{User: int32FromInt(userID)})
 	// 经 room.usersMap（持 room.Mu 安全）取 *User 指针，避免读 state.Users 引入 data race。
 	if u := room.usersMap[old]; u != nil {
 		u.TrySend(protocol.SrvChangeHost{IsHost: false})

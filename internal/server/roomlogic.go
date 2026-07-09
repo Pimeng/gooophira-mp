@@ -19,6 +19,7 @@ import (
 // 广播在 Go 中按同步语义处理（回调内部自行决定并发扇出）；网络层的并发发送在 Stage 4
 // 的 session 层处理。
 type RoomLifecycle struct {
+	State               *ServerState
 	UsersByID           func(id int) *User
 	Broadcast           func(cmd protocol.ServerCommand)
 	BroadcastExcept     func(cmd protocol.ServerCommand, exclude map[int]struct{})
@@ -391,7 +392,7 @@ func (r *Room) startPlaying(lc *RoomLifecycle, unreadyIDs []int) {
 		lc.Broadcast(startCmd)
 		lc.Broadcast(stateCmd)
 	}
-	r.NotifyWebSocket(lc)
+	r.NotifyState(lc)
 }
 
 func (r *Room) checkPlaying(lc *RoomLifecycle, st StatePlaying) (disband bool) {
@@ -420,6 +421,9 @@ func (r *Room) checkPlaying(lc *RoomLifecycle, st StatePlaying) (disband bool) {
 		"aborted":  fmt.Sprintf("%d", len(st.Aborted)),
 	})
 	r.Send(lc, protocol.MsgGameEnd{})
+	if state := roomLifecycleState(lc); state != nil {
+		r.EmitGameEvent(state, EventGameEnd)
+	}
 	if lc.OnGameEnd != nil {
 		lc.OnGameEnd(r)
 	}
@@ -442,8 +446,7 @@ func (r *Room) checkPlaying(lc *RoomLifecycle, st StatePlaying) (disband bool) {
 		r.rotateCycleHost(lc)
 	}
 
-	r.OnStateChange(lc)
-	r.NotifyWebSocket(lc)
+	r.NotifyState(lc)
 	return false
 }
 
@@ -663,4 +666,11 @@ func (r *Room) ValidateSelectChart(user *User) error {
 		return ErrRoomInvalidState
 	}
 	return nil
+}
+
+func roomLifecycleState(lc *RoomLifecycle) *ServerState {
+	if lc == nil {
+		return nil
+	}
+	return lc.State
 }

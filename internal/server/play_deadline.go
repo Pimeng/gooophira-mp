@@ -75,8 +75,7 @@ func (h *Hub) startPlayDeadline(room *Room) {
 			if u := state.Users[id]; u != nil {
 				name = u.Name
 			}
-			room.logRoomMark(lc, "log-room-abort", map[string]string{"user": name})
-			h.BroadcastRoomMessage(room, protocol.MsgAbort{User: int32FromInt(id)})
+			room.MarkAndBroadcast(lc, "log-room-abort", map[string]string{"user": name}, protocol.MsgAbort{User: int32FromInt(id)})
 		}
 		// 发送系统聊天通知。
 		if hint, ok := tlOrSkip(lang, "chat-play-deadline", map[string]string{"seconds": seconds}); ok {

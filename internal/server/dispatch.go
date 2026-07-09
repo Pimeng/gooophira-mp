@@ -112,303 +112,46 @@ func (h *Hub) ProcessClientCommand(user *User, cmd protocol.ClientCommand) (prot
 		return protocol.SrvAuthenticate{Result: protocol.Errr[protocol.AuthInfo](h.localize(user, errAuthRepeated.Error()))}, true
 
 	case protocol.CmdChat:
-		return protocol.SrvChat{Result: h.unitResult(user, func() error {
-			room, err := h.RequireRoom(user)
-			if err != nil {
-				return err
-			}
-			room.logRoomInfo(h.MakeRoomLifecycle(room), "log-user-chat", map[string]string{"user": user.Name})
-			content := c.Message
-			if !h.State.Config.EffectiveChatEnabled() {
-				content = h.localize(user, "chat-disabled-by-server")
-			}
-			content = truncateRunes(content, maxChatLength)
-			room.SendAs(h.MakeRoomLifecycle(room), user, content)
-			return nil
-		})}, true
+		return protocol.SrvChat{Result: h.unitResultFromError(user, h.handleChat(user, c))}, true
 
 	case protocol.CmdTouches:
-		room := user.Room
-		if room == nil {
-			return nil, false
-		}
-		if _, can := playingStateFor(room, user.ID); !can {
-			return nil, false
-		}
-		if len(c.Frames) > 0 {
-			user.SetGameTime(float64(c.Frames[len(c.Frames)-1].Time))
-		}
-		// DEBUG 帧日志：先短路判断等级，避免热路径上无谓的格式化与分配。
-		if lg := h.State.Logger; lg != nil && lg.DebugEnabled() {
-			lg.Debug(fmt.Sprintf("“%s” 在房间 “%s” 上报触控帧 %s 条",
-				user.Name, string(room.ID), strconv.Itoa(len(c.Frames))))
-		}
-		if room.MonitorCount() > 0 {
-			h.forwardTouches(room, user.ID, c.Frames)
-		}
-		if h.shouldRecord(room) {
-			h.State.ReplayRecorder.AppendTouches(room.ID, user.ID, c.Frames)
-		}
-		return nil, false
+		return h.handleTouches(user, c)
 
 	case protocol.CmdJudges:
-		room := user.Room
-		if room == nil {
-			return nil, false
-		}
-		if _, can := playingStateFor(room, user.ID); !can {
-			return nil, false
-		}
-		// DEBUG 帧日志：先短路判断等级，避免热路径上无谓的格式化与分配。
-		if lg := h.State.Logger; lg != nil && lg.DebugEnabled() {
-			lg.Debug(fmt.Sprintf("“%s” 在房间 “%s” 上报判定事件 %s 条",
-				user.Name, string(room.ID), strconv.Itoa(len(c.Judges))))
-		}
-		if room.MonitorCount() > 0 {
-			h.forwardJudges(room, user.ID, c.Judges)
-		}
-		if h.shouldRecord(room) {
-			h.State.ReplayRecorder.AppendJudges(room.ID, user.ID, c.Judges)
-		}
-		return nil, false
+		return h.handleJudges(user, c)
 
 	case protocol.CmdCreateRoom:
-		return protocol.SrvCreateRoom{Result: h.unitResult(user, func() error {
-			return h.ProcessCreateRoom(user, c.ID)
-		})}, true
+		return protocol.SrvCreateRoom{Result: h.unitResultFromError(user, h.handleCreateRoom(user, c))}, true
 
 	case protocol.CmdJoinRoom:
-		return protocol.SrvJoinRoom{Result: errToStr(h, user, func() (protocol.JoinRoomResponse, error) {
-			return h.ProcessJoinRoom(user, c.ID, c.Monitor)
-		})}, true
+		return protocol.SrvJoinRoom{Result: h.handleJoinRoomResult(user, c)}, true
 
 	case protocol.CmdLeaveRoom:
-		return protocol.SrvLeaveRoom{Result: h.unitResult(user, func() error {
-			room, err := h.RequireRoom(user)
-			if err != nil {
-				return err
-			}
-			lc := h.MakeRoomLifecycle(room)
-			// 对齐原版：离开房间输出 MARK 级日志（在 OnUserLeave 前取观战后缀）。
-			room.Mu.Lock()
-			room.logRoomMark(lc, "log-room-left", map[string]string{
-				"user": user.Name, "suffix": h.monitorSuffix(user.Monitor),
-			})
-			shouldDrop, disband := room.OnUserLeave(lc, user)
-			if !shouldDrop {
-				room.RefreshLive(h.State.ReplayEnabled)
-			}
-			// 删除房间须在 state.Mu 保护下完成（h.State.Rooms 受其约束）。
-			// CmdLeaveRoom 走非 isRoomOnlyCmd 路径，调用方持 state.Mu，故可安全 delete。
-			if shouldDrop {
-				room.logRoomInfo(lc, "log-room-recycled", nil)
-				delete(h.State.Rooms, room.ID)
-			}
-			room.Mu.Unlock()
-			// 比赛 AutoDisband：room.Mu 释放后再调 DisbandRoom（避免重入自死锁）。
-			// 调用方持 state.Mu，DisbandRoom 内部 room.Mu.Lock() 安全。
-			if disband {
-				h.DisbandRoom(room)
-			}
-			return nil
-		})}, true
+		return protocol.SrvLeaveRoom{Result: h.unitResultFromError(user, h.handleLeaveRoom(user))}, true
 
 	case protocol.CmdLockRoom:
-		return protocol.SrvLockRoom{Result: h.unitResult(user, func() error {
-			room, err := h.RequireRoom(user)
-			if err != nil {
-				return err
-			}
-			if err := room.CheckHost(user); err != nil {
-				return err
-			}
-			room.Locked = c.Lock
-			room.logRoomMark(h.MakeRoomLifecycle(room), "log-room-lock", map[string]string{
-				"user": user.Name, "lock": strconv.FormatBool(c.Lock),
-			})
-			h.BroadcastRoomMessage(room, protocol.MsgLockRoom{Lock: c.Lock})
-			return nil
-		})}, true
+		return protocol.SrvLockRoom{Result: h.unitResultFromError(user, h.handleLockRoom(user, c))}, true
 
 	case protocol.CmdCycleRoom:
-		return protocol.SrvCycleRoom{Result: h.unitResult(user, func() error {
-			room, err := h.RequireRoom(user)
-			if err != nil {
-				return err
-			}
-			if err := room.CheckHost(user); err != nil {
-				return err
-			}
-			room.Cycle = c.Cycle
-			room.logRoomMark(h.MakeRoomLifecycle(room), "log-room-cycle", map[string]string{
-				"user": user.Name, "cycle": strconv.FormatBool(c.Cycle),
-			})
-			h.BroadcastRoomMessage(room, protocol.MsgCycleRoom{Cycle: c.Cycle})
-			return nil
-		})}, true
+		return protocol.SrvCycleRoom{Result: h.unitResultFromError(user, h.handleCycleRoom(user, c))}, true
 
 	case protocol.CmdSelectChart:
-		return protocol.SrvSelectChart{Result: h.unitResult(user, func() error {
-			room, err := h.RequireRoom(user)
-			if err != nil {
-				return err
-			}
-			if err := room.ValidateSelectChart(user); err != nil {
-				return err
-			}
-			chart, err := h.FetchChart(user, int(c.ID))
-			if err != nil {
-				return err
-			}
-			room.Chart = &chart
-			lc := h.MakeRoomLifecycle(room)
-			// 对齐原版：选谱时输出 MARK 级控制台日志。
-			room.logRoomMark(lc, "log-room-select-chart", map[string]string{
-				"user":   user.Name,
-				"userId": fmt.Sprintf("%d", user.ID),
-				"chart":  chart.Name,
-			})
-			h.BroadcastRoomMessage(room, protocol.MsgSelectChart{User: int32FromInt(user.ID), Name: chart.Name, ID: int32FromInt(chart.ID)})
-			room.OnStateChange(lc)
-			room.NotifyWebSocket(lc)
-			return nil
-		})}, true
+		return protocol.SrvSelectChart{Result: h.unitResultFromError(user, h.handleSelectChart(user, c))}, true
 
 	case protocol.CmdRequestStart:
-		return protocol.SrvRequestStart{Result: h.unitResult(user, func() error {
-			room, err := h.RequireRoom(user)
-			if err != nil {
-				return err
-			}
-			if err := room.ValidateStart(user); err != nil {
-				return err
-			}
-			room.ResetGameTime(func(id int) *User { return h.State.Users[id] })
-			lc := h.MakeRoomLifecycle(room)
-			room.logRoomMark(lc, "log-room-request-start", map[string]string{"user": user.Name})
-			h.BroadcastRoomMessage(room, protocol.MsgGameStart{User: int32FromInt(user.ID)})
-			// 系统身份提示聊天走 ProtocolHack 延迟调度：让 GameStart 广播先抵达客户端，
-			// 提示紧随其后到达，避免在状态切换动画途中弹出系统聊天。
-			// 单人房会立即 startPlaying，无需提示「一分钟内准备」，跳过。
-			hint, hasHint := tlOrSkip(lc.Lang, "chat-game-start-hint", map[string]string{"user": user.Name})
-			if hasHint && len(room.users) > 1 {
-				sysID := h.State.SystemChatUserID()
-				state := h.State
-				roomID := room.ID
-				h.NewProtocolHack().schedule(func() {
-					state.Mu.Lock()
-					if state.Rooms[roomID] != room {
-						state.Mu.Unlock()
-						return
-					}
-					room.Mu.Lock()
-					h.BroadcastRoomMessage(room, protocol.MsgChat{User: sysID, Content: hint})
-					room.Mu.Unlock()
-					state.Mu.Unlock()
-				})
-			}
-			room.State = StateWaitForReady{Started: map[int]struct{}{user.ID: {}}}
-			room.OnStateChange(lc)
-			room.NotifyWebSocket(lc)
-			// 先推进状态机：单人房或全员就绪会立即 startPlaying（内部 cancelReadyCountdown），
-			// 此时无需启动倒计时；仅在仍处于 WaitForReady 时才启动。
-			if room.CheckAllReady(lc) {
-				h.DisbandRoom(room)
-			} else if _, stillWaiting := room.State.(StateWaitForReady); stillWaiting {
-				h.startReadyCountdown(room)
-			}
-			return nil
-		})}, true
+		return protocol.SrvRequestStart{Result: h.unitResultFromError(user, h.handleRequestStart(user, c))}, true
 
 	case protocol.CmdReady:
-		return protocol.SrvReady{Result: h.unitResult(user, func() error {
-			room, err := h.RequireRoom(user)
-			if err != nil {
-				return err
-			}
-			if _, playing := room.State.(StatePlaying); playing {
-				return ErrRoomInvalidState
-			}
-			st, ok := room.State.(StateWaitForReady)
-			if !ok {
-				return nil
-			}
-			if _, already := st.Started[user.ID]; already {
-				return errAlreadyReady
-			}
-			st.Started[user.ID] = struct{}{}
-			lc := h.MakeRoomLifecycle(room)
-			room.logRoomInfo(lc, "log-room-ready", map[string]string{"user": user.Name})
-			h.BroadcastRoomMessage(room, protocol.MsgReady{User: int32FromInt(user.ID)})
-			room.NotifyWebSocket(lc)
-			if room.CheckAllReady(lc) {
-				h.DisbandRoom(room)
-			}
-			return nil
-		})}, true
+		return protocol.SrvReady{Result: h.unitResultFromError(user, h.handleReady(user))}, true
 
 	case protocol.CmdCancelReady:
-		return protocol.SrvCancelReady{Result: h.unitResult(user, func() error {
-			room, err := h.RequireRoom(user)
-			if err != nil {
-				return err
-			}
-			if _, playing := room.State.(StatePlaying); playing {
-				return ErrRoomInvalidState
-			}
-			st, ok := room.State.(StateWaitForReady)
-			if !ok {
-				return nil
-			}
-			if _, ready := st.Started[user.ID]; !ready {
-				return errNotReady
-			}
-			delete(st.Started, user.ID)
-			lc := h.MakeRoomLifecycle(room)
-			if room.HostID == user.ID {
-				room.logRoomMark(lc, "log-room-cancel-game", map[string]string{"user": user.Name})
-				h.BroadcastRoomMessage(room, protocol.MsgCancelGame{User: int32FromInt(user.ID)})
-				room.cancelReadyCountdown()
-				room.State = StateSelectChart{}
-				room.OnStateChange(lc)
-				room.NotifyWebSocket(lc)
-			} else {
-				room.logRoomInfo(lc, "log-room-cancel-ready", map[string]string{"user": user.Name})
-				h.BroadcastRoomMessage(room, protocol.MsgCancelReady{User: int32FromInt(user.ID)})
-				room.NotifyWebSocket(lc)
-			}
-			return nil
-		})}, true
+		return protocol.SrvCancelReady{Result: h.unitResultFromError(user, h.handleCancelReady(user))}, true
 
 	case protocol.CmdPlayed:
-		return protocol.SrvPlayed{Result: h.unitResultFromError(user, h.handlePlayed(user, c))}, true
+		return protocol.SrvPlayed{Result: h.handlePlayedResult(user, c)}, true
 
 	case protocol.CmdAbort:
-		return protocol.SrvAbort{Result: h.unitResult(user, func() error {
-			room, err := h.RequireRoom(user)
-			if err != nil {
-				return err
-			}
-			st, ok := room.State.(StatePlaying)
-			if !ok {
-				return nil
-			}
-			if _, done := st.Results[user.ID]; done {
-				return errRecordUploaded
-			}
-			if _, aborted := st.Aborted[user.ID]; aborted {
-				return errGameAborted
-			}
-			st.Aborted[user.ID] = struct{}{}
-			lc := h.MakeRoomLifecycle(room)
-			room.logRoomMark(lc, "log-room-abort", map[string]string{"user": user.Name})
-			h.BroadcastRoomMessage(room, protocol.MsgAbort{User: int32FromInt(user.ID)})
-			room.NotifyWebSocket(lc)
-			if room.CheckAllReady(lc) {
-				h.DisbandRoom(room)
-			}
-			return nil
-		})}, true
+		return protocol.SrvAbort{Result: h.unitResultFromError(user, h.handleAbort(user))}, true
 
 	default:
 		return nil, false
@@ -559,4 +302,276 @@ func fillChatRecordMap(m map[string]string, lang *l10n.Language, user *User, rec
 		}
 		m["modList"] = strings.Join(mods, ", ")
 	}
+}
+
+func (h *Hub) handleLockRoom(user *User, c protocol.CmdLockRoom) error {
+	room, err := h.RequireRoom(user)
+	if err != nil {
+		return err
+	}
+	if err := room.CheckHost(user); err != nil {
+		return err
+	}
+	room.Locked = c.Lock
+	room.MarkAndBroadcast(h.MakeRoomLifecycle(room), "log-room-lock", map[string]string{
+		"user": user.Name, "lock": strconv.FormatBool(c.Lock),
+	}, protocol.MsgLockRoom{Lock: c.Lock})
+	return nil
+}
+
+func (h *Hub) handleCycleRoom(user *User, c protocol.CmdCycleRoom) error {
+	room, err := h.RequireRoom(user)
+	if err != nil {
+		return err
+	}
+	if err := room.CheckHost(user); err != nil {
+		return err
+	}
+	room.Cycle = c.Cycle
+	room.MarkAndBroadcast(h.MakeRoomLifecycle(room), "log-room-cycle", map[string]string{
+		"user": user.Name, "cycle": strconv.FormatBool(c.Cycle),
+	}, protocol.MsgCycleRoom{Cycle: c.Cycle})
+	return nil
+}
+
+func (h *Hub) handleSelectChart(user *User, c protocol.CmdSelectChart) error {
+	room, err := h.RequireRoom(user)
+	if err != nil {
+		return err
+	}
+	if err := room.ValidateSelectChart(user); err != nil {
+		return err
+	}
+	chart, err := h.FetchChart(user, int(c.ID))
+	if err != nil {
+		return err
+	}
+	room.Chart = &chart
+	lc := h.MakeRoomLifecycle(room)
+	room.logRoomMark(lc, "log-room-select-chart", map[string]string{
+		"user":   user.Name,
+		"userId": fmt.Sprintf("%d", user.ID),
+		"chart":  chart.Name,
+	})
+	h.BroadcastRoomMessage(room, protocol.MsgSelectChart{User: int32FromInt(user.ID), Name: chart.Name, ID: int32FromInt(chart.ID)})
+	room.NotifyState(lc)
+	return nil
+}
+
+func (h *Hub) handleRequestStart(user *User, _ protocol.CmdRequestStart) error {
+	room, err := h.RequireRoom(user)
+	if err != nil {
+		return err
+	}
+	if err := room.ValidateStart(user); err != nil {
+		return err
+	}
+	room.ResetGameTime(func(id int) *User { return h.State.Users[id] })
+	lc := h.MakeRoomLifecycle(room)
+	room.logRoomMark(lc, "log-room-request-start", map[string]string{"user": user.Name})
+	h.BroadcastRoomMessage(room, protocol.MsgGameStart{User: int32FromInt(user.ID)})
+	hint, hasHint := tlOrSkip(lc.Lang, "chat-game-start-hint", map[string]string{"user": user.Name})
+	if hasHint && len(room.users) > 1 {
+		sysID := h.State.SystemChatUserID()
+		state := h.State
+		roomID := room.ID
+		h.NewProtocolHack().schedule(func() {
+			state.Mu.Lock()
+			if state.Rooms[roomID] != room {
+				state.Mu.Unlock()
+				return
+			}
+			room.Mu.Lock()
+			h.BroadcastRoomMessage(room, protocol.MsgChat{User: sysID, Content: hint})
+			room.Mu.Unlock()
+			state.Mu.Unlock()
+		})
+	}
+	room.State = StateWaitForReady{Started: map[int]struct{}{user.ID: {}}}
+	room.NotifyState(lc)
+	if room.CheckAllReady(lc) {
+		h.DisbandRoom(room)
+	} else if _, stillWaiting := room.State.(StateWaitForReady); stillWaiting {
+		h.startReadyCountdown(room)
+	}
+	return nil
+}
+
+func (h *Hub) handleReady(user *User) error {
+	room, err := h.RequireRoom(user)
+	if err != nil {
+		return err
+	}
+	if _, playing := room.State.(StatePlaying); playing {
+		return ErrRoomInvalidState
+	}
+	st, ok := room.State.(StateWaitForReady)
+	if !ok {
+		return nil
+	}
+	if _, already := st.Started[user.ID]; already {
+		return errAlreadyReady
+	}
+	st.Started[user.ID] = struct{}{}
+	lc := h.MakeRoomLifecycle(room)
+	room.LogBroadcastAndNotify(lc, "log-room-ready", map[string]string{"user": user.Name}, protocol.MsgReady{User: int32FromInt(user.ID)})
+	if room.CheckAllReady(lc) {
+		h.DisbandRoom(room)
+	}
+	return nil
+}
+
+func (h *Hub) handleCancelReady(user *User) error {
+	room, err := h.RequireRoom(user)
+	if err != nil {
+		return err
+	}
+	if _, playing := room.State.(StatePlaying); playing {
+		return ErrRoomInvalidState
+	}
+	st, ok := room.State.(StateWaitForReady)
+	if !ok {
+		return nil
+	}
+	if _, ready := st.Started[user.ID]; !ready {
+		return errNotReady
+	}
+	delete(st.Started, user.ID)
+	lc := h.MakeRoomLifecycle(room)
+	if room.HostID == user.ID {
+		room.logRoomMark(lc, "log-room-cancel-game", map[string]string{"user": user.Name})
+		h.BroadcastRoomMessage(room, protocol.MsgCancelGame{User: int32FromInt(user.ID)})
+		room.cancelReadyCountdown()
+		room.State = StateSelectChart{}
+		room.NotifyState(lc)
+		return nil
+	}
+	room.LogBroadcastAndNotify(lc, "log-room-cancel-ready", map[string]string{"user": user.Name}, protocol.MsgCancelReady{User: int32FromInt(user.ID)})
+	return nil
+}
+
+func (h *Hub) handleAbort(user *User) error {
+	room, err := h.RequireRoom(user)
+	if err != nil {
+		return err
+	}
+	st, ok := room.State.(StatePlaying)
+	if !ok {
+		return nil
+	}
+	if _, done := st.Results[user.ID]; done {
+		return errRecordUploaded
+	}
+	if _, aborted := st.Aborted[user.ID]; aborted {
+		return errGameAborted
+	}
+	st.Aborted[user.ID] = struct{}{}
+	lc := h.MakeRoomLifecycle(room)
+	room.MarkBroadcastAndNotify(lc, "log-room-abort", map[string]string{"user": user.Name}, protocol.MsgAbort{User: int32FromInt(user.ID)})
+	if room.CheckAllReady(lc) {
+		h.DisbandRoom(room)
+	}
+	return nil
+}
+
+func (h *Hub) handleChat(user *User, c protocol.CmdChat) error {
+	room, err := h.RequireRoom(user)
+	if err != nil {
+		return err
+	}
+	lc := h.MakeRoomLifecycle(room)
+	room.logRoomInfo(lc, "log-user-chat", map[string]string{"user": user.Name})
+	content := c.Message
+	if !h.State.Config.EffectiveChatEnabled() {
+		content = h.localize(user, "chat-disabled-by-server")
+	}
+	content = truncateRunes(content, maxChatLength)
+	room.SendAs(lc, user, content)
+	return nil
+}
+
+func (h *Hub) handleTouches(user *User, c protocol.CmdTouches) (protocol.ServerCommand, bool) {
+	room := user.Room
+	if room == nil {
+		return nil, false
+	}
+	if _, can := playingStateFor(room, user.ID); !can {
+		return nil, false
+	}
+	if len(c.Frames) > 0 {
+		user.SetGameTime(float64(c.Frames[len(c.Frames)-1].Time))
+	}
+	if lg := h.State.Logger; lg != nil && lg.DebugEnabled() {
+		lg.Debug(fmt.Sprintf("“%s” 在房间 “%s” 上报触控帧 %s 条",
+			user.Name, string(room.ID), strconv.Itoa(len(c.Frames))))
+	}
+	if room.MonitorCount() > 0 {
+		h.forwardTouches(room, user.ID, c.Frames)
+	}
+	if h.shouldRecord(room) {
+		h.State.ReplayRecorder.AppendTouches(room.ID, user.ID, c.Frames)
+	}
+	return nil, false
+}
+
+func (h *Hub) handleJudges(user *User, c protocol.CmdJudges) (protocol.ServerCommand, bool) {
+	room := user.Room
+	if room == nil {
+		return nil, false
+	}
+	if _, can := playingStateFor(room, user.ID); !can {
+		return nil, false
+	}
+	if lg := h.State.Logger; lg != nil && lg.DebugEnabled() {
+		lg.Debug(fmt.Sprintf("“%s” 在房间 “%s” 上报判定事件 %s 条",
+			user.Name, string(room.ID), strconv.Itoa(len(c.Judges))))
+	}
+	if room.MonitorCount() > 0 {
+		h.forwardJudges(room, user.ID, c.Judges)
+	}
+	if h.shouldRecord(room) {
+		h.State.ReplayRecorder.AppendJudges(room.ID, user.ID, c.Judges)
+	}
+	return nil, false
+}
+
+func (h *Hub) handleLeaveRoom(user *User) error {
+	room, err := h.RequireRoom(user)
+	if err != nil {
+		return err
+	}
+	lc := h.MakeRoomLifecycle(room)
+	room.Mu.Lock()
+	room.logRoomMark(lc, "log-room-left", map[string]string{
+		"user": user.Name, "suffix": h.monitorSuffix(user.Monitor),
+	})
+	shouldDrop, disband := room.OnUserLeave(lc, user)
+	if !shouldDrop {
+		room.RefreshLive(h.State.ReplayEnabled)
+	}
+	if shouldDrop {
+		room.logRoomInfo(lc, "log-room-recycled", nil)
+		delete(h.State.Rooms, room.ID)
+	}
+	room.Mu.Unlock()
+	if disband {
+		h.DisbandRoom(room)
+	}
+	return nil
+}
+
+func (h *Hub) handleCreateRoom(user *User, c protocol.CmdCreateRoom) error {
+	return h.ProcessCreateRoom(user, c.ID)
+}
+
+func (h *Hub) handleJoinRoomResult(user *User, c protocol.CmdJoinRoom) protocol.StringResult[protocol.JoinRoomResponse] {
+	resp, err := h.ProcessJoinRoom(user, c.ID, c.Monitor)
+	if err != nil {
+		return protocol.Errr[protocol.JoinRoomResponse](h.localize(user, err.Error()))
+	}
+	return protocol.Ok(resp)
+}
+
+func (h *Hub) handlePlayedResult(user *User, c protocol.CmdPlayed) protocol.StringResult[protocol.Unit] {
+	return h.unitResultFromError(user, h.handlePlayed(user, c))
 }
