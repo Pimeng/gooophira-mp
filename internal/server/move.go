@@ -12,7 +12,7 @@ func (h *Hub) MoveUser(user *User, toRoom *Room, monitor bool) error {
 	}
 	from := user.Room
 	if from == nil {
-		return errUserNotInRoom
+		return ErrUserNotInRoom
 	}
 	if _, ok := from.State.(StateSelectChart); !ok {
 		return errCannotMovePlaying

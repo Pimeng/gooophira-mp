@@ -99,7 +99,7 @@ var (
 	errNoChartSelected      = errors.New("no-chart-selected")
 	errNotAllReady          = errors.New("not-all-ready")
 	errUserMustDisconnect   = errors.New("user-must-be-disconnected")
-	errUserNotInRoom        = errors.New("user-not-in-room")
+	ErrUserNotInRoom        = errors.New("user-not-in-room")
 	errCannotMovePlaying    = errors.New("cannot-move-while-playing")
 	errTargetRoomNotIdle    = errors.New("target-room-not-idle")
 )

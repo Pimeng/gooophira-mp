@@ -253,6 +253,7 @@ log-room-game-start-monitors = ，觀戰者：{ $monitors }
 log-room-game-end = 房間 「{ $room }」 對局結束（已上傳：{ $uploaded }，中止：{ $aborted }）
 log-contest-game-results = 比賽房間 「{ $room }」 成績：chart={ $chart } results={ $results } aborted={ $aborted }
 log-room-host-changed-cycle = 房間 「{ $room }」 房主變更（輪轉）：{ $old } -> { $next }
+log-room-host-changed-admin = 房間 「{ $room }」 房主變更（管理員）：{ $old } -> { $next }
 
 log-admin-broadcast = 管理員全服廣播：{ $message }（傳送到 { $rooms } 個房間）
 log-gui-console-command = GUI 控制台執行命令：{ $command }
@@ -301,6 +302,10 @@ cli-help =
     roomsay <roomId> <message>    - 向指定房間傳送訊息
     maxusers <roomId> <count>     - 設定房間最大人數
     nexthost <roomId> <userId>    - 指定房間下一輪房主（僅循環模式生效）
+    lock <roomId> <on|off>          - 強制鎖定/解鎖房間
+    cycle <roomId> <on|off>         - 開關房間循環模式
+    sethost <roomId> <userId>       - 立即轉移房主
+    roominfo <roomId>               - 查看房間詳情
     disband <roomId>              - 解散房間
     replay <on|off|status>        - 回放錄製開關
     roomcreation <on|off|status>  - 房間建立開關
@@ -386,6 +391,26 @@ cli-room-disbanded = 已解散房間 { $room }
 cli-nexthost-set = 已指定房間 { $room } 下一輪房主為使用者 { $userId }（僅循環模式下生效）
 cli-nexthost-not-cycle = 房間 { $room } 未啟用循環模式，無法指定下一輪房主
 cli-nexthost-user-not-in-room = 使用者 { $userId } 不在房間 { $room } 內
+
+cli-admin-actor = 管理員
+cli-bad-toggle = 無效的開關參數（應為 on 或 off）
+cli-usage-lock = 用法：lock <roomId> <on|off>
+cli-usage-cycle = 用法：cycle <roomId> <on|off>
+cli-usage-sethost = 用法：sethost <roomId> <userId>
+cli-usage-roominfo = 用法：roominfo <roomId>
+cli-room-locked = 已鎖定房間 { $room }
+cli-room-unlocked = 已解鎖房間 { $room }
+cli-room-cycle-on = 已開啟房間 { $room } 循環模式
+cli-room-cycle-off = 已關閉房間 { $room } 循環模式
+cli-sethost-set = 已轉移房間 { $room } 房主為使用者 { $userId }
+cli-sethost-already-host = 使用者 { $userId } 已是房間 { $room } 的房主
+cli-sethost-user-not-in-room = 使用者 { $userId } 不在房間 { $room } 內
+cli-roominfo-header = 房間 { $room } 資訊
+cli-roominfo-line1 = 狀態：{ $state } | 房主：{ $host } | 最大人數：{ $maxUsers }
+cli-roominfo-line2 = 鎖定：{ $locked } | 循環：{ $cycle } | 比賽：{ $contest }
+cli-roominfo-line3 = 譜面：{ $chart }
+cli-roominfo-players = 玩家（{ $count }）：{ $list }
+cli-roominfo-monitors = 觀戰者（{ $count }）：{ $list }
 
 cli-replay-status = 回放錄製狀態：{ $state }
 cli-replay-toggled-on = 回放錄製已開啟

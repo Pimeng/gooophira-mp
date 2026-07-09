@@ -253,6 +253,7 @@ log-room-game-start-monitors = , monitors: { $monitors }
 log-room-game-end = Room "{ $room }" game end (uploaded={ $uploaded }, aborted={ $aborted })
 log-contest-game-results = Contest room "{ $room }" results: chart={ $chart } results={ $results } aborted={ $aborted }
 log-room-host-changed-cycle = Room "{ $room }" host changed (cycle): { $old } -> { $next }
+log-room-host-changed-admin = Room "{ $room }" host changed (admin): { $old } -> { $next }
 
 log-admin-broadcast = Admin broadcast: { $message } (sent to { $rooms } rooms)
 log-gui-console-command = GUI console command executed: { $command }
@@ -301,6 +302,10 @@ cli-help =
     roomsay <roomId> <message>    - Send message to room
     maxusers <roomId> <count>     - Set room max users
     nexthost <roomId> <userId>    - Designate next round host (cycle mode only)
+    lock <roomId> <on|off>          - Force lock/unlock room
+    cycle <roomId> <on|off>         - Toggle room cycle mode
+    sethost <roomId> <userId>       - Transfer host immediately
+    roominfo <roomId>               - Show room details
     disband <roomId>              - Disband room
     replay <on|off|status>        - Replay recording toggle
     roomcreation <on|off|status>  - Room creation toggle
@@ -386,6 +391,26 @@ cli-room-disbanded = Disbanded room { $room }
 cli-nexthost-set = Designated user { $userId } as next round host for room { $room } (cycle mode only)
 cli-nexthost-not-cycle = Room { $room } does not have cycle mode enabled; cannot designate next host
 cli-nexthost-user-not-in-room = User { $userId } is not in room { $room }
+
+cli-admin-actor = Administrator
+cli-bad-toggle = Invalid toggle argument (expected on or off)
+cli-usage-lock = Usage: lock <roomId> <on|off>
+cli-usage-cycle = Usage: cycle <roomId> <on|off>
+cli-usage-sethost = Usage: sethost <roomId> <userId>
+cli-usage-roominfo = Usage: roominfo <roomId>
+cli-room-locked = Locked room { $room }
+cli-room-unlocked = Unlocked room { $room }
+cli-room-cycle-on = Enabled cycle mode for room { $room }
+cli-room-cycle-off = Disabled cycle mode for room { $room }
+cli-sethost-set = Transferred room { $room } host to user { $userId }
+cli-sethost-already-host = User { $userId } is already host of room { $room }
+cli-sethost-user-not-in-room = User { $userId } is not in room { $room }
+cli-roominfo-header = Room { $room } info
+cli-roominfo-line1 = State: { $state } | Host: { $host } | Max users: { $maxUsers }
+cli-roominfo-line2 = Locked: { $locked } | Cycle: { $cycle } | Contest: { $contest }
+cli-roominfo-line3 = Chart: { $chart }
+cli-roominfo-players = Players ({ $count }): { $list }
+cli-roominfo-monitors = Monitors ({ $count }): { $list }
 
 cli-replay-status = Replay recording: { $state }
 cli-replay-toggled-on = Replay recording enabled

@@ -253,6 +253,7 @@ log-room-game-start-monitors = , monitors: { $monitors }
 log-room-game-end = Конец игры в комнате «{ $room }» (uploaded={ $uploaded }, aborted={ $aborted })
 log-contest-game-results = Результаты турнирной комнаты «{ $room }»: chart={ $chart } results={ $results } aborted={ $aborted }
 log-room-host-changed-cycle = Хост комнаты «{ $room }» изменён (ротация): { $old } -> { $next }
+log-room-host-changed-admin = Хост комнаты «{ $room }» изменён (администратор): { $old } -> { $next }
 
 log-admin-broadcast = Рассылка администратора: { $message } (отправлено в { $rooms } комнат)
 log-gui-console-command = Команда из GUI-консоли: { $command }
@@ -301,6 +302,10 @@ cli-help =
     roomsay <roomId> <message>    - Отправить сообщение в комнату
     maxusers <roomId> <count>     - Задать макс. число пользователей комнаты
     nexthost <roomId> <userId>    - Назначить хоста следующего раунда (только циклический режим)
+    lock <roomId> <on|off>          - Принудительная блокировка/разблокировка комнаты
+    cycle <roomId> <on|off>         - Переключить циклический режим комнаты
+    sethost <roomId> <userId>       - Немедленная передача хоста
+    roominfo <roomId>               - Показать детали комнаты
     disband <roomId>              - Распустить комнату
     replay <on|off|status>        - Переключение записи повтора
     roomcreation <on|off|status>  - Переключение создания комнат
@@ -386,6 +391,26 @@ cli-room-disbanded = Комната { $room } распущена
 cli-nexthost-set = Пользователь { $userId } назначен хостом следующего раунда для комнаты { $room } (только циклический режим)
 cli-nexthost-not-cycle = В комнате { $room } не включён циклический режим; нельзя назначить следующего хоста
 cli-nexthost-user-not-in-room = Пользователя { $userId } нет в комнате { $room }
+
+cli-admin-actor = Администратор
+cli-bad-toggle = Недопустимый аргумент переключения (ожидается on или off)
+cli-usage-lock = Использование: lock <roomId> <on|off>
+cli-usage-cycle = Использование: cycle <roomId> <on|off>
+cli-usage-sethost = Использование: sethost <roomId> <userId>
+cli-usage-roominfo = Использование: roominfo <roomId>
+cli-room-locked = Комната { $room } заблокирована
+cli-room-unlocked = Комната { $room } разблокирована
+cli-room-cycle-on = Включён циклический режим для комнаты { $room }
+cli-room-cycle-off = Выключен циклический режим для комнаты { $room }
+cli-sethost-set = Хост комнаты { $room } передан пользователю { $userId }
+cli-sethost-already-host = Пользователь { $userId } уже является хостом комнаты { $room }
+cli-sethost-user-not-in-room = Пользователя { $userId } нет в комнате { $room }
+cli-roominfo-header = Информация о комнате { $room }
+cli-roominfo-line1 = Состояние: { $state } | Хост: { $host } | Макс. игроков: { $maxUsers }
+cli-roominfo-line2 = Блокировка: { $locked } | Цикл: { $cycle } | Конкурс: { $contest }
+cli-roominfo-line3 = Карта: { $chart }
+cli-roominfo-players = Игроки ({ $count }): { $list }
+cli-roominfo-monitors = Наблюдатели ({ $count }): { $list }
 
 cli-replay-status = Запись повтора: { $state }
 cli-replay-toggled-on = Запись повтора включена

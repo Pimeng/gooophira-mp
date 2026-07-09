@@ -253,6 +253,7 @@ log-room-game-start-monitors = , monitors: { $monitors }
 log-room-game-end = 방 "{ $room }" 게임 종료 (uploaded={ $uploaded }, aborted={ $aborted })
 log-contest-game-results = 대회 방 "{ $room }" 결과: chart={ $chart } results={ $results } aborted={ $aborted }
 log-room-host-changed-cycle = 방 "{ $room }" 방장 변경 (순환): { $old } -> { $next }
+log-room-host-changed-admin = 방 "{ $room }" 방장 변경 (관리자): { $old } -> { $next }
 
 log-admin-broadcast = 관리자 브로드캐스트: { $message } ({ $rooms }개 방에 전송)
 log-gui-console-command = GUI 콘솔 명령 실행: { $command }
@@ -301,6 +302,10 @@ cli-help =
     roomsay <roomId> <message>    - 방에 메시지 전송
     maxusers <roomId> <count>     - 방 최대 인원 설정
     nexthost <roomId> <userId>    - 다음 라운드 호스트 지정 (순환 모드 전용)
+    lock <roomId> <on|off>          - 방 강제 잠금/해제
+    cycle <roomId> <on|off>         - 방 순환 모드 토글
+    sethost <roomId> <userId>       - 방장 즉시 이전
+    roominfo <roomId>               - 방 상세 정보
     disband <roomId>              - 방 해산
     replay <on|off|status>        - 리플레이 녹화 전환
     roomcreation <on|off|status>  - 방 생성 전환
@@ -386,6 +391,26 @@ cli-room-disbanded = 방 { $room }을(를) 해산했습니다
 cli-nexthost-set = 방 { $room }의 다음 라운드 호스트를 사용자 { $userId }(으)로 지정했습니다 (순환 모드 전용)
 cli-nexthost-not-cycle = 방 { $room }은(는) 순환 모드가 활성화되지 않아 다음 호스트를 지정할 수 없습니다
 cli-nexthost-user-not-in-room = 사용자 { $userId }이(가) 방 { $room }에 없습니다
+
+cli-admin-actor = 관리자
+cli-bad-toggle = 잘못된 토글 인수 (on 또는 off 필요)
+cli-usage-lock = 사용법: lock <roomId> <on|off>
+cli-usage-cycle = 사용법: cycle <roomId> <on|off>
+cli-usage-sethost = 사용법: sethost <roomId> <userId>
+cli-usage-roominfo = 사용법: roominfo <roomId>
+cli-room-locked = 방 { $room } 잠금
+cli-room-unlocked = 방 { $room } 잠금 해제
+cli-room-cycle-on = 방 { $room } 순환 모드 활성화
+cli-room-cycle-off = 방 { $room } 순환 모드 비활성화
+cli-sethost-set = 방 { $room } 방장을 사용자 { $userId }에게 이전
+cli-sethost-already-host = 사용자 { $userId }은(는) 이미 방 { $room }의 방장입니다
+cli-sethost-user-not-in-room = 사용자 { $userId }이(가) 방 { $room }에 없습니다
+cli-roominfo-header = 방 { $room } 정보
+cli-roominfo-line1 = 상태: { $state } | 방장: { $host } | 최대 인원: { $maxUsers }
+cli-roominfo-line2 = 잠금: { $locked } | 순환: { $cycle } | 콘테스트: { $contest }
+cli-roominfo-line3 = 채보: { $chart }
+cli-roominfo-players = 플레이어 ({ $count }): { $list }
+cli-roominfo-monitors = 관전자 ({ $count }): { $list }
 
 cli-replay-status = 리플레이 녹화: { $state }
 cli-replay-toggled-on = 리플레이 녹화가 활성화되었습니다

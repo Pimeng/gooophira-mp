@@ -253,6 +253,7 @@ log-room-game-start-monitors = 、monitors: { $monitors }
 log-room-game-end = ルーム「{ $room }」のゲーム終了（uploaded={ $uploaded }、aborted={ $aborted }）
 log-contest-game-results = 大会ルーム「{ $room }」の結果：chart={ $chart } results={ $results } aborted={ $aborted }
 log-room-host-changed-cycle = ルーム「{ $room }」のホストが変更されました（サイクル）：{ $old } -> { $next }
+log-room-host-changed-admin = ルーム「{ $room }」のホストが変更されました（管理者）：{ $old } -> { $next }
 
 log-admin-broadcast = 管理者ブロードキャスト：{ $message }（{ $rooms } ルームに送信）
 log-gui-console-command = GUI コンソールでコマンドを実行：{ $command }
@@ -301,6 +302,10 @@ cli-help =
     roomsay <roomId> <message>    - ルームにメッセージを送信
     maxusers <roomId> <count>     - ルームの最大人数を設定
     nexthost <roomId> <userId>    - 次ラウンドのホストを指定（循環モードのみ）
+    lock <roomId> <on|off>          - ルームを強制ロック/ロック解除
+    cycle <roomId> <on|off>         - ルームのサイクルモード切替
+    sethost <roomId> <userId>       - ホストを即時移譲
+    roominfo <roomId>               - ルーム詳細を表示
     disband <roomId>              - ルームを解散
     replay <on|off|status>        - リプレイ録画の切り替え
     roomcreation <on|off|status>  - ルーム作成の切り替え
@@ -386,6 +391,26 @@ cli-room-disbanded = ルーム { $room } を解散しました
 cli-nexthost-set = ルーム { $room } の次ラウンドホストをユーザー { $userId } に指定しました（循環モードのみ有効）
 cli-nexthost-not-cycle = ルーム { $room } は循環モードが無効のため、次ホストを指定できません
 cli-nexthost-user-not-in-room = ユーザー { $userId } はルーム { $room } にいません
+
+cli-admin-actor = 管理者
+cli-bad-toggle = 無効な切り替え引数（on または off が必要）
+cli-usage-lock = 使い方：lock <roomId> <on|off>
+cli-usage-cycle = 使い方：cycle <roomId> <on|off>
+cli-usage-sethost = 使い方：sethost <roomId> <userId>
+cli-usage-roominfo = 使い方：roominfo <roomId>
+cli-room-locked = ルーム { $room } をロックしました
+cli-room-unlocked = ルーム { $room } のロックを解除しました
+cli-room-cycle-on = ルーム { $room } のサイクルモードを有効にしました
+cli-room-cycle-off = ルーム { $room } のサイクルモードを無効にしました
+cli-sethost-set = ルーム { $room } のホストをユーザー { $userId } に移譲しました
+cli-sethost-already-host = ユーザー { $userId } は既にルーム { $room } のホストです
+cli-sethost-user-not-in-room = ユーザー { $userId } はルーム { $room } にいません
+cli-roominfo-header = ルーム { $room } 情報
+cli-roominfo-line1 = 状態：{ $state } | ホスト：{ $host } | 最大人数：{ $maxUsers }
+cli-roominfo-line2 = ロック：{ $locked } | サイクル：{ $cycle } | コンテスト：{ $contest }
+cli-roominfo-line3 = 譜面：{ $chart }
+cli-roominfo-players = プレイヤー（{ $count }）：{ $list }
+cli-roominfo-monitors = 観戦者（{ $count }）：{ $list }
 
 cli-replay-status = リプレイ録画：{ $state }
 cli-replay-toggled-on = リプレイ録画を有効にしました

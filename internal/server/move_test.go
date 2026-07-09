@@ -74,7 +74,7 @@ func TestMoveUser_Errors(t *testing.T) {
 	// 不在任何房间 → user-not-in-room。
 	lobby := NewUser(3, "x", "", h.state)
 	h.state.Users[3] = lobby
-	if err := hub.MoveUser(lobby, to, false); err != errUserNotInRoom {
+	if err := hub.MoveUser(lobby, to, false); err != ErrUserNotInRoom {
 		t.Errorf("user not in room should be user-not-in-room, got %v", err)
 	}
 

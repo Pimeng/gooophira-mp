@@ -168,6 +168,14 @@ func (c *Console) Dispatch(line string) {
 		c.cmdDisband(args)
 	case "maxusers":
 		c.cmdMaxUsers(args)
+	case "lock":
+		c.cmdLock(args)
+	case "cycle":
+		c.cmdCycle(args)
+	case "sethost":
+		c.cmdSetHost(args)
+	case "roominfo":
+		c.cmdRoomInfo(args)
 	case "nexthost":
 		c.cmdNextHost(args)
 	case "kick":
@@ -426,6 +434,178 @@ func (c *Console) cmdMaxUsers(args []string) {
 		return
 	}
 	c.printOK(c.t("cli-room-max-users-set", map[string]string{"room": args[0], "count": strconv.Itoa(n)}))
+}
+
+// parseToggle 解析 on/off 开关参数，返回 (value, ok)；非法参数输出错误。
+func (c *Console) parseToggle(args []string, usageKey string) (bool, bool) {
+	if len(args) < 2 {
+		c.printErr(c.t(usageKey, nil))
+		return false, false
+	}
+	switch strings.ToLower(args[1]) {
+	case "on", "true", "1":
+		return true, true
+	case "off", "false", "0":
+		return false, true
+	default:
+		c.printErr(c.t("cli-bad-toggle", nil))
+		return false, false
+	}
+}
+
+// cmdLock 管理员强制锁定/解锁房间：lock <roomId> <on|off>。
+// 绕过房主校验，广播 MsgLockRoom 同步客户端。
+func (c *Console) cmdLock(args []string) {
+	lock, ok := c.parseToggle(args, "cli-usage-lock")
+	if !ok {
+		return
+	}
+	rid := protocol.RoomID(args[0])
+	c.state.Mu.Lock()
+	room := c.state.Rooms[rid]
+	c.state.Mu.Unlock()
+	if room == nil {
+		c.printErr(c.t("cli-room-not-found-named", map[string]string{"room": args[0]}))
+		return
+	}
+	c.hub.SetRoomLocked(room, lock)
+	if lock {
+		c.printOK(c.t("cli-room-locked", map[string]string{"room": args[0]}))
+	} else {
+		c.printOK(c.t("cli-room-unlocked", map[string]string{"room": args[0]}))
+	}
+}
+
+// cmdCycle 管理员开关循环模式：cycle <roomId> <on|off>。
+func (c *Console) cmdCycle(args []string) {
+	cycle, ok := c.parseToggle(args, "cli-usage-cycle")
+	if !ok {
+		return
+	}
+	rid := protocol.RoomID(args[0])
+	c.state.Mu.Lock()
+	room := c.state.Rooms[rid]
+	c.state.Mu.Unlock()
+	if room == nil {
+		c.printErr(c.t("cli-room-not-found-named", map[string]string{"room": args[0]}))
+		return
+	}
+	c.hub.SetRoomCycle(room, cycle)
+	if cycle {
+		c.printOK(c.t("cli-room-cycle-on", map[string]string{"room": args[0]}))
+	} else {
+		c.printOK(c.t("cli-room-cycle-off", map[string]string{"room": args[0]}))
+	}
+}
+
+// cmdSetHost 即时转移房主：sethost <roomId> <userId>。不限 cycle 模式，目标须在房内。
+func (c *Console) cmdSetHost(args []string) {
+	if len(args) < 2 {
+		c.printErr(c.t("cli-usage-sethost", nil))
+		return
+	}
+	rid := protocol.RoomID(args[0])
+	userID, err := strconv.Atoi(args[1])
+	if err != nil {
+		c.printErr(c.t("cli-bad-user-id", nil))
+		return
+	}
+	c.state.Mu.Lock()
+	room := c.state.Rooms[rid]
+	c.state.Mu.Unlock()
+	if room == nil {
+		c.printErr(c.t("cli-room-not-found-named", map[string]string{"room": args[0]}))
+		return
+	}
+	err = c.hub.TransferHost(room, userID)
+	if err != nil {
+		switch {
+		case errors.Is(err, server.ErrUserNotInRoom):
+			c.printErr(c.t("cli-sethost-user-not-in-room", map[string]string{
+				"userId": args[1], "room": args[0],
+			}))
+		case errors.Is(err, server.ErrAlreadyHost):
+			c.printErr(c.t("cli-sethost-already-host", map[string]string{
+				"userId": args[1], "room": args[0],
+			}))
+		default:
+			c.printErr(err.Error())
+		}
+		return
+	}
+	c.printOK(c.t("cli-sethost-set", map[string]string{
+		"userId": args[1], "room": args[0],
+	}))
+}
+
+// cmdRoomInfo 查看房间详情：roominfo <roomId>。显示状态/房主/谱面/标志/成员名单。
+func (c *Console) cmdRoomInfo(args []string) {
+	if len(args) < 1 {
+		c.printErr(c.t("cli-usage-roominfo", nil))
+		return
+	}
+	rid := protocol.RoomID(args[0])
+	c.state.Mu.Lock()
+	room := c.state.Rooms[rid]
+	if room == nil {
+		c.state.Mu.Unlock()
+		c.printErr(c.t("cli-room-not-found-named", map[string]string{"room": args[0]}))
+		return
+	}
+	room.Mu.Lock()
+	state := room.State
+	hostID := room.HostID
+	maxUsers := room.MaxUsers
+	locked := room.Locked
+	cycle := room.Cycle
+	contest := room.Contest != nil
+	chartName := c.t("cli-none", nil)
+	if room.Chart != nil {
+		chartName = room.Chart.Name
+	}
+	playerIDs := room.UserIDs()
+	monitorIDs := room.MonitorIDs()
+	// 同时持 state.Mu + room.Mu（顺序 state→room），state.Users 访问安全。
+	playerNames := make([]string, 0, len(playerIDs))
+	for _, id := range playerIDs {
+		if u := c.state.Users[id]; u != nil {
+			playerNames = append(playerNames, u.Name)
+		} else {
+			playerNames = append(playerNames, strconv.Itoa(id))
+		}
+	}
+	monitorNames := make([]string, 0, len(monitorIDs))
+	for _, id := range monitorIDs {
+		if u := c.state.Users[id]; u != nil {
+			monitorNames = append(monitorNames, u.Name)
+		} else {
+			monitorNames = append(monitorNames, strconv.Itoa(id))
+		}
+	}
+	room.Mu.Unlock()
+	c.state.Mu.Unlock()
+
+	contestStr := c.boolYesNo(contest)
+	monitorList := c.t("cli-none", nil)
+	if len(monitorNames) > 0 {
+		monitorList = strings.Join(monitorNames, ", ")
+	}
+	c.print("")
+	c.print(c.t("cli-roominfo-header", map[string]string{"room": args[0]}))
+	c.print(c.t("cli-roominfo-line1", map[string]string{
+		"state": c.stateLabel(state), "host": strconv.Itoa(hostID), "maxUsers": strconv.Itoa(maxUsers),
+	}))
+	c.print(c.t("cli-roominfo-line2", map[string]string{
+		"locked": c.boolYesNo(locked), "cycle": c.boolYesNo(cycle), "contest": contestStr,
+	}))
+	c.print(c.t("cli-roominfo-line3", map[string]string{"chart": chartName}))
+	c.print(c.t("cli-roominfo-players", map[string]string{
+		"count": strconv.Itoa(len(playerNames)), "list": strings.Join(playerNames, ", "),
+	}))
+	c.print(c.t("cli-roominfo-monitors", map[string]string{
+		"count": strconv.Itoa(len(monitorNames)), "list": monitorList,
+	}))
+	c.print("")
 }
 
 // cmdNextHost 指定房间下一轮房主（仅 cycle 模式生效）：nexthost <roomId> <userId>。
