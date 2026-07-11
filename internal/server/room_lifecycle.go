@@ -526,11 +526,11 @@ func (r *Room) broadcastGameRanking(lc *RoomLifecycle, st StatePlaying) {
 			"rank":  strconv.Itoa(i + 1),
 			"name":  r.nameOf(lc, id),
 			"score": strconv.Itoa(res.Score),
-			"acc":   fmt.Sprintf("%.2f", math.Round(res.Accuracy*100)),
+			"acc":   strconv.FormatFloat(res.Accuracy*100, 'g', -1, 64),
 		}
 		if res.Std != nil {
 			args["hasStd"] = "true"
-			args["std"] = fmt.Sprintf("%d", int(math.Round(*res.Std*1000)))
+			args["std"] = strconv.FormatFloat(float64(int64((*res.Std*1000)*1e6))/1e6, 'g', -1, 64)
 		} else {
 			args["hasStd"] = "false"
 		}
