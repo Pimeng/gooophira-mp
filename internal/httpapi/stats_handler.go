@@ -49,16 +49,16 @@ func (s *Service) handlePlayer(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true,
 		"player": map[string]any{
-			"id":             p.UserID,
-			"name":           p.Name,
-			"games":          p.Games,
-			"wins":           p.Wins,
-			"avg_acc":        p.AvgAcc,
-			"best_score":     p.BestScore,
-			"total_score":    p.TotalScore,
-			"play_time_sec":  p.PlayTimeSec,
-			"rating":         p.Rating,
-			"updated_at":     p.UpdatedAt,
+			"id":            p.UserID,
+			"name":          p.Name,
+			"games":         p.Games,
+			"wins":          p.Wins,
+			"avg_acc":       p.AvgAcc,
+			"best_score":    p.BestScore,
+			"total_score":   p.TotalScore,
+			"play_time_sec": p.PlayTimeSec,
+			"rating":        p.Rating,
+			"updated_at":    p.UpdatedAt,
 		},
 	})
 }

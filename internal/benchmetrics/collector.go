@@ -34,20 +34,20 @@ type Collector struct {
 	packetsOut atomic.Int64
 
 	// 连接统计（atomic）
-	connAttempts   atomic.Int64
-	connSuccess    atomic.Int64
-	connFailed     atomic.Int64
-	authSuccess    atomic.Int64
-	authFailed     atomic.Int64
-	retryCount     atomic.Int64
-	reconnCount    atomic.Int64
-	activeConns    atomic.Int64
-	peakConns      atomic.Int64
+	connAttempts atomic.Int64
+	connSuccess  atomic.Int64
+	connFailed   atomic.Int64
+	authSuccess  atomic.Int64
+	authFailed   atomic.Int64
+	retryCount   atomic.Int64
+	reconnCount  atomic.Int64
+	activeConns  atomic.Int64
+	peakConns    atomic.Int64
 
 	// 每秒钟吞吐量采样
-	timelineBase int64 // Unix 秒，timeline[0] 对应的时间
+	timelineBase int64       // Unix 秒，timeline[0] 对应的时间
 	timeline     [3600]int64 // 每秒钟累计命令数（最多 1 小时）
-	timelineMu   sync.Mutex // 仅 TimelineTick 调用时持有（每秒 1 次）
+	timelineMu   sync.Mutex  // 仅 TimelineTick 调用时持有（每秒 1 次）
 
 	// 运行时采样（atomic）
 	peakGoroutines atomic.Int64
@@ -59,22 +59,22 @@ type Collector struct {
 	errSamples []string
 
 	// 场景计数（atomic）
-	roomCreate   atomic.Int64
-	roomDestroy  atomic.Int64
-	peakRooms    atomic.Int64
-	joinSuccess  atomic.Int64
-	joinFailed   atomic.Int64
-	leaveCount   atomic.Int64
+	roomCreate  atomic.Int64
+	roomDestroy atomic.Int64
+	peakRooms   atomic.Int64
+	joinSuccess atomic.Int64
+	joinFailed  atomic.Int64
+	leaveCount  atomic.Int64
 
 	// 初始快照（用于 alloc rate 计算）
-	initMem     runtime.MemStats
+	initMem runtime.MemStats
 
 	// 系统信息（只读，初始化时设置）
 	numCPU     int
 	goMaxProcs int
 
 	initOnce sync.Once
-	tl     *Timeline
+	tl       *Timeline
 }
 
 // NewCollector 创建新的采集器并记录初始状态。
@@ -246,6 +246,7 @@ func (c *Collector) TimelineTick() {
 		c.tl.Tick()
 	}
 }
+
 // errorType 从 error 中提取类型关键词。
 func errorType(err error) string {
 	msg := err.Error()
@@ -356,16 +357,16 @@ func (c *Collector) Snap(config BenchRunConfig, elapsed time.Duration) BenchResu
 	// 吞吐量
 	peakCmdPerSec := c.computePeakCmdPerSec()
 	ts := ThroughputStats{
-		CommandsSent:    cmds,
-		CyclesCompleted: cycles,
-		AvgCmdsPerSec:   float64(cmds) / elapsedSec,
-		PeakCmdsPerSec:  peakCmdPerSec,
-		BytesIn:         c.bytesIn.Load(),
-		BytesOut:        c.bytesOut.Load(),
-		BytesPerSecIn:   float64(c.bytesIn.Load()) / elapsedSec,
-		BytesPerSecOut:  float64(c.bytesOut.Load()) / elapsedSec,
-		PacketsIn:       c.packetsIn.Load(),
-		PacketsOut:      c.packetsOut.Load(),
+		CommandsSent:      cmds,
+		CyclesCompleted:   cycles,
+		AvgCmdsPerSec:     float64(cmds) / elapsedSec,
+		PeakCmdsPerSec:    peakCmdPerSec,
+		BytesIn:           c.bytesIn.Load(),
+		BytesOut:          c.bytesOut.Load(),
+		BytesPerSecIn:     float64(c.bytesIn.Load()) / elapsedSec,
+		BytesPerSecOut:    float64(c.bytesOut.Load()) / elapsedSec,
+		PacketsIn:         c.packetsIn.Load(),
+		PacketsOut:        c.packetsOut.Load(),
 		PerSecondTimeline: c.computeTimeline(),
 	}
 
@@ -454,8 +455,7 @@ func (c *Collector) Snap(config BenchRunConfig, elapsed time.Duration) BenchResu
 		}
 	}
 
-
-result := BenchResult{
+	result := BenchResult{
 		Config:         config,
 		Duration:       elapsed,
 		Throughput:     ts,
@@ -591,4 +591,3 @@ func max(a, b int) int {
 	}
 	return b
 }
-

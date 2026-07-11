@@ -3,12 +3,7 @@ package server
 import (
 	"context"
 	"errors"
-	"sort"
-	"sync"
 	"time"
-
-	"github.com/Pimeng/gooophira-mp/internal/l10n"
-	"github.com/Pimeng/gooophira-mp/internal/protocol"
 )
 
 // Hub 把 ServerState 与上游依赖（Phira API、回放、观战缓冲、状态钩子）组合为命令派发
@@ -56,23 +51,6 @@ func (h *Hub) ctxWithTimeout(d time.Duration) (context.Context, context.CancelFu
 	return context.WithTimeout(h.ctx, d)
 }
 
-// pickNextHost 对齐 jphira-mp 的 PlayerManager.transferHostToNextPlayer：
-// 按用户 ID 升序排序，选出 ID 大于 oldHostID 的最小者；若没有则回环到最小 ID。
-// 完全确定性，用于离线房主转移与 cycle 轮转两种场景。
-func pickNextHost(ids []int, oldHostID int) (int, bool) {
-	if len(ids) == 0 {
-		return 0, false
-	}
-	sorted := append([]int(nil), ids...)
-	sort.Ints(sorted)
-	for _, id := range sorted {
-		if id > oldHostID {
-			return id, true
-		}
-	}
-	return sorted[0], true
-}
-
 // 派发与房间操作相关的错误（message 即 l10n key，errToStr 时按用户语言本地化）。
 var (
 	errUserBanned           = errors.New("user-banned-by-server")
@@ -101,153 +79,6 @@ var (
 	errCannotMovePlaying    = errors.New("cannot-move-while-playing")
 	errTargetRoomNotIdle    = errors.New("target-room-not-idle")
 )
-
-// ---------- 广播 ----------
-
-// BroadcastRoom 向房间所有参与者发送一条命令（预编码一次，广播给所有用户）。
-// 用 room.ParticipantsSnapshot() 无锁读取参与者列表，消除 AllParticipantIDs()
-// 的 []int 分配 + state.Users map 查找。
-func (h *Hub) BroadcastRoom(room *Room, cmd protocol.ServerCommand) {
-	users := room.ParticipantsSnapshot()
-	if len(users) == 0 {
-		return
-	}
-	// 预编码一次帧，通过 TrySendFrameOwned 广播给所有用户（encodeServerCommandFrame
-	// 输出的是新建切片，调用方拥有所有权，可省一次 copy）。
-	frame := encodeServerCommandFrame(cmd)
-	if frame == nil {
-		return
-	}
-	for _, u := range users {
-		u.TrySendFrameOwned(frame)
-	}
-}
-
-// BroadcastRoomExcept 向房间内除 exclude 中用户外的所有在线参与者发送命令。
-func (h *Hub) BroadcastRoomExcept(room *Room, cmd protocol.ServerCommand, exclude map[int]struct{}) {
-	users := room.ParticipantsSnapshot()
-	if len(users) == 0 {
-		return
-	}
-	frame := encodeServerCommandFrame(cmd)
-	if frame == nil {
-		return
-	}
-	for _, u := range users {
-		if _, skip := exclude[u.ID]; skip {
-			continue
-		}
-		u.TrySendFrameOwned(frame)
-	}
-}
-
-func (h *Hub) broadcastToMonitors(room *Room, cmd protocol.ServerCommand) {
-	users := room.MonitorUsers()
-	if len(users) == 0 {
-		return
-	}
-	frame := encodeServerCommandFrame(cmd)
-	if frame == nil {
-		return
-	}
-	for _, u := range users {
-		u.TrySendFrameOwned(frame)
-	}
-}
-
-// encodeServerCommandFrame 编码一条服务端命令为二进制帧（用于广播预编码优化）。
-// 返回的帧为新建切片（已从对象池拷贝出），调用方拥有所有权，可直接走 TrySendFrameOwned。
-func encodeServerCommandFrame(cmd protocol.ServerCommand) []byte {
-	w := serverFrameWriterPool.Get().(*protocol.BinaryWriter)
-	defer serverFrameWriterPool.Put(w)
-	w.Reset()
-	protocol.EncodeServerCommand(w, cmd)
-	fb := w.ToFrameBuffer()
-	frame := make([]byte, len(fb))
-	copy(frame, fb)
-	return frame
-}
-
-// serverFrameWriterPool 是临时 BinaryWriter 对象池（预留 5 字节 LEB128 头部）。
-var serverFrameWriterPool = &sync.Pool{
-	New: func() any { return protocol.NewFrameWriter(5) },
-}
-
-// BroadcastRoomMessage 经房间 Send 广播一条 Message（含房间日志记录）。
-func (h *Hub) BroadcastRoomMessage(room *Room, msg protocol.Message) {
-	room.Send(h.MakeRoomLifecycle(room), msg)
-}
-
-// monitorSuffix 返回观战者后缀（对齐原版 label-monitor-suffix），非观战者为空串。
-func (h *Hub) monitorSuffix(monitor bool) string {
-	if !monitor {
-		return ""
-	}
-	return l10n.TL(h.State.ServerLang, "label-monitor-suffix", nil)
-}
-
-// MakeRoomLifecycle 为房间构造生命周期依赖注入。结果缓存在 room.lifecycle 上，
-// 因为 RoomLifecycle 捕获的 h 和 room 在房间生命周期内不变——每次命令都重建
-// 会产生 4 个闭包 + 结构体的堆分配（room-cycle 场景下占 2.9 GB 总分配）。
-func (h *Hub) MakeRoomLifecycle(room *Room) *RoomLifecycle {
-	if lc := room.lifecycle.Load(); lc != nil {
-		return lc
-	}
-	lc := &RoomLifecycle{
-		State: h.State,
-		// UsersByID 从 room.usersMap 查找（持 room.Mu 时安全），避免读全局
-		// state.Users 引入 data race（room-only 命令持 room.Mu 而非 state.Mu）。
-		UsersByID:           func(id int) *User { return room.usersMap[id] },
-		Broadcast:           func(cmd protocol.ServerCommand) { h.BroadcastRoom(room, cmd) },
-		BroadcastExcept:     func(cmd protocol.ServerCommand, exclude map[int]struct{}) { h.BroadcastRoomExcept(room, cmd, exclude) },
-		BroadcastToMonitors: func(cmd protocol.ServerCommand) { h.broadcastToMonitors(room, cmd) },
-		PickNextHostID:      pickNextHost,
-		Lang:                h.State.ServerLang,
-		Logger:              h.State.Logger,
-		DisbandRoom:         h.DisbandRoom,
-		OnEnterPlaying:      h.OnEnterPlaying,
-		OnGameEnd:           h.OnGameEnd,
-		WSService:           h.State.WSService,
-		SystemChatUserID:    h.State.SystemChatUserID,
-	}
-	room.lifecycle.Store(lc)
-	return lc
-}
-
-// clientRoomStateForJoin 构造「加入房间时」客户端可见的房间状态：
-//   - 默认直接返回房间当前状态；
-//   - ProtocolHack：若非 SelectChart 但已有谱面，伪装成 SelectChart 让客户端先获知谱面 ID。
-//
-// 两处共用（ProcessJoinRoom、session.handleAuthenticate 的 WaitForReady 重连），
-// 集中避免行为漂移。调用方须持 room.Mu。
-func (r *Room) clientRoomStateForJoin() protocol.RoomState {
-	st := r.ClientRoomState()
-	if _, isSelect := r.State.(StateSelectChart); !isSelect && r.Chart != nil {
-		cid := int32(r.Chart.ID)
-		st = protocol.RoomStateSelectChart{ID: &cid}
-	}
-	return st
-}
-
-// ClientRoomStateForJoin 是 clientRoomStateForJoin 的可导出包装，供 network 包等
-// 跨包调用方使用。语义与调用条件保持一致（调用方须持 room.Mu）。
-func (h *Hub) ClientRoomStateForJoin(room *Room) protocol.RoomState {
-	return room.clientRoomStateForJoin()
-}
-
-// RequireRoom 返回用户所在房间，不在任何房间则返回 errNoRoom。
-func (h *Hub) RequireRoom(user *User) (*Room, error) {
-	if user.Room == nil {
-		return nil, errNoRoom
-	}
-	return user.Room, nil
-}
-
-// CheckRoomAllReady 推进房间状态机并返回是否需解散房间（比赛 AutoDisband）。
-// 调用方须持 state.Mu；返回 disband=true 时调用方应在 room.Mu 释放后调 DisbandRoom。
-func (h *Hub) CheckRoomAllReady(room *Room) bool {
-	return room.CheckAllReady(h.MakeRoomLifecycle(room))
-}
 
 func (h *Hub) isBanned(user *User) bool {
 	_, banned := h.State.BannedUsers[user.ID]

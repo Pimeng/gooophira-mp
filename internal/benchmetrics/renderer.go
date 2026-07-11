@@ -3,7 +3,7 @@ package benchmetrics
 import (
 	"fmt"
 	"io"
-	
+
 	"strings"
 	"time"
 )
@@ -301,4 +301,3 @@ func (r *Renderer) renderProfiles(profiles []string) {
 func (r *Renderer) sectionTitle(title string) {
 	fmt.Fprintf(r.w, "-- %s %s\n", title, strings.Repeat("-", 60-len(title)))
 }
-

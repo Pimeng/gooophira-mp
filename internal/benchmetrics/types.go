@@ -1,9 +1,10 @@
 // Package benchmetrics 提供一套高性能、可扩展的基准测试指标采集、聚合与输出框架。
 //
 // 架构分层：
-//   Collector   — 零分配采集层（原子变量 + 流式直方图）
-//   Renderer    — CLI 终端输出（wrk/k6 风格，自动单位换算，千分位对齐）
-//   Exporter    — 结构化导出（JSON / Prometheus / Grafana），当前仅 JSON
+//
+//	Collector   — 零分配采集层（原子变量 + 流式直方图）
+//	Renderer    — CLI 终端输出（wrk/k6 风格，自动单位换算，千分位对齐）
+//	Exporter    — 结构化导出（JSON / Prometheus / Grafana），当前仅 JSON
 //
 // 所有统计类型带 json tag，可直接序列化。
 package benchmetrics
@@ -43,17 +44,17 @@ type HistoBucket struct {
 
 // ThroughputStats 吞吐量统计。
 type ThroughputStats struct {
-	CommandsSent      int64    `json:"commands_sent"`
-	CyclesCompleted   int64    `json:"cycles_completed"`
-	AvgCmdsPerSec     float64  `json:"avg_cmds_per_sec"`
-	PeakCmdsPerSec    float64  `json:"peak_cmds_per_sec"`
-	BytesIn           int64    `json:"bytes_in"`
-	BytesOut          int64    `json:"bytes_out"`
-	BytesPerSecIn     float64  `json:"bytes_per_sec_in"`
-	BytesPerSecOut    float64  `json:"bytes_per_sec_out"`
-	PacketsIn         int64    `json:"packets_in"`
-	PacketsOut        int64    `json:"packets_out"`
-	PerSecondTimeline []int64  `json:"per_second_timeline,omitempty"`
+	CommandsSent      int64   `json:"commands_sent"`
+	CyclesCompleted   int64   `json:"cycles_completed"`
+	AvgCmdsPerSec     float64 `json:"avg_cmds_per_sec"`
+	PeakCmdsPerSec    float64 `json:"peak_cmds_per_sec"`
+	BytesIn           int64   `json:"bytes_in"`
+	BytesOut          int64   `json:"bytes_out"`
+	BytesPerSecIn     float64 `json:"bytes_per_sec_in"`
+	BytesPerSecOut    float64 `json:"bytes_per_sec_out"`
+	PacketsIn         int64   `json:"packets_in"`
+	PacketsOut        int64   `json:"packets_out"`
+	PerSecondTimeline []int64 `json:"per_second_timeline,omitempty"`
 }
 
 // ── Connection ─────────────────────────────────────────────────────────
@@ -92,21 +93,21 @@ type ErrorCount struct {
 
 // RuntimeStats 运行时资源统计。
 type RuntimeStats struct {
-	NumCPU          int             `json:"num_cpu"`
-	GOMAXPROCS      int             `json:"gomaxprocs"`
-	PeakGoroutines  int64           `json:"peak_goroutines"`
-	FinalGoroutines int64           `json:"final_goroutines"`
-	PeakHeapMB      float64         `json:"peak_heap_mb"`
-	FinalHeapMB     float64         `json:"final_heap_mb"`
-	HeapAllocMB     float64         `json:"heap_alloc_mb"`
-	HeapObjects     uint64          `json:"heap_objects"`
-	StackMB         float64         `json:"stack_mb"`
-	SysMemMB        float64         `json:"sys_mem_mb"`
-	NumGC           uint32          `json:"num_gc"`
-	TotalGCPause    time.Duration   `json:"total_gc_pause"`
-	AvgGCPause      time.Duration   `json:"avg_gc_pause"`
-	MaxGCPause      time.Duration   `json:"max_gc_pause"`
-	AllocRateMB     float64         `json:"alloc_rate_mb_per_sec"`
+	NumCPU          int           `json:"num_cpu"`
+	GOMAXPROCS      int           `json:"gomaxprocs"`
+	PeakGoroutines  int64         `json:"peak_goroutines"`
+	FinalGoroutines int64         `json:"final_goroutines"`
+	PeakHeapMB      float64       `json:"peak_heap_mb"`
+	FinalHeapMB     float64       `json:"final_heap_mb"`
+	HeapAllocMB     float64       `json:"heap_alloc_mb"`
+	HeapObjects     uint64        `json:"heap_objects"`
+	StackMB         float64       `json:"stack_mb"`
+	SysMemMB        float64       `json:"sys_mem_mb"`
+	NumGC           uint32        `json:"num_gc"`
+	TotalGCPause    time.Duration `json:"total_gc_pause"`
+	AvgGCPause      time.Duration `json:"avg_gc_pause"`
+	MaxGCPause      time.Duration `json:"max_gc_pause"`
+	AllocRateMB     float64       `json:"alloc_rate_mb_per_sec"`
 }
 
 // ── Scenario ───────────────────────────────────────────────────────────
@@ -142,20 +143,20 @@ type TimeBreakdown struct {
 
 // BenchResult 单场景压测的完整结果。
 type BenchResult struct {
-	TimelineSeries []TimelineSerie  `json:"timeline,omitempty"`
-	Analysis       *AnalysisResult   `json:"analysis,omitempty"`
-	Name           string           `json:"name"`
-	Duration       time.Duration    `json:"duration"`
-	Config         BenchRunConfig   `json:"config"`
-	Throughput     ThroughputStats  `json:"throughput"`
-	ConnectLatency LatencyStats     `json:"connect_latency,omitempty"`
-	AuthLatency    LatencyStats     `json:"auth_latency,omitempty"`
-	CmdLatency     LatencyStats     `json:"cmd_latency"`
-	Connection     ConnectionStats  `json:"connection"`
-	Errors         ErrorStats       `json:"errors"`
-	Runtime        RuntimeStats     `json:"runtime"`
-	Scenario       ScenarioStats    `json:"scenario,omitempty"`
-	TimeBreakdown  TimeBreakdown    `json:"time_breakdown"`
+	TimelineSeries []TimelineSerie `json:"timeline,omitempty"`
+	Analysis       *AnalysisResult `json:"analysis,omitempty"`
+	Name           string          `json:"name"`
+	Duration       time.Duration   `json:"duration"`
+	Config         BenchRunConfig  `json:"config"`
+	Throughput     ThroughputStats `json:"throughput"`
+	ConnectLatency LatencyStats    `json:"connect_latency,omitempty"`
+	AuthLatency    LatencyStats    `json:"auth_latency,omitempty"`
+	CmdLatency     LatencyStats    `json:"cmd_latency"`
+	Connection     ConnectionStats `json:"connection"`
+	Errors         ErrorStats      `json:"errors"`
+	Runtime        RuntimeStats    `json:"runtime"`
+	Scenario       ScenarioStats   `json:"scenario,omitempty"`
+	TimeBreakdown  TimeBreakdown   `json:"time_breakdown"`
 }
 
 // BenchRunConfig 单次压测运行参数。
@@ -275,4 +276,3 @@ func formatPercentile(p float64) string {
 func formatFloat(v float64, unit string) string {
 	return fmt.Sprintf("%.1f%s", v, unit)
 }
-

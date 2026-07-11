@@ -9,6 +9,55 @@ package config
 
 import "slices"
 
+// ServerConfig 是服务器配置。可选标量用指针（nil = 未设置），通过 Effective* 方法
+// 落地默认值。字段名对应 TS 的 snake_case key，注释标注其 ENV/YAML 名。
+type ServerConfig struct {
+	Monitors                 []int
+	TestAccountIDs           []int
+	ServerName               *string
+	Host                     *string
+	Port                     *int
+	HTTPService              *bool
+	HTTPPort                 *int
+	GUI                      *bool
+	RoomMaxUsers             *int
+	RoomCreationEnabled      *bool
+	PlayingReconnectGrace    *int
+	MaxRooms                 *int
+	MaxConnections           *int
+	ConnectionRateLimit      *int
+	CommandRateLimit         *bool
+	HTTPRateLimitMaxRequests *int
+	HTTPRateLimitWindowMS    *int
+	ChatEnabled              *bool
+	ReplayEnabled            *bool
+	ReplayBaseDir            *string
+	ReplayTTLDays            *int
+	ReplayAutoUpload         *bool
+	SystemUserID             *int
+	AdminToken               *string
+	AdminDataPath            *string
+	RoomListTip              *string
+	LogLevel                 *string
+	LogCompressAfterDays     *int
+	LogMaxTotalMB            *int
+	RealIPHeader             *string
+	CorsOrigins              []string
+	HAProxyProtocol          *bool
+	Lang                     *string
+	PhiraAPIEndpoint         *string
+	OutboundProxy            *OutboundProxy
+	Netutil                  *NetutilConfig
+	ShareStation             *ShareStation
+	Redis                    *RedisConfig
+	HitokotoAPIURL           *string
+	AllowTokenInQuery        *bool
+	Webhook                  *WebhookConfig
+	StatsDBPath              *string
+	StatsDetailRetentionDays *int
+	StatsDBMaxMB             *int
+}
+
 // ShareStation 是回放分享站配置（自动上传到第三方平台用）。
 type ShareStation struct {
 	URL   string

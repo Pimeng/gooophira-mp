@@ -18,7 +18,7 @@ type pair struct {
 // 使用 128 个对数刻度桶覆盖从 1ns 到数百年范围，桶 i 覆盖 [2^(i-1), 2^i) ns。
 // 相比固定边界桶，对数桶自动适配任意数据分布，在低延迟区域提供更细粒度。
 
-const logBucketBits = 7  // 128 buckets
+const logBucketBits = 7                  // 128 buckets
 const numLogBuckets = 1 << logBucketBits // 128
 
 // Histogram 是固定内存的流式延迟直方图（无分配），支持对数桶和百分位插值。
@@ -27,8 +27,8 @@ type Histogram struct {
 	count   int64
 	min     time.Duration
 	max     time.Duration
-	sum     int64    // 纳秒累加
-	sumSq   float64  // 纳秒²累加
+	sum     int64   // 纳秒累加
+	sumSq   float64 // 纳秒²累加
 	zero    int64
 	buckets [numLogBuckets]int64
 }

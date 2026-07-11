@@ -179,6 +179,7 @@ func (s *Service) route(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && (r.URL.Path == "/gui" || r.URL.Path == "/gui/"):
 		s.handleGUIPage(w)
+	case r.Method == http.MethodGet && s.handleGUIAsset(w, r.URL.Path):
 	case r.Method == http.MethodGet && r.URL.Path == "/room":
 		s.handleRoomList(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/room-creation/config":

@@ -2,7 +2,7 @@ package benchmetrics
 
 import (
 	"sync"
-		"time"
+	"time"
 )
 
 // ── Timeline ─────────────────────────────────────────────────────────
@@ -21,9 +21,9 @@ type TimelineSerie struct {
 
 // Timeline manages per-second snapshots of multiple metrics.
 type Timeline struct {
-	mu      sync.Mutex
-	base    int64 // unix timestamp of slot 0
-	series  []*timelineSerieInternal
+	mu     sync.Mutex
+	base   int64 // unix timestamp of slot 0
+	series []*timelineSerieInternal
 }
 
 type timelineSerieInternal struct {
@@ -117,4 +117,3 @@ func (t *Timeline) SetBase(base int64) {
 	t.base = base
 	t.mu.Unlock()
 }
-
