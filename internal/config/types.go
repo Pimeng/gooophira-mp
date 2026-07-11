@@ -55,6 +55,11 @@ type OutboundProxy struct {
 	URL    string
 }
 
+// NetutilConfig 是出站 HTTP 网络层配置（主要影响 Android/Termux 等无本地 stub resolver 环境）。
+type NetutilConfig struct {
+	DNSServers []string // Android 平台公共 DNS 服务器列表（含端口，如 "1.1.1.1:53"）；空 = 使用内置默认
+}
+
 // Chart 是谱面的最小信息。
 type Chart struct {
 	ID   int

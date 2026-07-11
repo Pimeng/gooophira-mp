@@ -539,8 +539,8 @@ func TestBroadcastGameRanking_MultiPlayerOrderedByScore(t *testing.T) {
 	// 前导 \n 用于在聊天中与上方消息视觉分隔。
 	want := "\n" + strings.Repeat("=", 72) + "\n" +
 		"本轮排名\n" +
-		"1. alice - 分数：1000000，准度：100.00%，误差：±2ms\n" +
-		"2. bob - 分数：970000，准度：97.00%，误差：±19ms"
+		"1. alice - 分数：1000000，准度：100%，误差：±2ms\n" +
+		"2. bob - 分数：970000，准度：97%，误差：±19ms"
 	if chat.Content != want {
 		t.Errorf("ranking = %q, want %q", chat.Content, want)
 	}
@@ -569,7 +569,7 @@ func TestBroadcastGameRanking_NoStdOmitsErrorSegment(t *testing.T) {
 	if strings.Contains(chat.Content, "误差") {
 		t.Errorf("ranking should not contain 误差 when Std==nil, got %q", chat.Content)
 	}
-	if !strings.Contains(chat.Content, "1. alice - 分数：1000000，准度：100.00%\n") {
+	if !strings.Contains(chat.Content, "1. alice - 分数：1000000，准度：100%\n") {
 		t.Errorf("alice line should lack 误差 segment, got %q", chat.Content)
 	}
 }

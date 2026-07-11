@@ -153,6 +153,15 @@ HITOKOTO_API_URL: "https://v1.hitokoto.cn/"
 # OUTBOUND_PROXY: false
 # OUTBOUND_PROXY: "http://127.0.0.1:7890"
 
+# 出站 HTTP 网络层配置（主要影响 Android/Termux 等无本地 stub resolver 环境）
+# DNS_SERVERS：Android 平台公共 DNS 服务器列表（含端口），按顺序回退；
+# 不配置或为空时使用内置默认 [1.1.1.1:53, 8.8.8.8:53]。非 Android 平台忽略此项。
+# 环境变量：NETUTIL_DNS_SERVERS=1.1.1.1:53,8.8.8.8:53（逗号/空格/分号分隔）
+# NETUTIL:
+#   DNS_SERVERS:
+#     - "1.1.1.1:53"
+#     - "8.8.8.8:53"
+
 # Phira Replay 分享站配置（用于上传回放到分享站）
 SHARE_STATION:
   # 分享站地址

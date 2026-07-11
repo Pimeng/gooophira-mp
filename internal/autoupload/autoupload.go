@@ -148,11 +148,7 @@ func clientFromConfig(cfg *config.ServerConfig) (*sharestation.Client, bool) {
 	if ss == nil || ss.URL == "" || ss.Token == "" {
 		return nil, false
 	}
-	proxyURL := ""
-	if p := cfg.OutboundProxy; p != nil && !p.Direct && p.URL != "" {
-		proxyURL = p.URL
-	}
-	return sharestation.NewClient(sharestation.Config{URL: ss.URL, Token: ss.Token, ProxyURL: proxyURL}), true
+	return sharestation.NewClient(sharestation.Config{URL: ss.URL, Token: ss.Token}), true
 }
 
 func (u *Uploader) warn(msg string) {

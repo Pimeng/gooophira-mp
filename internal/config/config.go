@@ -35,6 +35,7 @@ const (
 var (
 	DefaultMonitors       = []int{2}
 	DefaultTestAccountIDs = []int{1739989}
+	DefaultDNSServers     = []string{"1.1.1.1:53", "8.8.8.8:53"}
 )
 
 // ServerConfig 是服务器配置。可选标量用指针（nil = 未设置），通过 Effective* 方法
@@ -75,6 +76,7 @@ type ServerConfig struct {
 	Lang                     *string        // LANG (PHIRA_MP_LANG 优先)
 	PhiraAPIEndpoint         *string        // PHIRA_API_ENDPOINT
 	OutboundProxy            *OutboundProxy // OUTBOUND_PROXY
+	Netutil                  *NetutilConfig // NETUTIL
 	ShareStation             *ShareStation  // SHARE_STATION
 	Redis                    *RedisConfig   // REDIS (startup-only)
 	HitokotoAPIURL           *string        // HITOKOTO_API_URL
@@ -218,6 +220,32 @@ func (c *ServerConfig) EffectiveCorsOrigins() []string {
 		return c.CorsOrigins
 	}
 	return []string{}
+}
+
+// EffectiveDNSServers 返回 Android 平台公共 DNS 服务器列表：NETUTIL.DNS_SERVERS
+// 配置有效则用之，否则回退内置默认。
+func (c *ServerConfig) EffectiveDNSServers() []string {
+	if c.Netutil != nil && len(c.Netutil.DNSServers) > 0 {
+		out := make([]string, 0, len(c.Netutil.DNSServers))
+		for _, s := range c.Netutil.DNSServers {
+			if t := strings.TrimSpace(s); t != "" {
+				out = append(out, t)
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return DefaultDNSServers
+}
+
+// EffectiveProxyURL 返回出站代理 URL（空 = 未配置，走环境变量）。
+// OUTBOUND_PROXY 为 false（Direct=true）时返回空字符串表示直连。
+func (c *ServerConfig) EffectiveProxyURL() string {
+	if c.OutboundProxy == nil || c.OutboundProxy.Direct {
+		return ""
+	}
+	return c.OutboundProxy.URL
 }
 
 // ShareStationConfigured 报告分享站是否已完整配置（URL 与 Token 均非空）。
@@ -544,6 +572,17 @@ func parseRedisValue(v any) (*RedisConfig, bool) {
 		}
 	}
 	return &RedisConfig{Enabled: enabled, Host: host, Port: port, Password: password, DB: db}, true
+}
+
+// parseNetutilValue 解析 NETUTIL 块。仅当 v 根本不是 map 时返回 false（视为未设置）。
+// DNS_SERVERS 为空或全空白时仍返回结构体，但 EffectiveDNSServers 会回退到内置默认。
+func parseNetutilValue(v any) (*NetutilConfig, bool) {
+	m, ok := asRecord(v)
+	if !ok {
+		return nil, false
+	}
+	servers, _ := parseStringListValue(m["DNS_SERVERS"])
+	return &NetutilConfig{DNSServers: servers}, true
 }
 
 // parseWebhookValue 解析 WEBHOOK 块。结构合法即返回（即便 ENABLED 缺省为 false / TARGETS 为空），

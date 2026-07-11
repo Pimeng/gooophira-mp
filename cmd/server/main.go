@@ -25,6 +25,7 @@ import (
 	"github.com/Pimeng/gooophira-mp/internal/httpapi"
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
 	"github.com/Pimeng/gooophira-mp/internal/logging"
+	"github.com/Pimeng/gooophira-mp/internal/netutil"
 	"github.com/Pimeng/gooophira-mp/internal/network"
 	"github.com/Pimeng/gooophira-mp/internal/phira"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
@@ -77,8 +78,13 @@ func main() {
 	// 配置 LANG），供 CLI 参数校验报错与启动期日志本地化。
 	lang := l10n.NewLanguage(cfg.EffectiveLang())
 
-	// 命令行参数覆盖（优先级最高）：仅处理显式传入的标志，校验失败按 lang 本地化后退出。
+	// 命令行参数覆盖（优先级最高）：仅处理显式传入的标志，校验失败按 lang 本地化错误并退出。
 	applyCLIOverrides(cfg, lang)
+
+	// 把配置的 Android 公共 DNS 列表同步到 netutil；未配置则保留内置默认。
+	netutil.SetDNSServers(cfg.EffectiveDNSServers())
+	// 把配置的出站代理同步到 netutil；优先级：环境变量 > 配置文件 > 直连。
+	netutil.SetProxy(cfg.EffectiveProxyURL(), cfg.OutboundProxy != nil && cfg.OutboundProxy.Direct)
 
 	logger := logging.New(cfg.EffectiveLogLevel(), "logs")
 	defer logger.Close()
@@ -108,6 +114,10 @@ func main() {
 	state := server.NewServerState(cfg, logger, cfg.EffectiveServerName(), adminDataPath, *configPath)
 	// 配置热重载时同步日志级别。
 	state.OnConfigReload(func(c *config.ServerConfig) { logger.SetLevel(c.EffectiveLogLevel()) })
+	state.OnConfigReload(func(c *config.ServerConfig) {
+		netutil.SetDNSServers(c.EffectiveDNSServers())
+		netutil.SetProxy(c.EffectiveProxyURL(), c.OutboundProxy != nil && c.OutboundProxy.Direct)
+	})
 	// 日志旁路到 GUI 控制台缓冲（供 /admin/console/logs 回填与 WS 推送）。
 	logger.SetOnLog(state.ConsoleHub.Push)
 
@@ -319,6 +329,7 @@ func main() {
 			logger.Warn(l10n.TL(lang, "log-config-reload-skipped", map[string]string{"error": lerr.Error()}))
 			return
 		}
+		applyCLIOverrides(next, lang)
 		changed, restart := state.ReloadConfig(next)
 		if len(changed) > 0 {
 			logger.Mark(l10n.TL(lang, "log-config-reloaded", map[string]string{"items": strings.Join(changed, ", ")}))

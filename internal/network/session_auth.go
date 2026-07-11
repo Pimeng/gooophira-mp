@@ -6,12 +6,12 @@ package network
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
+	"github.com/Pimeng/gooophira-mp/internal/netutil"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
 	"github.com/Pimeng/gooophira-mp/internal/server"
 )
@@ -261,8 +261,11 @@ func (s *Session) sendWelcome(user *server.User) {
 }
 
 // fetchHitokoto 拉取一言；失败返回 nil（欢迎消息照常发，只是不带一言）。
+// HTTP 客户端经 netutil.NewClient() 构造（Android 注入公共 DNS 解析以绕开
+// [::1]:53 connection refused；其它平台保留系统 DNS 行为）。
 func fetchHitokoto(url string) *server.Hitokoto {
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := netutil.NewClient()
+	client.Timeout = 5 * time.Second
 	resp, err := client.Get(url)
 	if err != nil {
 		return nil

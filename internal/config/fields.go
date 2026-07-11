@@ -172,6 +172,25 @@ var configFields = []fieldSpec{
 		clear: func(c *ServerConfig) { c.OutboundProxy = nil },
 	},
 	{
+		env:   "NETUTIL",
+		parse: func(v any) (any, bool) { return parseNetutilValue(v) },
+		get: func(c *ServerConfig) any {
+			if c.Netutil == nil {
+				return nil
+			}
+			return *c.Netutil
+		},
+		set:   func(c *ServerConfig, v any) { c.Netutil = v.(*NetutilConfig) },
+		clear: func(c *ServerConfig) { c.Netutil = nil },
+		envInput: func() (any, bool) {
+			v := os.Getenv("NETUTIL_DNS_SERVERS")
+			if v == "" {
+				return nil, false
+			}
+			return map[string]any{"DNS_SERVERS": v}, true
+		},
+	},
+	{
 		env:   "SHARE_STATION",
 		parse: func(v any) (any, bool) { return parseShareStationValue(v) },
 		get: func(c *ServerConfig) any {
@@ -321,6 +340,8 @@ func Merge(base, override *ServerConfig) *ServerConfig {
 func ensureParsed(v any) any {
 	switch x := v.(type) {
 	case OutboundProxy:
+		return &x
+	case NetutilConfig:
 		return &x
 	case ShareStation:
 		return &x

@@ -60,6 +60,13 @@ func TestUpload_ParsesScoreID(t *testing.T) {
 	}
 }
 
+func TestNewClient_RequestTimeout(t *testing.T) {
+	c := NewClient(Config{})
+	if c.http.Timeout != requestTimeout {
+		t.Fatalf("timeout = %v, want %v", c.http.Timeout, requestTimeout)
+	}
+}
+
 func TestUpload_ServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "nope", 500)

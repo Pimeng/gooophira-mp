@@ -200,11 +200,7 @@ func (s *Service) shareStationClient() (*sharestation.Client, bool) {
 	if ss == nil || ss.URL == "" || ss.Token == "" {
 		return nil, false
 	}
-	proxyURL := ""
-	if p := cfg.OutboundProxy; p != nil && !p.Direct && p.URL != "" {
-		proxyURL = p.URL
-	}
-	return sharestation.NewClient(sharestation.Config{URL: ss.URL, Token: ss.Token, ProxyURL: proxyURL}), true
+	return sharestation.NewClient(sharestation.Config{URL: ss.URL, Token: ss.Token}), true
 }
 
 // handleReplayUpload 手动上传一份本地回放到分享站：校验归属 → 上传 → 设可见 → 记录元数据 → 删本地。

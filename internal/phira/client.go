@@ -4,6 +4,9 @@
 // /me 结果按 token 缓存 6h（加速重连认证），/record/:id 与 /chart/:id 结果缓存 6h
 // （记录与谱面基本不可变）；启用 Redis 时缓存转为多实例共享。
 // 后台 StartRefresh goroutine 每小时被动失效少量快到期键，触发下次 GetOrSet 时重拉。
+//
+// HTTP 客户端经 netutil.NewClient() 构造：在 Android（含 Termux）上注入公共 DNS
+// 解析以绕开 [::1]:53 / 127.0.0.1:53 connection refused，其它平台走系统 resolver。
 package phira
 
 import (
@@ -16,6 +19,7 @@ import (
 
 	"github.com/Pimeng/gooophira-mp/internal/cache"
 	"github.com/Pimeng/gooophira-mp/internal/config"
+	"github.com/Pimeng/gooophira-mp/internal/netutil"
 	"github.com/Pimeng/gooophira-mp/internal/server"
 )
 
@@ -61,6 +65,7 @@ type Client struct {
 var _ server.PhiraAPI = (*Client)(nil)
 
 // NewClient 用给定端点创建客户端（空端点用默认值）。
+// HTTP.Client 经 netutil.NewClient() 构造（Android 注入公共 DNS 解析，其它平台走系统 resolver）。
 // HTTP.Client 不设 Timeout——超时由调用方传入的 ctx 控制（对齐 context 贯穿策略）。
 func NewClient(endpoint string) *Client {
 	if endpoint == "" {
@@ -68,7 +73,7 @@ func NewClient(endpoint string) *Client {
 	}
 	return &Client{
 		Endpoint: strings.TrimRight(endpoint, "/"),
-		HTTP:     &http.Client{},
+		HTTP:     netutil.NewClient(),
 		stop:     make(chan struct{}),
 	}
 }

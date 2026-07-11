@@ -209,3 +209,89 @@ func TestStartupOnlyEnvNames(t *testing.T) {
 		t.Errorf("missing startup-only keys: %v", want)
 	}
 }
+
+func TestEffectiveDNSServers_Default(t *testing.T) {
+	c := &ServerConfig{}
+	if !reflect.DeepEqual(c.EffectiveDNSServers(), DefaultDNSServers) {
+		t.Errorf("default DNS servers = %v, want %v", c.EffectiveDNSServers(), DefaultDNSServers)
+	}
+}
+
+func TestEffectiveDNSServers_Custom(t *testing.T) {
+	c := &ServerConfig{Netutil: &NetutilConfig{DNSServers: []string{"9.9.9.9:53", "149.112.112.112:53"}}}
+	want := []string{"9.9.9.9:53", "149.112.112.112:53"}
+	if !reflect.DeepEqual(c.EffectiveDNSServers(), want) {
+		t.Errorf("custom DNS servers = %v, want %v", c.EffectiveDNSServers(), want)
+	}
+}
+
+func TestEffectiveDNSServers_EmptyFallback(t *testing.T) {
+	c := &ServerConfig{Netutil: &NetutilConfig{DNSServers: []string{}}}
+	if !reflect.DeepEqual(c.EffectiveDNSServers(), DefaultDNSServers) {
+		t.Errorf("empty DNS servers should fall back to default, got %v", c.EffectiveDNSServers())
+	}
+}
+
+func TestEffectiveDNSServers_TrimWhitespace(t *testing.T) {
+	c := &ServerConfig{Netutil: &NetutilConfig{DNSServers: []string{"  9.9.9.9:53  ", "", "  ", "149.112.112.112:53"}}}
+	want := []string{"9.9.9.9:53", "149.112.112.112:53"}
+	if !reflect.DeepEqual(c.EffectiveDNSServers(), want) {
+		t.Errorf("trimmed DNS servers = %v, want %v", c.EffectiveDNSServers(), want)
+	}
+}
+
+func TestParseNetutilValue(t *testing.T) {
+	if _, ok := parseNetutilValue("not a map"); ok {
+		t.Error("parseNetutilValue should reject non-map")
+	}
+
+	cfg, ok := parseNetutilValue(map[string]any{"DNS_SERVERS": []any{"9.9.9.9:53", "149.112.112.112:53"}})
+	if !ok {
+		t.Fatal("parseNetutilValue should accept valid map")
+	}
+	want := []string{"9.9.9.9:53", "149.112.112.112:53"}
+	if !reflect.DeepEqual(cfg.DNSServers, want) {
+		t.Errorf("parsed DNS servers = %v, want %v", cfg.DNSServers, want)
+	}
+
+	cfg, ok = parseNetutilValue(map[string]any{"DNS_SERVERS": "1.1.1.1:53, 8.8.8.8:53"})
+	if !ok {
+		t.Fatal("parseNetutilValue should accept string list")
+	}
+	want = []string{"1.1.1.1:53", "8.8.8.8:53"}
+	if !reflect.DeepEqual(cfg.DNSServers, want) {
+		t.Errorf("parsed DNS servers from string = %v, want %v", cfg.DNSServers, want)
+	}
+
+	cfg, ok = parseNetutilValue(map[string]any{})
+	if !ok {
+		t.Fatal("parseNetutilValue should accept empty map")
+	}
+	if cfg.DNSServers != nil {
+		t.Error("empty map should produce nil DNSServers")
+	}
+}
+
+func TestBuildFromMap_NETUTIL(t *testing.T) {
+	c := BuildFromMap(map[string]any{
+		"NETUTIL": map[string]any{"DNS_SERVERS": []string{"9.9.9.9:53"}},
+	})
+	if c.Netutil == nil {
+		t.Fatal("NETUTIL should be parsed")
+	}
+	if !reflect.DeepEqual(c.EffectiveDNSServers(), []string{"9.9.9.9:53"}) {
+		t.Errorf("NETUTIL DNS servers = %v", c.EffectiveDNSServers())
+	}
+}
+
+func TestLoadEnv_NETUTIL_DNS_SERVERS(t *testing.T) {
+	t.Setenv("NETUTIL_DNS_SERVERS", "9.9.9.9:53,149.112.112.112:53")
+	c := LoadEnv()
+	if c.Netutil == nil {
+		t.Fatal("NETUTIL should be set from env")
+	}
+	want := []string{"9.9.9.9:53", "149.112.112.112:53"}
+	if !reflect.DeepEqual(c.EffectiveDNSServers(), want) {
+		t.Errorf("env DNS servers = %v, want %v", c.EffectiveDNSServers(), want)
+	}
+}

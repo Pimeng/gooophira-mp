@@ -9,17 +9,17 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strconv"
 	"time"
+
+	"github.com/Pimeng/gooophira-mp/internal/netutil"
 )
 
 // Config 是分享站连接配置。
 type Config struct {
-	URL      string // 分享站基址（无尾斜杠）
-	Token    string // Bearer 认证 token
-	ProxyURL string // 出站代理（空 = 直连）
+	URL   string // 分享站基址（无尾斜杠）
+	Token string // Bearer 认证 token
 }
 
 // UploadResult 是上传结果。ScoreID 由 replay_id 解析得到（0 表示未解析出）。
@@ -39,15 +39,15 @@ var scoreIDRe = regexp.MustCompile(`_(\d+)\.phirarec$`)
 
 var errUploadFailed = errors.New("upload-failed")
 
-// NewClient 创建分享站客户端（可选出站代理）。
+const requestTimeout = 60 * time.Second
+
+// NewClient 创建分享站客户端。
+// HTTP 客户端经 netutil.NewClient() 构造（Android 注入公共 DNS 解析，
+// 其它平台走系统 resolver），代理配置统一由 netutil 管理。
 func NewClient(cfg Config) *Client {
-	transport := &http.Transport{}
-	if cfg.ProxyURL != "" {
-		if u, err := url.Parse(cfg.ProxyURL); err == nil {
-			transport.Proxy = http.ProxyURL(u)
-		}
-	}
-	return &Client{cfg: cfg, http: &http.Client{Timeout: 60 * time.Second, Transport: transport}}
+	httpClient := netutil.NewClient()
+	httpClient.Timeout = requestTimeout
+	return &Client{cfg: cfg, http: httpClient}
 }
 
 // Upload 以 multipart 上传回放文件到 {URL}/upload_direct，返回解析出的 ScoreID。

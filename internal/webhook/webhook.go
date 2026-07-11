@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
+	"github.com/Pimeng/gooophira-mp/internal/netutil"
 	"github.com/Pimeng/gooophira-mp/internal/server"
 )
 
@@ -52,10 +53,12 @@ type Dispatcher struct {
 var _ server.EventSink = (*Dispatcher)(nil)
 
 // New 创建并启动投递器。logger 可为 nil（静默）。
+// HTTP 客户端经 netutil.NewClient() 构造（Android 注入公共 DNS 解析，
+// 其它平台走系统 resolver）。单次请求超时经 context 控制（按目标配置）。
 func New(logger Logger) *Dispatcher {
 	d := &Dispatcher{
 		logger: logger,
-		client: &http.Client{}, // 单次请求超时经 context 控制（按目标配置）
+		client: netutil.NewClient(), // 单次请求超时经 context 控制（按目标配置）
 		ch:     make(chan server.Event, queueSize),
 		stop:   make(chan struct{}),
 	}
