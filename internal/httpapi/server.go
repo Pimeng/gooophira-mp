@@ -29,6 +29,7 @@ type Service struct {
 	ws         *wsHub
 	statsProc  *procstats.Sampler
 	statsStore *stats.Store
+	pprofURL   string
 	http       *http.Server
 
 	roomCacheMu sync.Mutex
@@ -58,7 +59,7 @@ const cleanupInterval = 5 * time.Minute
 
 // New 创建 HTTP 服务（未启动）。statsStore 为 nil 时统计端点返回 503。
 // 同时把 WebSocket hub 注入 state.WSService。
-func New(state *server.ServerState, hub *server.Hub, statsStore *stats.Store) *Service {
+func New(state *server.ServerState, hub *server.Hub, statsStore *stats.Store, pprofURL ...string) *Service {
 	cfg := state.Config
 	s := &Service{
 		state: state,
@@ -76,6 +77,9 @@ func New(state *server.ServerState, hub *server.Hub, statsStore *stats.Store) *S
 		otpBanIP:       make(map[string]int64),
 		otpBanSSID:     make(map[string]int64),
 		startedAt:      time.Now(),
+	}
+	if len(pprofURL) > 0 {
+		s.pprofURL = pprofURL[0]
 	}
 	s.ws = newWSHub(s)
 	s.statsProc = procstats.Start() // 进程 CPU/内存采样（GUI 监控图表）

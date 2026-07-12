@@ -25,9 +25,9 @@ COPY . .
 
 # 版本号默认走内嵌的 internal/version/VERSION；传 --build-arg VERSION=... 可用 ldflags 覆盖。
 ARG VERSION=""
-# 纯 Go、静态、无 CGO；-trimpath 去本地路径，-s -w 瘦身。
+# 纯 Go、静态、无 CGO；保留符号和 DWARF 调试信息。
 RUN CGO_ENABLED=0 go build -trimpath \
-      -ldflags "-s -w -X github.com/Pimeng/gooophira-mp/internal/version.injected=${VERSION}" \
+      -ldflags "-X github.com/Pimeng/gooophira-mp/internal/version.injected=${VERSION}" \
       -o /out/phira-mp ./cmd/server
 
 # ---------- 运行阶段 ----------

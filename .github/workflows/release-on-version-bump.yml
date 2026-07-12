@@ -99,8 +99,8 @@ jobs:
             ext=""; [ "$goos" = "windows" ] && ext=".exe"
             BIN="phira-mp$ext"
             echo "▶ 编译 $goos/$goarch → $name"
-            # 版本号经 go:embed 内嵌，无需 ldflags 注入；-s -w/-trimpath 仅瘦身与去除本地路径。
-            GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags "-s -w" -o "$BIN" ./cmd/server
+            # 版本号经 go:embed 内嵌，无需 ldflags 注入；保留符号和 DWARF 调试信息。
+            GOOS="$goos" GOARCH="$goarch" go build -trimpath -o "$BIN" ./cmd/server
             if [ "$goos" = "windows" ]; then
               mv "$BIN" "dist/phira-mp-$name.exe"
             else

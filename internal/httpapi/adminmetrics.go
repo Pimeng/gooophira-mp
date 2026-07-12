@@ -55,6 +55,7 @@ func (s *Service) handleAdminMetrics(w http.ResponseWriter, r *http.Request, _ *
 			"arch":       runtime.GOARCH,
 			"goroutines": runtime.NumGoroutine(),
 			"numCPU":     runtime.NumCPU(),
+			"pprofURL":   s.pprofURL,
 		},
 		"memory": map[string]any{
 			// GUI 图表契约字段：

@@ -21,6 +21,7 @@ import (
 	"github.com/Pimeng/gooophira-mp/internal/cache"
 	"github.com/Pimeng/gooophira-mp/internal/cli"
 	"github.com/Pimeng/gooophira-mp/internal/config"
+	"github.com/Pimeng/gooophira-mp/internal/diagnostics"
 	"github.com/Pimeng/gooophira-mp/internal/guiwindow"
 	"github.com/Pimeng/gooophira-mp/internal/httpapi"
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
@@ -88,6 +89,22 @@ func main() {
 
 	logger := logging.New(cfg.EffectiveLogLevel(), "logs")
 	defer logger.Close()
+	pprofSvc, err := diagnostics.Start()
+	if err != nil {
+		logger.Warn("pprof diagnostics failed to start: " + err.Error())
+	}
+	pprofURL := ""
+	if pprofSvc != nil {
+		pprofURL = pprofSvc.URL()
+		logger.Info("pprof diagnostics listening at " + pprofURL)
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if err := pprofSvc.Close(ctx); err != nil {
+				logger.Warn("pprof diagnostics shutdown failed: " + err.Error())
+			}
+		}()
+	}
 
 	// 运行时本地化覆盖：locales/<lang>.ftl 存在则覆盖对应内置文案（须在服务前加载）。
 	if n := l10n.LoadOverrides("locales"); n > 0 {
@@ -333,7 +350,7 @@ func main() {
 		if cfg.HTTPPort != nil {
 			httpPort = *cfg.HTTPPort
 		}
-		httpSvc = httpapi.New(state, hub, statsStore)
+		httpSvc = httpapi.New(state, hub, statsStore, pprofURL)
 		httpAddr, herr := httpSvc.Start(net.JoinHostPort(host, strconv.Itoa(httpPort)))
 		if herr != nil {
 			logger.Error(l10n.TL(lang, "log-http-start-failed", map[string]string{"error": herr.Error()}))

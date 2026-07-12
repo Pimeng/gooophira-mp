@@ -85,7 +85,7 @@ jobs:
             ext=""; [ "$goos" = "windows" ] && ext=".exe"
             out="phira-mp-$name$ext"
             echo "▶ 编译 $goos/$goarch → $out"
-            GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags "-s -w" -o "$out" ./cmd/server
+            GOOS="$goos" GOARCH="$goarch" go build -trimpath -o "$out" ./cmd/server
             ls -lh "$out"
             rm -f "$out"
           ' _

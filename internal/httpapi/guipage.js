@@ -151,6 +151,8 @@ function applyMetrics(d,withHistory){
   if(d.cpu)cpuCores=d.cpu.cores||1;
   if(d.memory&&d.memory.systemTotal)sysTotal=d.memory.systemTotal;
   uptimeBase=d.process?d.process.uptime:0;uptimeAt=Date.now();
+  var pprof=$('pprofURL');
+  if(pprof&&d.process&&d.process.pprofURL){pprof.href=d.process.pprofURL;pprof.textContent=d.process.pprofURL;pprof.classList.remove('hidden');}
   tickUptime();
   if(d.business){
     setCounter('cUsers',d.business.onlineUsers);

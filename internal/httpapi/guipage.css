@@ -60,6 +60,7 @@ header{display:flex;align-items:center;justify-content:space-between;gap:14px;
 .hstat{text-align:right}
 .hstat label{display:block;font-size:9px;color:var(--muted);letter-spacing:.18em;text-transform:uppercase}
 .hstat b{font-size:12px;font-weight:600;color:var(--dim)}
+.diag-link{display:block;max-width:220px;overflow:hidden;text-overflow:ellipsis;color:var(--info);font-size:10px;white-space:nowrap}
 .head-btn{background:transparent;border:1px solid var(--border2);color:var(--muted);border-radius:5px;
   padding:5px 12px;font-family:var(--mono);font-size:11px;cursor:pointer}
 #themeToggle{padding:5px 9px;font-size:13px;line-height:1}
