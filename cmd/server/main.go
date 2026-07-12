@@ -294,12 +294,20 @@ func main() {
 	}
 
 	// 回放过期清理：启动时清一次，并每日定时清理。
-	recorder.CleanupExpired(time.Now(), cfg.EffectiveReplayTTLDays())
 	go func() {
+		startedAt := time.Now()
+		recorder.CleanupExpired(time.Now(), cfg.EffectiveReplayTTLDays())
+		if logger.DebugEnabled() {
+			logger.Debug(fmt.Sprintf("[Replay] 过期回放清理完成，耗时：%s", time.Since(startedAt)))
+		}
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
+			startedAt = time.Now()
 			recorder.CleanupExpired(time.Now(), cfg.EffectiveReplayTTLDays())
+			if logger.DebugEnabled() {
+				logger.Debug(fmt.Sprintf("[Replay] 过期回放清理完成，耗时：%s", time.Since(startedAt)))
+			}
 		}
 	}()
 
