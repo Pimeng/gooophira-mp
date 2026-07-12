@@ -41,9 +41,11 @@ var (
 // 进程级共享缓存（对齐 TS phiraApiClient 的 tokenCache / recordCache）。
 // token 缓存不落盘（含凭证，仅驻内存）；record / chart 缓存落盘（不可变，重启后仍有效）。
 var (
-	tokenCache    = cache.NewString[server.PhiraUserInfo](cache.Options{Name: "token_cache.json", TTL: 6 * time.Hour, MaxMem: 500, Persist: false})
-	recordCache   = cache.NewInt[config.RecordData](cache.Options{Name: "record_cache.json", TTL: 6 * time.Hour, MaxMem: 500, Persist: true})
-	chartCache    = cache.NewInt[config.Chart](cache.Options{Name: "chart_cache.json", TTL: 6 * time.Hour, MaxMem: 500, Persist: true})
+	tokenCache  = cache.NewString[server.PhiraUserInfo](cache.Options{Name: "token_cache.json", TTL: 6 * time.Hour, MaxMem: 500, Persist: false})
+	recordCache = cache.NewInt[config.RecordData](cache.Options{Name: "record_cache.json", TTL: 6 * time.Hour, MaxMem: 500, Persist: true})
+	// Name 含 v2 后缀：config.Chart 新增 Level/Charter/Illustration 字段后，
+	// 旧 chart_cache.json 反序列化会让新字段为零值，改文件名令旧缓存自动失效。
+	chartCache    = cache.NewInt[config.Chart](cache.Options{Name: "chart_cache_v2.json", TTL: 6 * time.Hour, MaxMem: 500, Persist: true})
 	userNameCache = cache.NewInt[string](cache.Options{Name: "user_name_cache.json", TTL: 6 * time.Hour, MaxMem: 500, Persist: true})
 )
 
@@ -244,13 +246,22 @@ func (c *Client) fetchChart(ctx context.Context, id int) (config.Chart, error) {
 		return config.Chart{}, fmt.Errorf("chart-fetch-failed")
 	}
 	var data struct {
-		ID   int    `json:"id"`
-		Name string `json:"name"`
+		ID           int    `json:"id"`
+		Name         string `json:"name"`
+		Level        string `json:"level"`
+		Charter      string `json:"charter"`
+		Illustration string `json:"illustration"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return config.Chart{}, fmt.Errorf("chart-fetch-failed")
 	}
-	return config.Chart{ID: data.ID, Name: data.Name}, nil
+	return config.Chart{
+		ID:           data.ID,
+		Name:         data.Name,
+		Level:        data.Level,
+		Charter:      data.Charter,
+		Illustration: data.Illustration,
+	}, nil
 }
 
 // FetchRecord 调用 /record/:id 取成绩数据。结果缓存 6h（记录不可变）。

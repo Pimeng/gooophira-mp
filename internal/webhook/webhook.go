@@ -76,7 +76,15 @@ func New(logger Logger, lang *l10n.Language) *Dispatcher {
 }
 
 // SetConfig 热替换 Webhook 配置（启动期与每次热重载调用）。nil = 关闭。
-func (d *Dispatcher) SetConfig(c *config.WebhookConfig) { d.cfg.Store(c) }
+func (d *Dispatcher) SetConfig(c *config.WebhookConfig) {
+	d.cfg.Store(c)
+	if c == nil {
+		return
+	}
+	if f, ok := d.adapters["feishu"].(*adapter.Feishu); ok {
+		f.Prewarm(c.Targets)
+	}
+}
 
 // Emit 入队一个事件（非阻塞）。未启用或队列满时静默丢弃。
 func (d *Dispatcher) Emit(ev server.Event) {

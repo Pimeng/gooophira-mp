@@ -264,8 +264,6 @@ log-gui-window-launched = GUI 窗口已打开：{ $url }
 log-gui-window-failed = 无法自动打开 GUI 窗口，请在本机浏览器访问：{ $url }
 log-admin-room-message = 管理员向房间 "{ $room }" 发送消息：{ $message }
 log-room-disbanded-by-admin = 房间 "{ $room }" 已被管理员解散
-log-feishu-upload-failed = 飞书图片上传失败：{ $error }
-log-feishu-send-error = 飞书消息发送失败：{ $error }
 log-feishu-send-failed = 飞书发送失败（logId={ $logId }，code={ $code }）：{ $msg }
 log-webhook-queue-dropped = Webhook 队列已满，丢弃事件：{ $event }
 log-webhook-rejected = Webhook 目标拒绝事件 { $event }（{ $type } { $url }），不再重试

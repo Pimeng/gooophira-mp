@@ -421,9 +421,6 @@ func (r *Room) checkPlaying(lc *RoomLifecycle, st StatePlaying) (disband bool) {
 		"aborted":  fmt.Sprintf("%d", len(st.Aborted)),
 	})
 	r.Send(lc, protocol.MsgGameEnd{})
-	if state := roomLifecycleState(lc); state != nil {
-		r.EmitGameEvent(state, EventGameEnd)
-	}
 	if lc.OnGameEnd != nil {
 		lc.OnGameEnd(r)
 	}

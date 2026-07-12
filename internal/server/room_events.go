@@ -22,15 +22,6 @@ func (r *Room) EmitUserEvent(state *ServerState, typ EventType, user *User) {
 	r.EmitEvent(state, Event{Type: typ, UserID: user.ID, UserName: user.Name})
 }
 
-func (r *Room) EmitGameEvent(state *ServerState, typ EventType) {
-	ev := Event{Type: typ}
-	if r.Chart != nil {
-		ev.ChartID = r.Chart.ID
-		ev.ChartName = r.Chart.Name
-	}
-	r.EmitEvent(state, ev)
-}
-
 func (r *Room) NotifyState(lc *RoomLifecycle) {
 	r.OnStateChange(lc)
 	r.NotifyWebSocket(lc)

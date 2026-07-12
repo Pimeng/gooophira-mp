@@ -122,9 +122,23 @@ type NetutilConfig struct {
 }
 
 // Chart 是谱面的最小信息。
+// Chart 是谱面基本信息（/chart/:id 返回字段的子集）。
+//
+// 服务器仅依赖 ID/Name（处理选谱、广播、回放录制）；Level/Charter/Illustration
+// 供飞书 Webhook 模板渲染（chart_difficulty/chart_charter/chart_pic）使用——
+// Illustration 为封面图 URL，投递到飞书时下载并经飞书上传图片接口换取 image_key。
+// 难度展示取 Level（如 "IN Lv.15"），而非数值 Difficulty（详见 Phira chart 信息格式文档）。
 type Chart struct {
 	ID   int
 	Name string
+
+	// Level 是谱面难度等级展示字符串（如 "IN Lv.15"）。对应 API 字段 level。
+	Level string
+	// Charter 是谱师署名。对应 API 字段 charter。
+	Charter string
+	// Illustration 是谱面封面图 URL（指向 phira.5wyxi.com/files/...）。
+	// 飞书模板变量 chart_pic 由该 URL 下载后上传飞书换 image_key 填入。
+	Illustration string
 }
 
 // RecordData 是 Phira API /record/:id 返回的成绩数据。

@@ -194,7 +194,26 @@ func main() {
 		ev := server.Event{Type: server.EventGameStart, RoomID: room.ID.String(), UserCount: room.UserCount()}
 		if room.Chart != nil {
 			ev.ChartID, ev.ChartName = room.Chart.ID, room.Chart.Name
+			// 飞书模板相关字段：难度取 level、谱师 charter、封面 illustration（投递时下载并
+			// 经飞书上传图片接口换 image_key 后填 chart_pic 模板变量）。
+			ev.ChartDifficulty = room.Chart.Level
+			ev.ChartCharter = room.Chart.Charter
+			ev.ImageURL = room.Chart.Illustration
 		}
+		// 玩家清单：用 room.UserIDs()（已排除观战者）与全局用户表取昵称，组装为
+		// "玩家A(玩家ID)、玩家B(玩家ID)" 形式作为飞书模板变量 player_list。
+		playerParts := make([]string, 0, room.UserCount())
+		for _, uid := range room.UserIDs() {
+			name := ""
+			if u := state.Users[uid]; u != nil {
+				name = u.Name
+			}
+			if name == "" {
+				name = strconv.Itoa(uid)
+			}
+			playerParts = append(playerParts, fmt.Sprintf("%s(%d)", name, uid))
+		}
+		ev.PlayerList = strings.Join(playerParts, "、")
 		state.EmitEvent(ev) // 无视回放开关，每局开始都发
 		if !state.ReplayEnabled || !room.ReplayEligible || room.Chart == nil {
 			return

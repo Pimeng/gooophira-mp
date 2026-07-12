@@ -262,8 +262,6 @@ log-gui-window-launched = Окно GUI открыто: { $url }
 log-gui-window-failed = Не удалось автоматически открыть окно GUI. Откройте в локальном браузере: { $url }
 log-admin-room-message = Администратор отправил сообщение в комнату «{ $room }»: { $message }
 log-room-disbanded-by-admin = Комната «{ $room }» распущена администратором
-log-feishu-upload-failed = Ошибка загрузки изображения Feishu: { $error }
-log-feishu-send-error = Ошибка отправки сообщения Feishu: { $error }
 log-feishu-send-failed = Ошибка отправки Feishu (logId={ $logId }, code={ $code }): { $msg }
 log-webhook-queue-dropped = Очередь Webhook переполнена, событие отброшено: { $event }
 log-webhook-rejected = Цель Webhook отклонила событие { $event } ({ $type } { $url }), без повторных попыток

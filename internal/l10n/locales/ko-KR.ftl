@@ -262,8 +262,6 @@ log-gui-window-launched = GUI 창이 열렸습니다: { $url }
 log-gui-window-failed = GUI 창을 자동으로 열 수 없습니다. 로컬 브라우저에서 여세요: { $url }
 log-admin-room-message = 관리자가 방 "{ $room }"에 메시지를 보냈습니다: { $message }
 log-room-disbanded-by-admin = 방 "{ $room }"가 관리자에 의해 해산되었습니다
-log-feishu-upload-failed = Feishu 이미지 업로드 실패: { $error }
-log-feishu-send-error = Feishu 메시지 전송 실패: { $error }
 log-feishu-send-failed = Feishu 전송 실패(logId={ $logId }, code={ $code }): { $msg }
 log-webhook-queue-dropped = Webhook 큐가 가득 차 이벤트를 삭제합니다: { $event }
 log-webhook-rejected = Webhook 대상이 이벤트 { $event }을(를) 거부했습니다({ $type } { $url }), 재시도 안 함

@@ -9,14 +9,18 @@ package adapter
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/disintegration/imaging"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
@@ -28,8 +32,12 @@ import (
 const (
 	// feishuImageDownloadTimeout 限制下载谱面预览图的最长时间（防止外部图片服务卡死投递）。
 	feishuImageDownloadTimeout = 30 * time.Second
-	// feishuImageMaxBytes 飞书上传图片大小上限 10MB。
-	feishuImageMaxBytes = 10 * 1024 * 1024
+	// feishuImageHardLimit 下载阶段硬上限（30 MB）：原图超过此大小直接放弃，不下载完整文件。
+	// Phira 封面图偶有 10 MB+ 的高分辨率 PNG，给一定冗余以便压缩处理。
+	feishuImageHardLimit = 30 * 1000 * 1000
+	// feishuImageMaxBytes 飞书上传图片大小上限（软限）10 MB。超过则本地压缩到 ≤10 MB 再上传。
+	// 飞书侧按十进制 10,000,000 字节计，故此处亦用十进制。
+	feishuImageMaxBytes = 10 * 1000 * 1000
 )
 
 // feishuClientKey 以 (AppID,AppSecret) 为缓存键的连接共享粒度。
@@ -50,6 +58,11 @@ type Feishu struct {
 
 	mu      sync.RWMutex
 	clients map[feishuClientKey]*lark.Client
+
+	// 图片去重缓存：相同字节内容（sha256）映射到已上传的 image_key，
+	// 避免同一谱面预览图在多目标/多事件重复上传飞书（飞书 image_key 在同租户内可复用）。
+	imgMu    sync.Mutex
+	imgCache map[string]string // sha256(hex) → image_key
 }
 
 // NewFeishu 创建飞书适配器。httpClient 用于下载事件 ImageURL 指向的图片；
@@ -60,6 +73,7 @@ func NewFeishu(httpClient *http.Client, logger Logger, lang *l10n.Language) *Fei
 		logger:     logger,
 		lang:       lang,
 		clients:    make(map[feishuClientKey]*lark.Client),
+		imgCache:   make(map[string]string),
 	}
 }
 
@@ -68,10 +82,9 @@ func (f *Feishu) tl(key string, args map[string]string) string {
 	return l10n.TL(f.lang, key, args)
 }
 
-// debug 输出 Debug 级本地化日志。
-func (f *Feishu) debug(key string, args map[string]string) {
+func (f *Feishu) debug(message string) {
 	if f.logger != nil {
-		f.logger.Debug(f.tl(key, args))
+		f.logger.Debug(message)
 	}
 }
 
@@ -82,39 +95,66 @@ func (f *Feishu) warn(key string, args map[string]string) {
 	}
 }
 
-// Deliver 向单个飞书 SDK 目标投递一条事件模板消息（单次请求）。
+// Deliver 向单个飞书 SDK 目标投递一条事件（单次请求）。
+// EventGameStart 走交互式模板（含图片上传换 image_key，展示谱面预览图等富信息）；
+// 其余事件走纯文本（msg_type=text），内容用 RenderText(ev) 生成，降低模板配额占用。
 // 返回 (成功, 失败时是否可重试)。重试/超时由调用方（webhook.Dispatcher）控制。
 func (f *Feishu) Deliver(ctx context.Context, t config.WebhookTarget, ev server.Event) (ok, retryable bool) {
 	client := f.larkClient(t.AppID, t.AppSecret)
+	f.debug(fmt.Sprintf("开始投递飞书事件：%s", ev.Type))
+	if ev.Type == server.EventGameStart {
+		return f.deliverTemplate(ctx, client, t, ev)
+	}
+	return f.deliverText(ctx, client, t, ev)
+}
 
+// deliverTemplate 投递 EventGameStart 的交互式模板消息。
+func (f *Feishu) deliverTemplate(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev server.Event) (ok, retryable bool) {
 	tplVars := feishuTemplateVariables(ev)
+	chartPicKey := ""
 
 	// 若事件带 ImageURL，下载并上传至飞书换取 image_key，填入模板变量 chart_pic。
 	if ev.ImageURL != "" {
 		imgKey, err := f.uploadImageFromURL(ctx, client, ev.ImageURL)
 		if err != nil {
-			f.debug("log-feishu-upload-failed", map[string]string{"error": err.Error()})
+			f.debug(fmt.Sprintf("飞书图片上传失败：%v", err))
 			return false, true // 图片下载或上传属网络/外部错误：可重试
 		}
 		tplVars["chart_pic"] = map[string]any{"img_key": imgKey}
+		chartPicKey = imgKey
+		f.debug(fmt.Sprintf("飞书模板图片变量 chart_pic 已就绪，img_key=%s", imgKey))
 	} else {
 		// 无图时仍占位，避免模板渲染缺变量报错。
 		tplVars["chart_pic"] = map[string]any{"img_key": ""}
 	}
+	f.debug(fmt.Sprintf("飞书模板投递内容：template_id=%s，version=%s，room_id=%s，chart_name=%s，difficulty=%s，charter=%s，player_list=%s，chart_pic.img_key=%s",
+		t.TemplateID, t.TemplateVersion, ev.RoomID, ev.ChartName, ev.ChartDifficulty, ev.ChartCharter, ev.PlayerList, chartPicKey))
 
-	content := feishuTemplateContent(t, tplVars)
+	return f.sendMessage(ctx, client, t, "interactive", feishuTemplateContent(t, tplVars))
+}
+
+// deliverText 投递纯文本消息（msg_type=text）。内容用 RenderText 生成。
+func (f *Feishu) deliverText(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev server.Event) (ok, retryable bool) {
+	text := RenderText(ev)
+	f.debug(fmt.Sprintf("飞书文本投递内容：%s", text))
+	return f.sendMessage(ctx, client, t, "text", feishuTextContent(text))
+}
+
+// sendMessage 调用 im/v1/message.create 发送一条消息，统一错误分类。
+func (f *Feishu) sendMessage(ctx context.Context, client *lark.Client, t config.WebhookTarget, msgType, content string) (ok, retryable bool) {
 	req := larkim.NewCreateMessageReqBuilder().
 		ReceiveIdType("open_id").
 		Body(larkim.NewCreateMessageReqBodyBuilder().
 			ReceiveId(t.ReceiveOpenID).
-			MsgType("interactive").
+			MsgType(msgType).
 			Content(content).
 			Build()).
 		Build()
 
+	f.debug(fmt.Sprintf("开始发送飞书消息（类型：%s）", msgType))
 	resp, err := client.Im.V1.Message.Create(ctx, req)
 	if err != nil {
-		f.debug("log-feishu-send-error", map[string]string{"error": err.Error()})
+		f.debug(fmt.Sprintf("飞书消息发送失败：%v", err))
 		return false, true // 传输/超时：可重试
 	}
 	if !resp.Success() {
@@ -126,7 +166,65 @@ func (f *Feishu) Deliver(ctx context.Context, t config.WebhookTarget, ev server.
 		})
 		return false, false
 	}
+	f.debug(fmt.Sprintf("飞书消息发送完成（类型：%s，logId=%s）", msgType, resp.RequestId()))
 	return true, false
+}
+
+// compressImage 把图片字节流压缩到 ≤ maxBytes。策略：
+//  1. 逐步降低 JPEG 质量（95→85→75→65→55）；
+//  2. 若仍超限，按 0.85 系数逐级缩小尺寸后重编码（保留长宽比）。
+//
+// GIF 保持原样返回（imaging 对动图只编首帧，会丢失动画——交给飞书原样处理）。
+// 失败（解码/编码出错）时返回错误，由调用方决定是否回退到原图（飞书会拒）。
+func compressImage(src []byte, maxBytes int) ([]byte, error) {
+	// GIF 不压缩（动图首帧会丢动画）。
+	if strings.HasPrefix(http.DetectContentType(src), "image/gif") {
+		return src, nil
+	}
+	img, err := imaging.Decode(bytes.NewReader(src))
+	if err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+
+	// 第一阶段：降 JPEG 质量，不缩尺寸。
+	qualities := []int{95, 85, 75, 65, 55}
+	for _, q := range qualities {
+		var buf bytes.Buffer
+		if err := imaging.Encode(&buf, img, imaging.JPEG, imaging.JPEGQuality(q)); err != nil {
+			return nil, fmt.Errorf("encode q=%d: %w", q, err)
+		}
+		if buf.Len() <= maxBytes {
+			return buf.Bytes(), nil
+		}
+	}
+
+	// 第二阶段：仍超限，逐级缩尺寸（每轮 ×0.85）后再按 75 质量编码。
+	for scale := 0.85; ; scale *= 0.85 {
+		bounds := img.Bounds()
+		w := int(float64(bounds.Dx()) * scale)
+		h := int(float64(bounds.Dy()) * scale)
+		if w < 2 || h < 2 {
+			return nil, fmt.Errorf("cannot shrink below %d bytes", maxBytes)
+		}
+		resized := imaging.Resize(img, w, h, imaging.Lanczos)
+		var buf bytes.Buffer
+		if err := imaging.Encode(&buf, resized, imaging.JPEG, imaging.JPEGQuality(75)); err != nil {
+			return nil, fmt.Errorf("encode resized %dx%d: %w", w, h, err)
+		}
+		if buf.Len() <= maxBytes {
+			return buf.Bytes(), nil
+		}
+		// 防止无限循环：尺寸已极小仍超限时退出。
+		if w <= 8 || h <= 8 {
+			return nil, fmt.Errorf("still %d bytes after max shrink", buf.Len())
+		}
+	}
+}
+
+// feishuTextContent 组装文本消息的 content 字段：{"text":"<文本>"}（JSON 序列化字符串）。
+func feishuTextContent(text string) string {
+	b, _ := json.Marshal(map[string]string{"text": text})
+	return string(b)
 }
 
 // larkClient 返回（或创建并缓存）指定应用凭据的 lark 客户端。
@@ -146,12 +244,28 @@ func (f *Feishu) larkClient(appID, appSecret string) *lark.Client {
 	}
 	c := lark.NewClient(appID, appSecret)
 	f.clients[k] = c
+	f.debug("飞书客户端已初始化")
 	return c
+}
+
+func (f *Feishu) Prewarm(targets []config.WebhookTarget) {
+	count := 0
+	for _, t := range targets {
+		if t.Type != "feishu" || t.AppID == "" || t.AppSecret == "" {
+			continue
+		}
+		f.larkClient(t.AppID, t.AppSecret)
+		count++
+	}
+	if count > 0 {
+		f.debug(fmt.Sprintf("飞书客户端预初始化完成，目标数：%d", count))
+	}
 }
 
 // uploadImageFromURL 下载指定 URL 的图片，上传到飞书开放平台（image_type=message）
 // 返回可填入模板变量的 image_key。
 func (f *Feishu) uploadImageFromURL(ctx context.Context, client *lark.Client, imageURL string) (string, error) {
+	f.debug("开始下载飞书消息图片")
 	dlCtx, dlCancel := context.WithTimeout(ctx, feishuImageDownloadTimeout)
 	defer dlCancel()
 	dlReq, err := http.NewRequestWithContext(dlCtx, http.MethodGet, imageURL, nil)
@@ -167,31 +281,74 @@ func (f *Feishu) uploadImageFromURL(ctx context.Context, client *lark.Client, im
 	if dlResp.StatusCode >= 400 {
 		return "", fmt.Errorf("download image status %d", dlResp.StatusCode)
 	}
-	imgBytes, err := io.ReadAll(io.LimitReader(dlResp.Body, feishuImageMaxBytes))
+	// 下载硬上限 feishuImageHardLimit（30 MB）：超过则放弃，不下载完整文件。
+	// 用 hardLimit+1 检测超限：读到这么多字节说明原图超 30 MB。
+	imgBytes, err := io.ReadAll(io.LimitReader(dlResp.Body, feishuImageHardLimit+1))
 	if err != nil {
 		return "", fmt.Errorf("read image body: %w", err)
 	}
 	if len(imgBytes) == 0 {
 		return "", fmt.Errorf("empty image body")
 	}
+	if len(imgBytes) > feishuImageHardLimit {
+		return "", fmt.Errorf("image too large: %d bytes (hard limit %d)", len(imgBytes), feishuImageHardLimit)
+	}
+	// 服务端可能返回 application/octet-stream（无扩展名 CDN 文件），且 SDK 的 Image()
+	// 只接受 io.Reader、无法传文件名，飞书后端靠内容嗅探识别格式。这里做一次本地嗅探，
+	// 及早发现非图片内容（例如 HTML 错误页）以给出清晰错误。
+	contentType := http.DetectContentType(imgBytes)
+	if !strings.HasPrefix(contentType, "image/") {
+		return "", fmt.Errorf("not an image: detected %s", contentType)
+	}
+	f.debug(fmt.Sprintf("飞书消息图片下载完成（%d 字节，%s）", len(imgBytes), contentType))
+	// 以原图字节内容的 sha256 为缓存键：同一张原图（无论从哪个 URL 下载、是否压缩）
+	// 在飞书租户内可复用同一 image_key。命中缓存直接返回，跳过压缩+上传整个开销链。
+	hash := sha256.Sum256(imgBytes)
+	hashHex := hex.EncodeToString(hash[:])
+	f.imgMu.Lock()
+	if key, ok := f.imgCache[hashHex]; ok {
+		f.imgMu.Unlock()
+		f.debug(fmt.Sprintf("飞书图片缓存命中，img_key=%s", key))
+		return key, nil
+	}
+	f.imgMu.Unlock()
+
+	// 压缩在缓存未命中后进行；压缩结果同样确定，但用原图哈希即可命中，无需再算一次。
+	uploadBytes := imgBytes
+	// 软限 feishuImageMaxBytes（10 MB）：超过则本地压缩到 ≤10 MB 再上传，避免被飞书 234006 拒。
+	if len(imgBytes) > feishuImageMaxBytes {
+		uploadBytes, err = compressImage(imgBytes, feishuImageMaxBytes)
+		if err != nil {
+			return "", fmt.Errorf("compress image: %w", err)
+		}
+		f.debug(fmt.Sprintf("飞书图片压缩完成（%d → %d 字节）", len(imgBytes), len(uploadBytes)))
+	}
 
 	upReq := larkim.NewCreateImageReqBuilder().
 		Body(larkim.NewCreateImageReqBodyBuilder().
 			ImageType("message").
-			Image(bytes.NewReader(imgBytes)).
+			Image(bytes.NewReader(uploadBytes)).
 			Build()).
 		Build()
+	f.debug(fmt.Sprintf("开始上传飞书图片（%d 字节）", len(uploadBytes)))
 	upResp, err := client.Im.V1.Image.Create(ctx, upReq)
 	if err != nil {
 		return "", fmt.Errorf("upload image: %w", err)
 	}
 	if !upResp.Success() {
-		return "", fmt.Errorf("upload image code=%d msg=%s", upResp.Code, upResp.Msg)
+		// 附带 logId 便于在飞书开放平台后台定位请求（如 234006 超限 / 234011 格式不支持 / 234039 分辨率超限）。
+		return "", fmt.Errorf("upload image code=%d msg=%s logId=%s", upResp.Code, upResp.Msg, upResp.RequestId())
 	}
 	if upResp.Data == nil || upResp.Data.ImageKey == nil {
 		return "", fmt.Errorf("upload image: no image_key in response")
 	}
-	return *upResp.Data.ImageKey, nil
+	imageKey := *upResp.Data.ImageKey
+	// 上传成功后写回缓存（以原图哈希为键）。
+	f.imgMu.Lock()
+	f.imgCache[hashHex] = imageKey
+	f.imgMu.Unlock()
+	f.debug(fmt.Sprintf("飞书图片上传完成（img_key=%s，logId=%s）", imageKey, upResp.RequestId()))
+	return imageKey, nil
 }
 
 // feishuTemplateVariables 把事件字段映射到飞书模板变量。
