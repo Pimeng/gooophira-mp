@@ -39,6 +39,16 @@ type Event struct {
 	ChartCharter    string `json:"chart_charter,omitempty"`    // 谱师
 	PlayerList      string `json:"player_list,omitempty"`      // 玩家列表（已格式化的字符串）
 	ImageURL        string `json:"image_url,omitempty"`        // 谱面预览图 URL；投递时下载并上传飞书换 image_key
+
+	// game_end 事件的成绩排行（按 score 降序）。飞书模板变量 player_score_rank 消费此切片。
+	PlayerScoreRank []ScoreRankEntry `json:"player_score_rank,omitempty"`
+}
+
+// ScoreRankEntry 是单条房间成绩排行数据，用于 game_end 事件的 player_score_rank 模板变量。
+type ScoreRankEntry struct {
+	Player   string  `json:"player"`    // 玩家昵称
+	Score    int     `json:"score"`     // 成绩
+	StdScore float64 `json:"std_score"` // 标准分
 }
 
 // EventSink 接收服务器事件用于异步外发。

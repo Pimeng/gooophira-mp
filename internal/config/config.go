@@ -242,7 +242,7 @@ func parseNetutilValue(v any) (*NetutilConfig, bool) {
 // parseWebhookValue 解析 WEBHOOK 块。结构合法即返回（即便 ENABLED 缺省为 false / TARGETS 为空），
 // 仅当 v 根本不是 map 时返回 false（视为未设置）。逐个目标解析：
 //   - Type=generic/discord：缺 URL 的目标跳过。
-//   - Type=feishu：走飞书开放平台 SDK，URL 不再使用，改为校验 AppID/AppSecret/ReceiveOpenID/TemplateID。
+//   - Type=feishu：走飞书开放平台 SDK，URL 不再使用，改为校验 AppID/AppSecret/ReceiveOpenID。模板 ID 可选覆盖，留空走内置默认。
 func parseWebhookValue(v any) (*WebhookConfig, bool) {
 	m, ok := asRecord(v)
 	if !ok {
@@ -274,26 +274,23 @@ func parseWebhookValue(v any) (*WebhookConfig, bool) {
 				events, _ := parseStringListValue(tm["EVENTS"]) // nil = 订阅全部
 
 				if typ == "feishu" {
-					// 飞书 SDK 目标：校验应用凭据与接收人/模板。
+					// 飞书 SDK 目标：校验应用凭据与接收人。模板 ID 可选覆盖，留空走内置默认。
 					appID, _ := parseStringValue(tm["APP_ID"])
 					appSecret, _ := parseStringValue(tm["APP_SECRET"])
 					receiveOpenID, _ := parseStringValue(tm["RECEIVE_OPEN_ID"])
-					templateID, _ := parseStringValue(tm["TEMPLATE_ID"])
-					if appID == "" || appSecret == "" || receiveOpenID == "" || templateID == "" {
+					if appID == "" || appSecret == "" || receiveOpenID == "" {
 						continue // 无效目标：缺少飞书必填字段，跳过
 					}
-					templateVersion, _ := parseStringValue(tm["TEMPLATE_VERSION"])
-					if templateVersion == "" {
-						templateVersion = "1.0.0"
-					}
+					templateID, _ := parseStringValue(tm["TEMPLATE_ID"])                 // 可选覆盖
+					gameEndTemplateID, _ := parseStringValue(tm["GAME_END_TEMPLATE_ID"]) // 可选覆盖
 					targets = append(targets, WebhookTarget{
-						Type:            typ,
-						Events:          events,
-						AppID:           appID,
-						AppSecret:       appSecret,
-						ReceiveOpenID:   receiveOpenID,
-						TemplateID:      templateID,
-						TemplateVersion: templateVersion,
+						Type:              typ,
+						Events:            events,
+						AppID:             appID,
+						AppSecret:         appSecret,
+						ReceiveOpenID:     receiveOpenID,
+						TemplateID:        templateID,
+						GameEndTemplateID: gameEndTemplateID,
 					})
 					continue
 				}

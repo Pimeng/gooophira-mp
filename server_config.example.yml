@@ -199,16 +199,23 @@ REDIS:
 #       # 订阅的事件类型；省略或留空 = 订阅全部
 #       # 可选：room_create room_disband user_join maintenance
 #       EVENTS: [room_create, room_disband, maintenance]
-#     # 飞书走开放平台 SDK（不经 webhook URL，改用应用凭据 + 接收人 + 模板 ID）。
-#     # 模板变量：room_id/chart_name/player_list/chart_difficulty/chart_charter/chart_pic。
-#     # 其中 chart_pic 由事件 ImageURL 字段指向的图片经飞书上传图片接口换取 image_key 后填入。
+
 #     - TYPE: feishu
 #       APP_ID: "cli_xxxxxxxxxxxx"
 #       APP_SECRET: "your_app_secret"
 #       RECEIVE_OPEN_ID: "ou_xxxxxxxxxxxx"
-#       TEMPLATE_ID: "AAqW6KwgHwCLU"
-#       TEMPLATE_VERSION: "1.0.0"
-#       EVENTS: [game_start]
+
+#     # 飞书走开放平台 SDK（不经 webhook URL，改用应用凭据 + 接收人）。
+#     # 模板 ID 与版本号均内置默认（game_start / game_end 各一个），模板 ID 可选覆盖：
+#     #   TEMPLATE_ID        覆盖 game_start 模板（留空用内置默认）
+#     #   GAME_END_TEMPLATE_ID 覆盖 game_end 模板（留空用内置默认）
+#     # game_start 模板变量：room_id/chart_name/player_list/chart_difficulty/chart_charter/chart_pic
+#     #   （chart_pic 由事件 ImageURL 字段指向的图片经飞书上传图片接口换取 image_key 后填入）。
+#     # game_end 模板变量：room_id/player_score_rank
+#     #   （player_score_rank 是数组对象，格式为 [{"player":"Alice","score":9521,"std_score":9478},...]，按 score 降序）。
+#     # TEMPLATE_ID: ""            # 可选：覆盖 game_start 模板
+#     # GAME_END_TEMPLATE_ID: ""   # 可选：覆盖 game_end 模板
+#       EVENTS: [game_start, game_end]
 #     - URL: "https://example.com/hook"
 #       TYPE: generic
 #       # 可选：配置后请求带 X-Phira-Signature: sha256=<HMAC(body)> 头，供接收端校验来源

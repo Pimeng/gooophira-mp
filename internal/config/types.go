@@ -68,8 +68,9 @@ type ShareStation struct {
 //
 // 对 Type=generic/discord 的目标：经 URL 出站 HTTP POST（载荷由 Format 生成）。
 // 对 Type=feishu 的目标：经飞书开放平台 SDK 投递交互式模板消息，URL 不再使用，
-// 改由 AppID/AppSecret 创建客户端、ReceiveOpenID 指定接收人、TemplateID/TemplateVersion
-// 指定模板，事件字段（含可选 ImageURL 上传后换回的 image_key）映射到模板变量。
+// 改由 AppID/AppSecret 创建客户端、ReceiveOpenID 指定接收人；
+// 模板 ID 可选覆盖（TemplateID 覆盖 game_start、GameEndTemplateID 覆盖 game_end），
+// 留空时走飞书适配器内置常量（含硬编码版本号），事件字段（含可选 ImageURL 上传后换回的 image_key）映射到模板变量。
 type WebhookTarget struct {
 	URL    string   // 投递地址（仅 Type=generic/discord 经 HTTP POST；feishu 不用）
 	Type   string   // 载荷格式：generic | discord | feishu（未知按 generic）
@@ -77,11 +78,11 @@ type WebhookTarget struct {
 	Secret string   // 可选：HMAC-SHA256 签名密钥（写入 X-Phira-Signature 头；仅 HTTP 目标用）
 
 	// 飞书开放平台 SDK 字段（仅 Type=feishu 使用）。
-	AppID           string // 应用 App ID
-	AppSecret       string // 应用 App Secret
-	ReceiveOpenID   string // 接收人 open_id
-	TemplateID      string // 模板 ID
-	TemplateVersion string // 模板版本名；缺省 "1.0.0"
+	AppID             string // 应用 App ID
+	AppSecret         string // 应用 App Secret
+	ReceiveOpenID     string // 接收人 open_id
+	TemplateID        string // 可选：覆盖 game_start 事件的内置模板 ID；空 = 用内置默认
+	GameEndTemplateID string // 可选：覆盖 game_end 事件的内置模板 ID；空 = 用内置默认
 }
 
 // Subscribes 报告该目标是否订阅了给定事件类型（空订阅列表视为订阅全部）。

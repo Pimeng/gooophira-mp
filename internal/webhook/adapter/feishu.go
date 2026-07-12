@@ -38,6 +38,14 @@ const (
 	// feishuImageMaxBytes 飞书上传图片大小上限（软限）10 MB。超过则本地压缩到 ≤10 MB 再上传。
 	// 飞书侧按十进制 10,000,000 字节计，故此处亦用十进制。
 	feishuImageMaxBytes = 10 * 1000 * 1000
+
+	// 内置飞书模板 ID 与版本号（不走配置，直接硬编码）。
+	// feishuGameStartTemplateID 用于 game_start 事件，模板变量含谱面信息与预览图。
+	feishuGameStartTemplateID      = "AAqW6KwgHwCLU"
+	feishuGameStartTemplateVersion = "1.0.2"
+	// feishuGameEndTemplateID 用于 game_end 事件，模板变量含房间成绩排行。
+	feishuGameEndTemplateID      = "AAqWqHbH8h8Vp"
+	feishuGameEndTemplateVersion = "1.0.2"
 )
 
 // feishuClientKey 以 (AppID,AppSecret) 为缓存键的连接共享粒度。
@@ -97,6 +105,7 @@ func (f *Feishu) warn(key string, args map[string]string) {
 
 // Deliver 向单个飞书 SDK 目标投递一条事件（单次请求）。
 // EventGameStart 走交互式模板（含图片上传换 image_key，展示谱面预览图等富信息）；
+// EventGameEnd 走卡片模板（含成绩排行）；
 // 其余事件走纯文本（msg_type=text），内容用 RenderText(ev) 生成，降低模板配额占用。
 // 返回 (成功, 失败时是否可重试)。重试/超时由调用方（webhook.Dispatcher）控制。
 func (f *Feishu) Deliver(ctx context.Context, t config.WebhookTarget, ev server.Event) (ok, retryable bool) {
@@ -104,6 +113,14 @@ func (f *Feishu) Deliver(ctx context.Context, t config.WebhookTarget, ev server.
 	f.debug(fmt.Sprintf("开始投递飞书事件：%s", ev.Type))
 	if ev.Type == server.EventGameStart {
 		return f.deliverTemplate(ctx, client, t, ev)
+	}
+	if ev.Type == server.EventGameEnd {
+		// 无成绩时飞书模板的表格行校验失败（code=230099, table rows is invalid），
+		// 降级为纯文本投递，避免模板渲染错误导致事件丢失。
+		if len(ev.PlayerScoreRank) == 0 {
+			return f.deliverText(ctx, client, t, ev)
+		}
+		return f.deliverGameEndTemplate(ctx, client, t, ev)
 	}
 	return f.deliverText(ctx, client, t, ev)
 }
@@ -127,10 +144,33 @@ func (f *Feishu) deliverTemplate(ctx context.Context, client *lark.Client, t con
 		// 无图时仍占位，避免模板渲染缺变量报错。
 		tplVars["chart_pic"] = map[string]any{"img_key": ""}
 	}
+	// 模板 ID：配置覆盖优先，留空走内置默认。
+	gameStartTplID := t.TemplateID
+	if gameStartTplID == "" {
+		gameStartTplID = feishuGameStartTemplateID
+	}
 	f.debug(fmt.Sprintf("飞书模板投递内容：template_id=%s，version=%s，room_id=%s，chart_name=%s，difficulty=%s，charter=%s，player_list=%s，chart_pic.img_key=%s",
-		t.TemplateID, t.TemplateVersion, ev.RoomID, ev.ChartName, ev.ChartDifficulty, ev.ChartCharter, ev.PlayerList, chartPicKey))
+		gameStartTplID, feishuGameStartTemplateVersion, ev.RoomID, ev.ChartName, ev.ChartDifficulty, ev.ChartCharter, ev.PlayerList, chartPicKey))
 
-	return f.sendMessage(ctx, client, t, "interactive", feishuTemplateContent(t, tplVars))
+	return f.sendMessage(ctx, client, t, "interactive", feishuTemplateContentRaw(gameStartTplID, feishuGameStartTemplateVersion, tplVars))
+}
+
+// deliverGameEndTemplate 投递 EventGameEnd 的卡片模板消息（含成绩排行）。
+func (f *Feishu) deliverGameEndTemplate(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev server.Event) (ok, retryable bool) {
+	// player_score_rank 作为数组对象传入模板变量，供模板表格组件迭代生成行。
+	// 不可传 JSON 字符串：飞书表格组件无法迭代字符串，会报 table rows is invalid（230099）。
+	tplVars := map[string]any{
+		"room_id":           ev.RoomID,
+		"player_score_rank": ev.PlayerScoreRank,
+	}
+	// 模板 ID：配置覆盖优先，留空走内置默认。
+	gameEndTplID := t.GameEndTemplateID
+	if gameEndTplID == "" {
+		gameEndTplID = feishuGameEndTemplateID
+	}
+	f.debug(fmt.Sprintf("飞书 game_end 模板投递：template_id=%s，version=%s，room_id=%s，rank_len=%d",
+		gameEndTplID, feishuGameEndTemplateVersion, ev.RoomID, len(ev.PlayerScoreRank)))
+	return f.sendMessage(ctx, client, t, "interactive", feishuTemplateContentRaw(gameEndTplID, feishuGameEndTemplateVersion, tplVars))
 }
 
 // deliverText 投递纯文本消息（msg_type=text）。内容用 RenderText 生成。
@@ -363,13 +403,13 @@ func feishuTemplateVariables(ev server.Event) map[string]any {
 	}
 }
 
-// feishuTemplateContent 组装消息 content 字段（飞书交互式模板信封）。
-func feishuTemplateContent(t config.WebhookTarget, vars map[string]any) string {
+// feishuTemplateContentRaw 用指定 templateID 组装模板信封，供不同事件使用不同模板时调用。
+func feishuTemplateContentRaw(templateID, templateVersion string, vars map[string]any) string {
 	envelope := map[string]any{
 		"type": "template",
 		"data": map[string]any{
-			"template_id":           t.TemplateID,
-			"template_version_name": t.TemplateVersion,
+			"template_id":           templateID,
+			"template_version_name": templateVersion,
 			"template_variable":     vars,
 		},
 	}

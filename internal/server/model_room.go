@@ -194,6 +194,10 @@ func (r *Room) IsHost(user *User) bool {
 // UserIDs 返回普通玩家 id（加入顺序，副本）。
 func (r *Room) UserIDs() []int { return append([]int(nil), r.users...) }
 
+// UsersMap 返回房间内普通玩家的 user 指针映射（内部 map 直接引用，不拷贝）。
+// 调用方须持 room.Mu。
+func (r *Room) UsersMap() map[int]*User { return r.usersMap }
+
 // PlayingState 返回 StatePlaying（若当前为 Playing 状态）及 true；否则返回零值与 false。
 // 用于结算路径从 Room 安全读取成绩数据。
 func (r *Room) PlayingState() (StatePlaying, bool) {
