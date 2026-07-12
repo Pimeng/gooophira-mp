@@ -414,7 +414,11 @@ function renderRooms(){
   if(!rooms.length){el.innerHTML='<div class="empty">暂无房间</div>';return;}
   var html='';
   rooms.forEach(function(r){
-    var st=r.state&&r.state.type?r.state.type:'select_chart';
+    var stRaw=r.state&&r.state.type?r.state.type:'select_chart';
+    var st=(Object.prototype.hasOwnProperty.call(ST_CLS,stRaw)&&Object.prototype.hasOwnProperty.call(ST_TEXT,stRaw))?stRaw:'select_chart';
+    var curUsers=Number(r.current_users); if(!isFinite(curUsers))curUsers=0;
+    var maxUsers=Number(r.max_users); if(!isFinite(maxUsers))maxUsers=0;
+    var curMons=Number(r.current_monitors); if(!isFinite(curMons))curMons=0;
     var flags='';
     if(r.locked)flags+='<span class="flag" title="已锁定">[锁]</span>';
     if(r.cycle)flags+='<span class="flag" title="循环模式">[循]</span>';
@@ -436,9 +440,9 @@ function renderRooms(){
     html+='<div class="room'+(openRooms[r.roomid]?' open':'')+'" data-rid="'+esc(r.roomid)+'">'
       +'<div class="room-head" tabindex="0" role="button" aria-expanded="'+(openRooms[r.roomid]?'true':'false')+'">'
       +'<span class="rid">'+esc(r.roomid)+'</span>'
-      +'<span class="badge '+ST_CLS[st]+'">'+ST_TEXT[st]+'</span>'+flags
-      +'<span class="room-cnt">'+r.current_users+'/'+r.max_users
-      +(r.current_monitors?' +'+r.current_monitors+'观':'')+'</span>'
+      +'<span class="badge '+ST_CLS[st]+'">'+esc(ST_TEXT[st])+'</span>'+flags
+      +'<span class="room-cnt">'+esc(String(curUsers))+'/'+esc(String(maxUsers))
+      +(curMons?' +'+esc(String(curMons))+'观':'')+'</span>'
       +'<span class="chev" aria-hidden="true">&rsaquo;</span>'
       +'</div>'
       +'<div class="room-body">'
