@@ -200,11 +200,6 @@ REDIS:
 #       # 可选：room_create room_disband user_join maintenance
 #       EVENTS: [room_create, room_disband, maintenance]
 
-#     - TYPE: feishu
-#       APP_ID: "cli_xxxxxxxxxxxx"
-#       APP_SECRET: "your_app_secret"
-#       RECEIVE_OPEN_ID: "ou_xxxxxxxxxxxx"
-
 #     # 飞书走开放平台 SDK（不经 webhook URL，改用应用凭据 + 接收人）。
 #     # 模板 ID 与版本号均内置默认（game_start / game_end 各一个），模板 ID 可选覆盖：
 #     #   TEMPLATE_ID        覆盖 game_start 模板（留空用内置默认）
@@ -213,8 +208,18 @@ REDIS:
 #     #   （chart_pic 由事件 ImageURL 字段指向的图片经飞书上传图片接口换取 image_key 后填入）。
 #     # game_end 模板变量：room_id/player_score_rank
 #     #   （player_score_rank 是数组对象，格式为 [{"player":"Alice","score":9521,"std_score":9478},...]，按 score 降序）。
-#     # TEMPLATE_ID: ""            # 可选：覆盖 game_start 模板
-#     # GAME_END_TEMPLATE_ID: ""   # 可选：覆盖 game_end 模板
+#     # LIVE_UPDATE 开启成绩卡片流式更新：首个玩家提交成绩时发送卡片，后续成绩 PATCH 实时刷新，
+#     #   对局结束做最终 PATCH 后清理状态。开启后自动订阅 score_submitted 事件，无需在 EVENTS 中列出。
+#     #   TEMPLATE_ID: ""            # 可选：覆盖 game_start 模板
+#     #   GAME_END_TEMPLATE_ID: ""   # 可选：覆盖 game_end 模板
+#     #   LIVE_UPDATE: true          # 可选：开启成绩实时刷新（默认 false）
+#     - TYPE: feishu
+#       APP_ID: "cli_xxxxxxxxxxxx"
+#       APP_SECRET: "your_app_secret"
+#       RECEIVE_OPEN_ID: "ou_xxxxxxxxxxxx"
+#       # 可选：订阅的事件类型；省略或留空 = 订阅全部
+#       # 可选：room_create room_disband user_join maintenance score_submitted
+#       # （score_submitted 仅在 LIVE_UPDATE 开启时自动投递，无需显式列出）
 #       EVENTS: [game_start, game_end]
 #     - URL: "https://example.com/hook"
 #       TYPE: generic

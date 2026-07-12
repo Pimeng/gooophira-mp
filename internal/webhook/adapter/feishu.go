@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/disintegration/imaging"
+	"github.com/google/uuid"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
@@ -45,13 +46,19 @@ const (
 	feishuGameStartTemplateVersion = "1.0.2"
 	// feishuGameEndTemplateID 用于 game_end 事件，模板变量含房间成绩排行。
 	feishuGameEndTemplateID      = "AAqWqHbH8h8Vp"
-	feishuGameEndTemplateVersion = "1.0.2"
+	feishuGameEndTemplateVersion = "1.0.1"
 )
 
 // feishuClientKey 以 (AppID,AppSecret) 为缓存键的连接共享粒度。
 type feishuClientKey struct {
 	appID     string
 	appSecret string
+}
+
+// liveUpdateEntry 跟踪单个房间+接收人的流式更新卡片状态。
+type liveUpdateEntry struct {
+	messageID string // 发送成功后的消息 ID（空表示尚未发送成功）
+	sendUUID  string // 首次发送的幂等 uuid，用于 sendMessage 去重
 }
 
 // Feishu 是飞书开放平台 SDK 适配器。lark.Client 按 (AppID,AppSecret) 缓存复用
@@ -71,6 +78,10 @@ type Feishu struct {
 	// 避免同一谱面预览图在多目标/多事件重复上传飞书（飞书 image_key 在同租户内可复用）。
 	imgMu    sync.Mutex
 	imgCache map[string]string // sha256(hex) → image_key
+
+	// 流式更新状态：key 为 roomID+"|"+receiveOpenID，value 为卡片实体状态。
+	liveMu sync.Mutex
+	msgIDs map[string]*liveUpdateEntry
 }
 
 // NewFeishu 创建飞书适配器。httpClient 用于下载事件 ImageURL 指向的图片；
@@ -82,6 +93,7 @@ func NewFeishu(httpClient *http.Client, logger Logger, lang *l10n.Language) *Fei
 		lang:       lang,
 		clients:    make(map[feishuClientKey]*lark.Client),
 		imgCache:   make(map[string]string),
+		msgIDs:     make(map[string]*liveUpdateEntry),
 	}
 }
 
@@ -105,24 +117,107 @@ func (f *Feishu) warn(key string, args map[string]string) {
 
 // Deliver 向单个飞书 SDK 目标投递一条事件（单次请求）。
 // EventGameStart 走交互式模板（含图片上传换 image_key，展示谱面预览图等富信息）；
-// EventGameEnd 走卡片模板（含成绩排行）；
+// EventGameEnd 走卡片模板（含成绩排行），LiveUpdate 开启时优先 PATCH 已有卡片；
+// EventScoreSubmitted 走流式更新（首次发送卡片，后续 PATCH）；
+// EventRoomDisband 清理流式更新状态；
 // 其余事件走纯文本（msg_type=text），内容用 RenderText(ev) 生成，降低模板配额占用。
 // 返回 (成功, 失败时是否可重试)。重试/超时由调用方（webhook.Dispatcher）控制。
 func (f *Feishu) Deliver(ctx context.Context, t config.WebhookTarget, ev server.Event) (ok, retryable bool) {
 	client := f.larkClient(t.AppID, t.AppSecret)
 	f.debug(fmt.Sprintf("开始投递飞书事件：%s", ev.Type))
-	if ev.Type == server.EventGameStart {
+	switch ev.Type {
+	case server.EventGameStart:
 		return f.deliverTemplate(ctx, client, t, ev)
-	}
-	if ev.Type == server.EventGameEnd {
+	case server.EventScoreSubmitted:
+		if !t.LiveUpdate {
+			return true, false // 未启用流式更新：跳过
+		}
+		if len(ev.PlayerScoreRank) == 0 {
+			return true, false // 无成绩：跳过
+		}
+		return f.deliverScoreUpdate(ctx, client, t, ev)
+	case server.EventGameEnd:
+		if t.LiveUpdate {
+			if ok, retryable := f.deliverGameEndLive(ctx, client, t, ev); ok || !retryable {
+				return ok, retryable
+			}
+			// entry 无 messageID：降级为一次性发送
+		}
 		// 无成绩时飞书模板的表格行校验失败（code=230099, table rows is invalid），
 		// 降级为纯文本投递，避免模板渲染错误导致事件丢失。
 		if len(ev.PlayerScoreRank) == 0 {
 			return f.deliverText(ctx, client, t, ev)
 		}
-		return f.deliverGameEndTemplate(ctx, client, t, ev)
+		_, ok, retryable = f.deliverGameEndTemplate(ctx, client, t, ev, "")
+		return ok, retryable
+	case server.EventRoomDisband:
+		f.cleanLiveUpdateEntries(ev.RoomID)
+		return true, false
+	default:
+		return f.deliverText(ctx, client, t, ev)
 	}
-	return f.deliverText(ctx, client, t, ev)
+}
+
+// liveUpdateKey 构造流式更新状态的 map key。
+func liveUpdateKey(roomID, receiveOpenID string) string {
+	return roomID + "|" + receiveOpenID
+}
+
+// deliverScoreUpdate 处理 ScoreSubmitted 事件：首次发送卡片，后续 PATCH 更新。
+func (f *Feishu) deliverScoreUpdate(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev server.Event) (ok, retryable bool) {
+	key := liveUpdateKey(ev.RoomID, t.ReceiveOpenID)
+	f.liveMu.Lock()
+	entry := f.msgIDs[key]
+	if entry == nil {
+		entry = &liveUpdateEntry{sendUUID: uuid.New().String()}
+		f.msgIDs[key] = entry
+	}
+	f.liveMu.Unlock()
+	if entry.messageID == "" {
+		// 首次发送（或上次发送超时未拿到 messageID，用相同 uuid 重试去重）
+		id, ok, retryable := f.deliverGameEndTemplate(ctx, client, t, ev, entry.sendUUID)
+		if ok && id != "" {
+			f.liveMu.Lock()
+			entry.messageID = id
+			f.liveMu.Unlock()
+		}
+		return ok, retryable
+	}
+	return f.patchGameEndTemplate(ctx, client, t, ev, entry.messageID)
+}
+
+// deliverGameEndLive 处理 LiveUpdate 开启时的 GameEnd 事件。
+// 已有卡片则最终 PATCH 并清理；无卡片返回 (false, true) 让调用方降级。
+func (f *Feishu) deliverGameEndLive(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev server.Event) (ok, retryable bool) {
+	key := liveUpdateKey(ev.RoomID, t.ReceiveOpenID)
+	f.liveMu.Lock()
+	entry := f.msgIDs[key]
+	f.liveMu.Unlock()
+	if entry == nil || entry.messageID == "" {
+		return false, true // 无卡片：降级为一次性发送
+	}
+	defer func() {
+		f.liveMu.Lock()
+		delete(f.msgIDs, key)
+		f.liveMu.Unlock()
+	}()
+	if len(ev.PlayerScoreRank) == 0 {
+		// 有卡片但无成绩：用文本更新（不可能正常发生，兜底）
+		return f.deliverText(ctx, client, t, ev)
+	}
+	return f.patchGameEndTemplate(ctx, client, t, ev, entry.messageID)
+}
+
+// cleanLiveUpdateEntries 清理指定房间的所有流式更新状态（房间解散时调用）。
+func (f *Feishu) cleanLiveUpdateEntries(roomID string) {
+	prefix := roomID + "|"
+	f.liveMu.Lock()
+	for k := range f.msgIDs {
+		if strings.HasPrefix(k, prefix) {
+			delete(f.msgIDs, k)
+		}
+	}
+	f.liveMu.Unlock()
 }
 
 // deliverTemplate 投递 EventGameStart 的交互式模板消息。
@@ -152,11 +247,13 @@ func (f *Feishu) deliverTemplate(ctx context.Context, client *lark.Client, t con
 	f.debug(fmt.Sprintf("飞书模板投递内容：template_id=%s，version=%s，room_id=%s，chart_name=%s，difficulty=%s，charter=%s，player_list=%s，chart_pic.img_key=%s",
 		gameStartTplID, feishuGameStartTemplateVersion, ev.RoomID, ev.ChartName, ev.ChartDifficulty, ev.ChartCharter, ev.PlayerList, chartPicKey))
 
-	return f.sendMessage(ctx, client, t, "interactive", feishuTemplateContentRaw(gameStartTplID, feishuGameStartTemplateVersion, tplVars))
+	_, ok, retryable = f.sendMessage(ctx, client, t, "interactive", feishuTemplateContentRaw(gameStartTplID, feishuGameStartTemplateVersion, tplVars), "")
+	return ok, retryable
 }
 
 // deliverGameEndTemplate 投递 EventGameEnd 的卡片模板消息（含成绩排行）。
-func (f *Feishu) deliverGameEndTemplate(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev server.Event) (ok, retryable bool) {
+// reqUUID 非空时设入请求实现幂等去重；返回 messageID 供流式更新 PATCH 使用。
+func (f *Feishu) deliverGameEndTemplate(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev server.Event, reqUUID string) (messageID string, ok, retryable bool) {
 	// player_score_rank 作为数组对象传入模板变量，供模板表格组件迭代生成行。
 	// 不可传 JSON 字符串：飞书表格组件无法迭代字符串，会报 table rows is invalid（230099）。
 	tplVars := map[string]any{
@@ -170,32 +267,53 @@ func (f *Feishu) deliverGameEndTemplate(ctx context.Context, client *lark.Client
 	}
 	f.debug(fmt.Sprintf("飞书 game_end 模板投递：template_id=%s，version=%s，room_id=%s，rank_len=%d",
 		gameEndTplID, feishuGameEndTemplateVersion, ev.RoomID, len(ev.PlayerScoreRank)))
-	return f.sendMessage(ctx, client, t, "interactive", feishuTemplateContentRaw(gameEndTplID, feishuGameEndTemplateVersion, tplVars))
+	return f.sendMessage(ctx, client, t, "interactive", feishuTemplateContentRaw(gameEndTplID, feishuGameEndTemplateVersion, tplVars), reqUUID)
+}
+
+// patchGameEndTemplate 用 PATCH 更新已发送的 game_end 卡片（成绩实时刷新）。
+func (f *Feishu) patchGameEndTemplate(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev server.Event, messageID string) (ok, retryable bool) {
+	tplVars := map[string]any{
+		"room_id":           ev.RoomID,
+		"player_score_rank": ev.PlayerScoreRank,
+	}
+	gameEndTplID := t.GameEndTemplateID
+	if gameEndTplID == "" {
+		gameEndTplID = feishuGameEndTemplateID
+	}
+	f.debug(fmt.Sprintf("飞书 game_end 模板 PATCH：template_id=%s，version=%s，room_id=%s，rank_len=%d，messageID=%s",
+		gameEndTplID, feishuGameEndTemplateVersion, ev.RoomID, len(ev.PlayerScoreRank), messageID))
+	return f.patchMessage(ctx, client, messageID, feishuTemplateContentRaw(gameEndTplID, feishuGameEndTemplateVersion, tplVars))
 }
 
 // deliverText 投递纯文本消息（msg_type=text）。内容用 RenderText 生成。
 func (f *Feishu) deliverText(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev server.Event) (ok, retryable bool) {
 	text := RenderText(ev)
 	f.debug(fmt.Sprintf("飞书文本投递内容：%s", text))
-	return f.sendMessage(ctx, client, t, "text", feishuTextContent(text))
+	_, ok, retryable = f.sendMessage(ctx, client, t, "text", feishuTextContent(text), "")
+	return ok, retryable
 }
 
 // sendMessage 调用 im/v1/message.create 发送一条消息，统一错误分类。
-func (f *Feishu) sendMessage(ctx context.Context, client *lark.Client, t config.WebhookTarget, msgType, content string) (ok, retryable bool) {
+// reqUUID 非空时设入请求 Uuid 字段实现幂等去重（同一 uuid 一小时内最多成功一次）。
+// 返回 (messageID, ok, retryable)：成功时 messageID 非空，供后续 PATCH 流式更新。
+func (f *Feishu) sendMessage(ctx context.Context, client *lark.Client, t config.WebhookTarget, msgType, content, reqUUID string) (messageID string, ok, retryable bool) {
+	bodyBuilder := larkim.NewCreateMessageReqBodyBuilder().
+		ReceiveId(t.ReceiveOpenID).
+		MsgType(msgType).
+		Content(content)
+	if reqUUID != "" {
+		bodyBuilder.Uuid(reqUUID)
+	}
 	req := larkim.NewCreateMessageReqBuilder().
 		ReceiveIdType("open_id").
-		Body(larkim.NewCreateMessageReqBodyBuilder().
-			ReceiveId(t.ReceiveOpenID).
-			MsgType(msgType).
-			Content(content).
-			Build()).
+		Body(bodyBuilder.Build()).
 		Build()
 
 	f.debug(fmt.Sprintf("开始发送飞书消息（类型：%s）", msgType))
 	resp, err := client.Im.V1.Message.Create(ctx, req)
 	if err != nil {
 		f.debug(fmt.Sprintf("飞书消息发送失败：%v", err))
-		return false, true // 传输/超时：可重试
+		return "", false, true // 传输/超时：可重试
 	}
 	if !resp.Success() {
 		// 服务端业务错误：通常为权限/配额/模板配置问题，不重试。
@@ -204,9 +322,41 @@ func (f *Feishu) sendMessage(ctx context.Context, client *lark.Client, t config.
 			"code":  strconv.Itoa(resp.Code),
 			"msg":   resp.Msg,
 		})
-		return false, false
+		return "", false, false
 	}
 	f.debug(fmt.Sprintf("飞书消息发送完成（类型：%s，logId=%s）", msgType, resp.RequestId()))
+	var msgID string
+	if resp.Data != nil && resp.Data.MessageId != nil {
+		msgID = *resp.Data.MessageId
+	}
+	return msgID, true, false
+}
+
+// patchMessage 调用 im/v1/message.patch 更新已发送的卡片消息内容。
+// 仅更新 content 字段（交互式模板重新渲染）；返回 (ok, retryable)。
+func (f *Feishu) patchMessage(ctx context.Context, client *lark.Client, messageID, content string) (ok, retryable bool) {
+	req := larkim.NewPatchMessageReqBuilder().
+		MessageId(messageID).
+		Body(larkim.NewPatchMessageReqBodyBuilder().
+			Content(content).
+			Build()).
+		Build()
+
+	f.debug(fmt.Sprintf("开始更新飞书消息（messageID=%s）", messageID))
+	resp, err := client.Im.V1.Message.Patch(ctx, req)
+	if err != nil {
+		f.debug(fmt.Sprintf("飞书消息更新失败：%v", err))
+		return false, true // 传输/超时：可重试
+	}
+	if !resp.Success() {
+		f.warn("log-feishu-send-failed", map[string]string{
+			"logId": resp.RequestId(),
+			"code":  strconv.Itoa(resp.Code),
+			"msg":   resp.Msg,
+		})
+		return false, false
+	}
+	f.debug(fmt.Sprintf("飞书消息更新完成（messageID=%s，logId=%s）", messageID, resp.RequestId()))
 	return true, false
 }
 

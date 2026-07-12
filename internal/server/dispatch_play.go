@@ -100,6 +100,14 @@ func (h *Hub) handlePlayed(user *User, c protocol.CmdPlayed) error {
 	}
 	st.Results[user.ID] = record
 	firstResult := len(st.Results) == 1
+	// 成绩写入后构建排行快照并发射 ScoreSubmitted 事件，供飞书流式更新卡片。
+	// EmitEvent 非阻塞（channel 入队），在持 room.Mu 时调用安全。
+	rank := BuildScoreRank(room, st)
+	scoreEv := Event{Type: EventScoreSubmitted, PlayerScoreRank: rank}
+	if room.Chart != nil {
+		scoreEv.ChartID, scoreEv.ChartName = room.Chart.ID, room.Chart.Name
+	}
+	room.EmitEvent(h.State, scoreEv)
 	if h.shouldRecord(room) {
 		h.State.ReplayRecorder.SetRecordID(room.ID, user.ID, record.ID)
 	}

@@ -11,7 +11,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -235,34 +234,8 @@ func main() {
 			ev.ChartID, ev.ChartName = room.Chart.ID, room.Chart.Name
 		}
 		// 构建成绩排行（按 score 降序），供飞书模板 player_score_rank 变量使用。
-		if st, ok := room.State.(server.StatePlaying); ok && len(st.Results) > 0 {
-			rank := make([]server.ScoreRankEntry, 0, len(st.Results))
-			for uid, rec := range st.Results {
-				name := ""
-				if u, ok := room.UsersMap()[uid]; ok {
-					name = u.Name
-				}
-				if name == "" {
-					name = strconv.Itoa(uid)
-				}
-				stdScore := 0.0
-				if rec.StdScore != nil {
-					stdScore = *rec.StdScore
-				}
-				rank = append(rank, server.ScoreRankEntry{
-					Player:   name,
-					Score:    rec.Score,
-					StdScore: stdScore,
-				})
-			}
-			// 按 score 降序排序，平局按玩家名升序保证确定性。
-			slices.SortFunc(rank, func(a, b server.ScoreRankEntry) int {
-				if a.Score != b.Score {
-					return b.Score - a.Score
-				}
-				return strings.Compare(a.Player, b.Player)
-			})
-			ev.PlayerScoreRank = rank
+		if st, ok := room.State.(server.StatePlaying); ok {
+			ev.PlayerScoreRank = server.BuildScoreRank(room, st)
 		}
 		state.EmitEvent(ev)
 		go func() {

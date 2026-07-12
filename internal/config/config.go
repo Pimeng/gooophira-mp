@@ -282,16 +282,18 @@ func parseWebhookValue(v any) (*WebhookConfig, bool) {
 						continue // 无效目标：缺少飞书必填字段，跳过
 					}
 					templateID, _ := parseStringValue(tm["TEMPLATE_ID"])                 // 可选覆盖
-					gameEndTemplateID, _ := parseStringValue(tm["GAME_END_TEMPLATE_ID"]) // 可选覆盖
-					targets = append(targets, WebhookTarget{
-						Type:              typ,
-						Events:            events,
-						AppID:             appID,
-						AppSecret:         appSecret,
-						ReceiveOpenID:     receiveOpenID,
-						TemplateID:        templateID,
-						GameEndTemplateID: gameEndTemplateID,
-					})
+						gameEndTemplateID, _ := parseStringValue(tm["GAME_END_TEMPLATE_ID"]) // 可选覆盖
+						liveUpdate, _ := parseBoolValue(tm["LIVE_UPDATE"])
+						targets = append(targets, WebhookTarget{
+							Type:              typ,
+							Events:            events,
+							AppID:             appID,
+							AppSecret:         appSecret,
+							ReceiveOpenID:     receiveOpenID,
+							TemplateID:        templateID,
+							GameEndTemplateID: gameEndTemplateID,
+							LiveUpdate:        liveUpdate,
+						})
 					continue
 				}
 

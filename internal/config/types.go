@@ -83,10 +83,15 @@ type WebhookTarget struct {
 	ReceiveOpenID     string // 接收人 open_id
 	TemplateID        string // 可选：覆盖 game_start 事件的内置模板 ID；空 = 用内置默认
 	GameEndTemplateID string // 可选：覆盖 game_end 事件的内置模板 ID；空 = 用内置默认
+	LiveUpdate        bool   // 飞书成绩卡片流式更新：首个成绩发送卡片，后续 PATCH 实时刷新
 }
 
 // Subscribes 报告该目标是否订阅了给定事件类型（空订阅列表视为订阅全部）。
+// LiveUpdate 开启时自动放行 score_submitted 事件，无需在 Events 中显式列出。
 func (t WebhookTarget) Subscribes(event string) bool {
+	if t.LiveUpdate && event == "score_submitted" {
+		return true
+	}
 	return len(t.Events) == 0 || slices.Contains(t.Events, event)
 }
 
