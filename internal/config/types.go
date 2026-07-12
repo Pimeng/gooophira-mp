@@ -67,29 +67,42 @@ type ShareStation struct {
 // WebhookTarget 是单个 Webhook 投递目标。
 //
 // 对 Type=generic/discord 的目标：经 URL 出站 HTTP POST（载荷由 Format 生成）。
+// 对 Type=onebot_v11 的目标：调用 OneBot v11 HTTP API 发送纯文本消息，URL 为 API
+// 根地址，AccessToken 用于 Bearer 鉴权，MessageType/TargetID 指定私聊或群聊目标。
 // 对 Type=feishu 的目标：经飞书开放平台 SDK 投递交互式模板消息，URL 不再使用，
 // 改由 AppID/AppSecret 创建客户端、ReceiveOpenID 指定接收人；
-// 模板 ID 可选覆盖（TemplateID 覆盖 game_start、GameEndTemplateID 覆盖 game_end），
-// 留空时走飞书适配器内置常量（含硬编码版本号），事件字段（含可选 ImageURL 上传后换回的 image_key）映射到模板变量。
+// 模板 ID/版本可选覆盖（game_start 与 game_end 分别配置），留空时走飞书适配器
+// 内置默认；事件字段（含可选 ImageURL 上传后换回的 image_key）映射到模板变量。
 type WebhookTarget struct {
-	URL    string   // 投递地址（仅 Type=generic/discord 经 HTTP POST；feishu 不用）
-	Type   string   // 载荷格式：generic | discord | feishu（未知按 generic）
+	URL    string   // 投递地址（Type=generic/discord/onebot_v11 使用；feishu 不用）
+	Type   string   // 目标类型：generic | discord | onebot_v11 | feishu（未知按 generic）
 	Events []string // 订阅的事件类型；空 = 订阅全部
 	Secret string   // 可选：HMAC-SHA256 签名密钥（写入 X-Phira-Signature 头；仅 HTTP 目标用）
 
+	// OneBot v11 HTTP API 字段（仅 Type=onebot_v11 使用）。
+	AccessToken string // 可选：OneBot access token（Authorization: Bearer ...）
+	MessageType string // 消息目标类型：private | group
+	TargetID    int64  // 私聊 QQ 号或群号
+
 	// 飞书开放平台 SDK 字段（仅 Type=feishu 使用）。
-	AppID             string // 应用 App ID
-	AppSecret         string // 应用 App Secret
-	ReceiveOpenID     string // 接收人 open_id
-	TemplateID        string // 可选：覆盖 game_start 事件的内置模板 ID；空 = 用内置默认
-	GameEndTemplateID string // 可选：覆盖 game_end 事件的内置模板 ID；空 = 用内置默认
-	LiveUpdate        bool   // 飞书成绩卡片流式更新：首个成绩发送卡片，后续 PATCH 实时刷新
+	AppID                  string // 应用 App ID
+	AppSecret              string // 应用 App Secret
+	ReceiveOpenID          string // 接收人 open_id
+	TemplateID             string // 可选：覆盖 game_start 事件的内置模板 ID
+	TemplateVersion        string // 可选：覆盖 game_start 模板版本
+	GameEndTemplateID      string // 可选：覆盖 game_end 事件的内置模板 ID
+	GameEndTemplateVersion string // 可选：覆盖 game_end 模板版本
+	LiveUpdate             bool   // 飞书成绩卡片流式更新：首个成绩发送卡片，后续 PATCH 实时刷新
 }
 
 // Subscribes 报告该目标是否订阅了给定事件类型（空订阅列表视为订阅全部）。
-// LiveUpdate 开启时自动放行 score_submitted 事件，无需在 Events 中显式列出。
+// score_submitted 是飞书实时卡片的内部事件，仅投递到启用 LiveUpdate 的飞书目标；
+// 这类目标也自动接收 game_end 和 room_disband，以完成最终更新并清理状态。
 func (t WebhookTarget) Subscribes(event string) bool {
-	if t.LiveUpdate && event == "score_submitted" {
+	if event == "score_submitted" {
+		return t.Type == "feishu" && t.LiveUpdate
+	}
+	if (event == "game_end" || event == "room_disband") && t.Type == "feishu" && t.LiveUpdate {
 		return true
 	}
 	return len(t.Events) == 0 || slices.Contains(t.Events, event)

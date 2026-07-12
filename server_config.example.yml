@@ -184,7 +184,7 @@ REDIS:
   # Redis 数据库号，默认 0
   DB: 0
 
-# Webhook 事件通知：把对局/房间/维护等事件外发到群机器人（通用 JSON / Discord / 飞书）
+# Webhook 事件通知：把对局/房间/维护等事件外发到群机器人（通用 JSON / Discord / OneBot v11 / 飞书）
 # 异步投递、失败重试，不阻塞对局；支持热重载（改本块即时生效）
 # WEBHOOK:
 #   ENABLED: true
@@ -193,30 +193,41 @@ REDIS:
 #   # 失败重试次数（仅对 5xx/429/网络错误重试），默认 2
 #   RETRIES: 2
 #   TARGETS:
-#     # 载荷格式 TYPE：generic（结构化 JSON，便于自定义机器人）| discord | feishu
+#     # 载荷格式 TYPE：generic（结构化 JSON，便于自定义机器人）| discord | onebot_v11 | feishu
 #     - URL: "https://discord.com/api/webhooks/xxx/yyy"
 #       TYPE: discord
 #       # 订阅的事件类型；省略或留空 = 订阅全部
 #       # 可选：room_create room_disband user_join maintenance
 #       EVENTS: [room_create, room_disband, maintenance]
 
+#     # OneBot v11 经 HTTP API 发送内置格式的纯文本消息（auto_escape=true，不解析 CQ 码）。
+#     # URL 填 OneBot HTTP API 根地址；ACCESS_TOKEN 对应 OneBot 的 access token，无鉴权时可省略。
+#     - TYPE: onebot_v11
+#       URL: "http://127.0.0.1:5700"
+#       ACCESS_TOKEN: "your_onebot_access_token"
+#       MESSAGE_TYPE: group  # private（私聊）或 group（群聊）
+#       TARGET_ID: 123456789 # private 时填 QQ 号，group 时填群号
+#       EVENTS: [game_start, game_end]
+
 #     # 飞书走开放平台 SDK（不经 webhook URL，改用应用凭据 + 接收人）。
-#     # 模板 ID 与版本号均内置默认（game_start / game_end 各一个），模板 ID 可选覆盖：
-#     #   TEMPLATE_ID        覆盖 game_start 模板（留空用内置默认）
-#     #   GAME_END_TEMPLATE_ID 覆盖 game_end 模板（留空用内置默认）
+#     # 模板 ID 与版本号均有内置默认（game_start / game_end 各一个），也可分别覆盖：
+#     #   TEMPLATE_ID / TEMPLATE_VERSION 覆盖 game_start 模板
+#     #   GAME_END_TEMPLATE_ID / GAME_END_TEMPLATE_VERSION 覆盖 game_end 模板
 #     # game_start 模板变量：room_id/chart_name/player_list/chart_difficulty/chart_charter/chart_pic
 #     #   （chart_pic 由事件 ImageURL 字段指向的图片经飞书上传图片接口换取 image_key 后填入）。
 #     # game_end 模板变量：room_id/player_score_rank
 #     #   （player_score_rank 是数组对象，格式为 [{"player":"Alice","score":9521,"std_score":9478},...]，按 score 降序）。
 #     # LIVE_UPDATE 开启成绩卡片流式更新：首个玩家提交成绩时发送卡片，后续成绩 PATCH 实时刷新，
-#     #   对局结束做最终 PATCH 后清理状态。开启后自动订阅 score_submitted 事件，无需在 EVENTS 中列出。
-#     #   TEMPLATE_ID: ""            # 可选：覆盖 game_start 模板
-#     #   GAME_END_TEMPLATE_ID: ""   # 可选：覆盖 game_end 模板
-#     #   LIVE_UPDATE: true          # 可选：开启成绩实时刷新（默认 false）
+#     #   对局结束做最终 PATCH 后清理状态。开启后自动订阅 score_submitted、game_end 和清理事件。
 #     - TYPE: feishu
 #       APP_ID: "cli_xxxxxxxxxxxx"
 #       APP_SECRET: "your_app_secret"
 #       RECEIVE_OPEN_ID: "ou_xxxxxxxxxxxx"
+#       # TEMPLATE_ID: ""                    # 可选：覆盖 game_start 模板 ID
+#       # TEMPLATE_VERSION: "1.0.2"           # 可选：覆盖 game_start 模板版本
+#       # GAME_END_TEMPLATE_ID: ""           # 可选：覆盖 game_end 模板 ID
+#       # GAME_END_TEMPLATE_VERSION: "1.0.1"  # 可选：覆盖 game_end 模板版本
+#       # LIVE_UPDATE: true                   # 可选：开启成绩实时刷新（默认 false）
 #       # 可选：订阅的事件类型；省略或留空 = 订阅全部
 #       # 可选：room_create room_disband user_join maintenance score_submitted
 #       # （score_submitted 仅在 LIVE_UPDATE 开启时自动投递，无需显式列出）

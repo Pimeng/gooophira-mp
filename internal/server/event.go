@@ -7,13 +7,13 @@ type EventType string
 
 // 事件类型枚举。新增类型时同步更新 server_config.example.yml 的 EVENTS 说明。
 const (
-	EventGameStart       EventType = "game_start"       // 房间进入游戏
-	EventGameEnd         EventType = "game_end"         // 一局结束
-	EventScoreSubmitted  EventType = "score_submitted"  // 玩家提交成绩（飞书流式更新用）
-	EventRoomCreate      EventType = "room_create"      // 新建房间
-	EventRoomDisband     EventType = "room_disband"     // 房间解散
-	EventUserJoin        EventType = "user_join"        // 用户加入房间
-	EventMaintenance     EventType = "maintenance"      // 维护模式切换
+	EventGameStart      EventType = "game_start"      // 房间进入游戏
+	EventGameEnd        EventType = "game_end"        // 一局结束
+	EventScoreSubmitted EventType = "score_submitted" // 玩家提交成绩（飞书流式更新用）
+	EventRoomCreate     EventType = "room_create"     // 新建房间
+	EventRoomDisband    EventType = "room_disband"    // 房间解散
+	EventUserJoin       EventType = "user_join"       // 用户加入房间
+	EventMaintenance    EventType = "maintenance"     // 维护模式切换
 )
 
 // Event 是一条服务器事件的结构化载荷。字段按事件类型选填（如 maintenance 用 Enabled/Message，

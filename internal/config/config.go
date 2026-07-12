@@ -242,6 +242,7 @@ func parseNetutilValue(v any) (*NetutilConfig, bool) {
 // parseWebhookValue 解析 WEBHOOK 块。结构合法即返回（即便 ENABLED 缺省为 false / TARGETS 为空），
 // 仅当 v 根本不是 map 时返回 false（视为未设置）。逐个目标解析：
 //   - Type=generic/discord：缺 URL 的目标跳过。
+//   - Type=onebot_v11：校验 URL、MESSAGE_TYPE（private/group）与正数 TARGET_ID；ACCESS_TOKEN 可选。
 //   - Type=feishu：走飞书开放平台 SDK，URL 不再使用，改为校验 AppID/AppSecret/ReceiveOpenID。模板 ID 可选覆盖，留空走内置默认。
 func parseWebhookValue(v any) (*WebhookConfig, bool) {
 	m, ok := asRecord(v)
@@ -268,6 +269,10 @@ func parseWebhookValue(v any) (*WebhookConfig, bool) {
 				}
 				typ, _ := parseStringValue(tm["TYPE"])
 				typ = strings.ToLower(typ)
+				switch typ {
+				case "onebotv11", "onebot-v11":
+					typ = "onebot_v11"
+				}
 				if typ == "" {
 					typ = "generic"
 				}
@@ -281,19 +286,43 @@ func parseWebhookValue(v any) (*WebhookConfig, bool) {
 					if appID == "" || appSecret == "" || receiveOpenID == "" {
 						continue // 无效目标：缺少飞书必填字段，跳过
 					}
-					templateID, _ := parseStringValue(tm["TEMPLATE_ID"])                 // 可选覆盖
-						gameEndTemplateID, _ := parseStringValue(tm["GAME_END_TEMPLATE_ID"]) // 可选覆盖
-						liveUpdate, _ := parseBoolValue(tm["LIVE_UPDATE"])
-						targets = append(targets, WebhookTarget{
-							Type:              typ,
-							Events:            events,
-							AppID:             appID,
-							AppSecret:         appSecret,
-							ReceiveOpenID:     receiveOpenID,
-							TemplateID:        templateID,
-							GameEndTemplateID: gameEndTemplateID,
-							LiveUpdate:        liveUpdate,
-						})
+					templateID, _ := parseStringValue(tm["TEMPLATE_ID"])
+					templateVersion, _ := parseStringValue(tm["TEMPLATE_VERSION"])
+					gameEndTemplateID, _ := parseStringValue(tm["GAME_END_TEMPLATE_ID"])
+					gameEndTemplateVersion, _ := parseStringValue(tm["GAME_END_TEMPLATE_VERSION"])
+					liveUpdate, _ := parseBoolValue(tm["LIVE_UPDATE"])
+					targets = append(targets, WebhookTarget{
+						Type:                   typ,
+						Events:                 events,
+						AppID:                  appID,
+						AppSecret:              appSecret,
+						ReceiveOpenID:          receiveOpenID,
+						TemplateID:             templateID,
+						TemplateVersion:        templateVersion,
+						GameEndTemplateID:      gameEndTemplateID,
+						GameEndTemplateVersion: gameEndTemplateVersion,
+						LiveUpdate:             liveUpdate,
+					})
+					continue
+				}
+
+				if typ == "onebot_v11" {
+					url, okURL := parseStringValue(tm["URL"])
+					messageType, _ := parseStringValue(tm["MESSAGE_TYPE"])
+					messageType = strings.ToLower(messageType)
+					targetID, okTargetID := asInt(tm["TARGET_ID"])
+					if !okURL || (messageType != "private" && messageType != "group") || !okTargetID || targetID <= 0 {
+						continue
+					}
+					accessToken, _ := parseStringValue(tm["ACCESS_TOKEN"])
+					targets = append(targets, WebhookTarget{
+						URL:         url,
+						Type:        typ,
+						Events:      events,
+						AccessToken: accessToken,
+						MessageType: messageType,
+						TargetID:    int64(targetID),
+					})
 					continue
 				}
 

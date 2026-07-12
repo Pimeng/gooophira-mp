@@ -284,6 +284,86 @@ func TestBuildFromMap_NETUTIL(t *testing.T) {
 	}
 }
 
+func TestParseWebhookFeishuTemplateVersions(t *testing.T) {
+	cfg, ok := parseWebhookValue(map[string]any{
+		"ENABLED": true,
+		"TARGETS": []any{map[string]any{
+			"TYPE":                      "feishu",
+			"APP_ID":                    "cli_test",
+			"APP_SECRET":                "secret",
+			"RECEIVE_OPEN_ID":           "ou_test",
+			"TEMPLATE_ID":               "start-template",
+			"TEMPLATE_VERSION":          "2.3.4",
+			"GAME_END_TEMPLATE_ID":      "end-template",
+			"GAME_END_TEMPLATE_VERSION": "5.6.7",
+			"LIVE_UPDATE":               true,
+		}},
+	})
+	if !ok || len(cfg.Targets) != 1 {
+		t.Fatalf("unexpected webhook config: ok=%v cfg=%+v", ok, cfg)
+	}
+	target := cfg.Targets[0]
+	if target.TemplateVersion != "2.3.4" || target.GameEndTemplateVersion != "5.6.7" {
+		t.Fatalf("template versions were not preserved: %+v", target)
+	}
+	if !target.LiveUpdate {
+		t.Fatal("LIVE_UPDATE was not parsed")
+	}
+}
+
+func TestParseWebhookOneBotV11(t *testing.T) {
+	cfg, ok := parseWebhookValue(map[string]any{
+		"ENABLED": true,
+		"TARGETS": []any{
+			map[string]any{
+				"TYPE": "onebot-v11", "URL": "http://127.0.0.1:5700/", "ACCESS_TOKEN": "token",
+				"MESSAGE_TYPE": "GROUP", "TARGET_ID": "123456", "EVENTS": []any{"game_start"},
+			},
+			map[string]any{"TYPE": "onebot_v11", "URL": "http://127.0.0.1:5700", "MESSAGE_TYPE": "invalid", "TARGET_ID": 1},
+		},
+	})
+	if !ok || len(cfg.Targets) != 1 {
+		t.Fatalf("unexpected webhook config: ok=%v cfg=%+v", ok, cfg)
+	}
+	target := cfg.Targets[0]
+	if target.Type != "onebot_v11" || target.AccessToken != "token" || target.MessageType != "group" || target.TargetID != 123456 {
+		t.Fatalf("unexpected OneBot target: %+v", target)
+	}
+	if !target.Subscribes("game_start") || target.Subscribes("game_end") {
+		t.Fatalf("OneBot event subscriptions were not preserved: %+v", target.Events)
+	}
+}
+
+func TestWebhookTargetScoreSubmittedIsFeishuLiveOnly(t *testing.T) {
+	cases := []struct {
+		name   string
+		target WebhookTarget
+		want   bool
+	}{
+		{name: "generic subscribe all", target: WebhookTarget{Type: "generic"}, want: false},
+		{name: "discord explicit", target: WebhookTarget{Type: "discord", Events: []string{"score_submitted"}}, want: false},
+		{name: "feishu disabled", target: WebhookTarget{Type: "feishu"}, want: false},
+		{name: "feishu live", target: WebhookTarget{Type: "feishu", LiveUpdate: true}, want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.target.Subscribes("score_submitted"); got != tc.want {
+				t.Fatalf("Subscribes(score_submitted)=%v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWebhookTargetLiveUpdateReceivesCleanup(t *testing.T) {
+	target := WebhookTarget{Type: "feishu", LiveUpdate: true, Events: []string{"game_start", "game_end"}}
+	if !target.Subscribes("game_end") {
+		t.Fatal("live-update target must receive game_end for its final update")
+	}
+	if !target.Subscribes("room_disband") {
+		t.Fatal("live-update target must receive room_disband for cleanup")
+	}
+}
+
 func TestLoadEnv_NETUTIL_DNS_SERVERS(t *testing.T) {
 	t.Setenv("NETUTIL_DNS_SERVERS", "9.9.9.9:53,149.112.112.112:53")
 	c := LoadEnv()

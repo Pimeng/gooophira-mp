@@ -6,6 +6,7 @@
 //
 // 已实现适配器：
 //   - HTTP：经 HTTP POST 投递通用 JSON / Discord 等格式化载荷（含可选 HMAC 签名）。
+//   - OneBot v11：经 HTTP API 向 QQ 私聊或群聊发送内置格式的纯文本消息。
 //   - Feishu：飞书开放平台 SDK，发交互式模板消息（含图片上传换 image_key）。
 //
 // 横向扩展：在 adapter/ 下新增适配器文件并实现 Adapter 接口，

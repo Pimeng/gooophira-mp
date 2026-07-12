@@ -1,5 +1,5 @@
 // Package webhook 把服务器事件（对局开始/结束、建房/解散、加入、维护切换）异步外发到
-// 可配置的目标（通用 JSON / Discord 经 HTTP；飞书走开放平台 SDK 等）。
+// 可配置的目标（通用 JSON / Discord / OneBot v11 经 HTTP；飞书走开放平台 SDK 等）。
 //
 // 设计要点：
 //   - Dispatcher 实现 server.EventSink，Emit 仅向带缓冲的 channel 入队（非阻塞，满即丢弃），
@@ -56,7 +56,8 @@ var _ server.EventSink = (*Dispatcher)(nil)
 // New 创建并启动投递器。logger 可为 nil（静默）；lang 决定飞书适配器日志文案语言，
 // nil 走 l10n 默认语言。
 // 出站 HTTP 客户端经 netutil.NewClient() 构造（Android 注入公共 DNS 解析，
-// 其它平台走系统 resolver）。默认注册 generic/discord→HTTP、feishu→Feishu 适配器。
+// 其它平台走系统 resolver）。默认注册 generic/discord→HTTP、onebot_v11→OneBotV11、
+// feishu→Feishu 适配器。
 func New(logger Logger, lang *l10n.Language) *Dispatcher {
 	httpClient := netutil.NewClient() // 单次请求超时经 context 控制（按目标配置）
 	d := &Dispatcher{
@@ -69,6 +70,7 @@ func New(logger Logger, lang *l10n.Language) *Dispatcher {
 	// HTTP 适配器处理 generic / discord（未注册的 Type 也回退到它）。
 	d.adapters["generic"] = adapter.NewHTTP(httpClient, logger, lang)
 	d.adapters["discord"] = adapter.NewHTTP(httpClient, logger, lang)
+	d.adapters["onebot_v11"] = adapter.NewOneBotV11(httpClient)
 	d.adapters["feishu"] = adapter.NewFeishu(httpClient, logger, lang)
 	d.wg.Add(1)
 	go d.run()

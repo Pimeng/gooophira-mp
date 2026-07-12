@@ -13,7 +13,7 @@ const ctJSON = "application/json; charset=utf-8"
 // Format 按目标类型把事件编码为 HTTP 请求体与 Content-Type。
 //   - generic：结构化 JSON（含全部字段），便于自定义机器人自行渲染。
 //   - discord：{"content": "<文本>"}
-//   - feishu及其它不支持的类型：返回 nil（调用方视为跳过 HTTP 通道，由对应适配器处理）。
+//   - feishu/onebot_v11 及其它不支持的类型：返回 nil（由对应适配器处理）。
 func Format(typ string, ev server.Event) (body []byte, contentType string) {
 	switch typ {
 	case "discord":
@@ -22,8 +22,8 @@ func Format(typ string, ev server.Event) (body []byte, contentType string) {
 			return nil, ""
 		}
 		return b, ctJSON
-	case "feishu":
-		// 飞书走 SDK（Feishu 适配器），HTTP 通道跳过。
+	case "feishu", "onebot_v11":
+		// 平台专用适配器处理，通用 HTTP 通道跳过。
 		return nil, ""
 	default: // generic（含未知类型）
 		b, err := json.Marshal(ev)
