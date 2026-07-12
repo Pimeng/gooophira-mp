@@ -1,5 +1,5 @@
 // Package webhook 把服务器事件（对局开始/结束、建房/解散、加入、维护切换）异步外发到
-// 可配置的 HTTP 端点（通用 JSON / Discord / 飞书 等群机器人）。
+// 可配置的目标（通用 JSON / Discord 经 HTTP；飞书走开放平台 SDK 等）。
 //
 // 设计要点：
 //   - Dispatcher 实现 server.EventSink，Emit 仅向带缓冲的 channel 入队（非阻塞，满即丢弃），
@@ -7,23 +7,22 @@
 //   - 单后台 worker 串行消费事件，按各目标的订阅过滤后逐个投递；每次请求带超时与有限重试，
 //     失败仅记日志、不影响服务。事件量低（开局/结束等），串行足够且易测。
 //   - 配置经 atomic.Pointer 热替换：WEBHOOK 配置热重载后调用 SetConfig 即时生效。
+//   - 投递通道抽象为 adapter.Adapter 接口（internal/webhook/adapter）：
+//     Dispatcher 仅做超时/重试/停止编排与按 Type 路由，平台细节由适配器实现。
+//     新增平台只需在 adapter 包实现 Adapter 并在 New 时按 Type 注册。
 package webhook
 
 import (
-	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
-	"io"
-	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
+	"github.com/Pimeng/gooophira-mp/internal/l10n"
 	"github.com/Pimeng/gooophira-mp/internal/netutil"
 	"github.com/Pimeng/gooophira-mp/internal/server"
+	"github.com/Pimeng/gooophira-mp/internal/webhook/adapter"
 )
 
 // Logger 是本包所需的最小日志接口（与 server.Logger 兼容，便于注入）。
@@ -35,33 +34,42 @@ type Logger interface {
 const (
 	queueSize  = 256             // 事件缓冲队列容量（满即丢弃，保护命令处理）
 	retryDelay = 2 * time.Second // 重试基础退避
-	userAgent  = "phira-mp-webhook"
 )
 
 // Dispatcher 是 Webhook 投递器，实现 server.EventSink。
 type Dispatcher struct {
 	logger Logger
-	client *http.Client
+	lang   *l10n.Language
 	cfg    atomic.Pointer[config.WebhookConfig]
 
 	ch   chan server.Event
 	stop chan struct{}
 	wg   sync.WaitGroup
+
+	// adapters 按 WebhookTarget.Type 路由到对应适配器。
+	adapters map[string]adapter.Adapter
 }
 
 // 编译期断言：Dispatcher 满足 server.EventSink。
 var _ server.EventSink = (*Dispatcher)(nil)
 
-// New 创建并启动投递器。logger 可为 nil（静默）。
-// HTTP 客户端经 netutil.NewClient() 构造（Android 注入公共 DNS 解析，
-// 其它平台走系统 resolver）。单次请求超时经 context 控制（按目标配置）。
-func New(logger Logger) *Dispatcher {
+// New 创建并启动投递器。logger 可为 nil（静默）；lang 决定飞书适配器日志文案语言，
+// nil 走 l10n 默认语言。
+// 出站 HTTP 客户端经 netutil.NewClient() 构造（Android 注入公共 DNS 解析，
+// 其它平台走系统 resolver）。默认注册 generic/discord→HTTP、feishu→Feishu 适配器。
+func New(logger Logger, lang *l10n.Language) *Dispatcher {
+	httpClient := netutil.NewClient() // 单次请求超时经 context 控制（按目标配置）
 	d := &Dispatcher{
-		logger: logger,
-		client: netutil.NewClient(), // 单次请求超时经 context 控制（按目标配置）
-		ch:     make(chan server.Event, queueSize),
-		stop:   make(chan struct{}),
+		logger:   logger,
+		lang:     lang,
+		ch:       make(chan server.Event, queueSize),
+		stop:     make(chan struct{}),
+		adapters: make(map[string]adapter.Adapter),
 	}
+	// HTTP 适配器处理 generic / discord（未注册的 Type 也回退到它）。
+	d.adapters["generic"] = adapter.NewHTTP(httpClient, logger, lang)
+	d.adapters["discord"] = adapter.NewHTTP(httpClient, logger, lang)
+	d.adapters["feishu"] = adapter.NewFeishu(httpClient, logger, lang)
 	d.wg.Add(1)
 	go d.run()
 	return d
@@ -79,7 +87,7 @@ func (d *Dispatcher) Emit(ev server.Event) {
 	select {
 	case d.ch <- ev:
 	default:
-		d.debugf("webhook: queue full, dropping event " + string(ev.Type))
+		d.debug("log-webhook-queue-dropped", map[string]string{"event": string(ev.Type)})
 	}
 }
 
@@ -112,16 +120,21 @@ func (d *Dispatcher) handle(ev server.Event) {
 		if !t.Subscribes(string(ev.Type)) {
 			continue
 		}
-		body, contentType := Format(t.Type, ev)
-		if body == nil {
-			continue
+		a, ok := d.adapters[t.Type]
+		if !ok {
+			// 未知 Type 回退到 generic（HTTP 适配器）。
+			a, ok = d.adapters["generic"]
+			if !ok {
+				continue
+			}
 		}
-		d.post(t, body, contentType, timeout, retries, string(ev.Type))
+		d.deliver(a, t, ev, timeout, retries)
 	}
 }
 
-// post 向单个目标投递，失败按退避重试。仅 5xx/429/网络错误重试；其它 4xx 视为客户端配置问题不重试。
-func (d *Dispatcher) post(t config.WebhookTarget, body []byte, contentType string, timeout time.Duration, retries int, evType string) {
+// deliver 向单个目标投递，由对应 Adapter 执行单次平台调用；失败按退避重试。
+// 适配器返回可重试则重试；业务错误不重试；跳过（ok=true）视为成功。
+func (d *Dispatcher) deliver(a adapter.Adapter, t config.WebhookTarget, ev server.Event, timeout time.Duration, retries int) {
 	for attempt := 0; attempt <= retries; attempt++ {
 		if attempt > 0 {
 			select {
@@ -130,58 +143,43 @@ func (d *Dispatcher) post(t config.WebhookTarget, body []byte, contentType strin
 			case <-time.After(retryDelay * time.Duration(attempt)):
 			}
 		}
-		ok, retryable := d.doRequest(t, body, contentType, timeout)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ok, retryable := a.Deliver(ctx, t, ev)
+		cancel()
 		if ok {
 			return
 		}
 		if !retryable {
-			d.warnf("webhook: target rejected event " + evType + " (" + t.URL + "), not retrying")
+			d.warn("log-webhook-rejected", map[string]string{
+				"event": string(ev.Type),
+				"type":  t.Type,
+				"url":   t.URL,
+			})
 			return
 		}
 	}
-	d.warnf("webhook: gave up delivering event " + evType + " to " + t.URL)
+	d.warn("log-webhook-gave-up", map[string]string{
+		"event": string(ev.Type),
+		"type":  t.Type,
+		"url":   t.URL,
+	})
 }
 
-// doRequest 发一次请求；返回 (成功, 失败时是否可重试)。
-func (d *Dispatcher) doRequest(t config.WebhookTarget, body []byte, contentType string, timeout time.Duration) (ok, retryable bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.URL, bytes.NewReader(body))
-	if err != nil {
-		return false, false // URL 非法等：不可重试
-	}
-	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("User-Agent", userAgent)
-	if t.Secret != "" {
-		mac := hmac.New(sha256.New, []byte(t.Secret))
-		mac.Write(body)
-		req.Header.Set("X-Phira-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
-	}
-
-	resp, err := d.client.Do(req)
-	if err != nil {
-		d.debugf("webhook: request error: " + err.Error())
-		return false, true // 网络/超时：可重试
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-
-	if resp.StatusCode < 300 {
-		return true, false
-	}
-	retryable = resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
-	return false, retryable
+// tl 把 l10n key + args 翻译为当前语言文本。
+func (d *Dispatcher) tl(key string, args map[string]string) string {
+	return l10n.TL(d.lang, key, args)
 }
 
-func (d *Dispatcher) debugf(msg string) {
+// debug 输出 Debug 级本地化日志。
+func (d *Dispatcher) debug(key string, args map[string]string) {
 	if d.logger != nil {
-		d.logger.Debug(msg)
+		d.logger.Debug(d.tl(key, args))
 	}
 }
 
-func (d *Dispatcher) warnf(msg string) {
+// warn 输出 Warn 级本地化日志。
+func (d *Dispatcher) warn(key string, args map[string]string) {
 	if d.logger != nil {
-		d.logger.Warn(msg)
+		d.logger.Warn(d.tl(key, args))
 	}
 }

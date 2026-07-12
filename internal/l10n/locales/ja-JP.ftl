@@ -262,6 +262,14 @@ log-gui-window-launched = GUI ウィンドウを開きました：{ $url }
 log-gui-window-failed = GUI ウィンドウを自動的に開けませんでした。ローカルブラウザで開いてください：{ $url }
 log-admin-room-message = 管理者がルーム「{ $room }」にメッセージを送信しました：{ $message }
 log-room-disbanded-by-admin = ルーム「{ $room }」が管理者によって解散されました
+log-feishu-upload-failed = Feishuの画像アップロードに失敗しました：{ $error }
+log-feishu-send-error = Feishuメッセージの送信に失敗しました：{ $error }
+log-feishu-send-failed = Feishu送信失敗（logId={ $logId }，code={ $code }）：{ $msg }
+log-webhook-queue-dropped = Webhookキューが満杯です。イベントを破棄：{ $event }
+log-webhook-rejected = Webhookターゲットがイベント { $event } を拒否しました（{ $type } { $url }）、再試行なし
+log-webhook-gave-up = Webhookはイベント { $event } の { $type } { $url } への配信を断念しました
+log-webhook-request-error = Webhookリクエストエラー：{ $error }
+log-webhook-bad-status = Webhookの { $url } への配信がステータス { $status } を返しました（再試行可能：{ $retryable }）
 
 room-disbanded-by-admin = ルームが管理者によって解散されました
 

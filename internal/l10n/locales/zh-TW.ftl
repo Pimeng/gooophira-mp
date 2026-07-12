@@ -262,6 +262,14 @@ log-gui-window-launched = GUI 視窗已開啟：{ $url }
 log-gui-window-failed = 無法自動開啟 GUI 視窗，請在本機瀏覽器開啟：{ $url }
 log-admin-room-message = 管理員向房間 "{ $room }" 傳送訊息：{ $message }
 log-room-disbanded-by-admin = 房間 "{ $room }" 已被管理員解散
+log-feishu-upload-failed = 飛書圖片上傳失敗：{ $error }
+log-feishu-send-error = 飛書訊息傳送失敗：{ $error }
+log-feishu-send-failed = 飛書傳送失敗（logId={ $logId }，code={ $code }）：{ $msg }
+log-webhook-queue-dropped = Webhook 佇列已滿，丟棄事件：{ $event }
+log-webhook-rejected = Webhook 目標拒絕事件 { $event }（{ $type } { $url }），不再重試
+log-webhook-gave-up = Webhook 放棄投遞事件 { $event } 到 { $type } { $url }
+log-webhook-request-error = Webhook 請求錯誤：{ $error }
+log-webhook-bad-status = Webhook 投遞 { $url } 回傳狀態碼 { $status }（可重試：{ $retryable }）
 
 room-disbanded-by-admin = 房間已被管理員解散
 

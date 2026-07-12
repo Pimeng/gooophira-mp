@@ -122,7 +122,7 @@ func main() {
 	logger.SetOnLog(state.ConsoleHub.Push)
 
 	// Webhook 事件外发（对局/房间/维护事件 → 群机器人等）。非阻塞，未配置则 no-op；热重载生效。
-	webhookDispatcher := webhook.New(logger)
+	webhookDispatcher := webhook.New(logger, lang)
 	webhookDispatcher.SetConfig(cfg.EffectiveWebhook())
 	state.Events = webhookDispatcher
 	state.OnConfigReload(func(c *config.ServerConfig) { webhookDispatcher.SetConfig(c.EffectiveWebhook()) })

@@ -17,6 +17,10 @@ const (
 
 // Event 是一条服务器事件的结构化载荷。字段按事件类型选填（如 maintenance 用 Enabled/Message，
 // 房间类用 RoomID，对局类附 Chart*）。供 EventSink 异步外发（Webhook 等）。
+//
+// 飞书交互式模板相关字段（ChartDifficulty/ChartCharter/PlayerList/ImageURL）由事件
+// 发射方按需填充：投递到飞书开放平台时，ImageURL 指向的图片会被下载并经飞书上传图片
+// 接口换取 image_key，再填入模板变量 chart_pic；其余字段按名映射到模板变量。
 type Event struct {
 	Type      EventType `json:"type"`
 	Time      time.Time `json:"time"`
@@ -29,6 +33,12 @@ type Event struct {
 	UserCount int       `json:"user_count,omitempty"`
 	Enabled   bool      `json:"enabled,omitempty"` // maintenance 开/关
 	Message   string    `json:"message,omitempty"` // maintenance 自定义提示等
+
+	// 飞书交互式模板变量（仅 Type=feishu 的目标会消费）。
+	ChartDifficulty string `json:"chart_difficulty,omitempty"` // 谱面难度（如 "AT. 14"）
+	ChartCharter    string `json:"chart_charter,omitempty"`    // 谱师
+	PlayerList      string `json:"player_list,omitempty"`      // 玩家列表（已格式化的字符串）
+	ImageURL        string `json:"image_url,omitempty"`        // 谱面预览图 URL；投递时下载并上传飞书换 image_key
 }
 
 // EventSink 接收服务器事件用于异步外发。

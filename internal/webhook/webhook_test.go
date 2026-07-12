@@ -73,7 +73,7 @@ func waitFor(t *testing.T, d time.Duration, fn func() bool) {
 
 func newDispatcher(t *testing.T, cfg *config.WebhookConfig) *Dispatcher {
 	t.Helper()
-	d := New(nil)
+	d := New(nil, nil)
 	d.SetConfig(cfg)
 	t.Cleanup(d.Close)
 	return d
@@ -128,7 +128,7 @@ func TestDispatcherRetriesOn5xx(t *testing.T) {
 	srv := httptest.NewServer(cap.handler())
 	defer srv.Close()
 
-	d := New(nil)
+	d := New(nil, nil)
 	d.SetConfig(&config.WebhookConfig{
 		Enabled: true,
 		Retries: 2,
@@ -202,7 +202,7 @@ func TestDispatcherHMACSignature(t *testing.T) {
 	}
 }
 
-func TestFormatDiscordAndFeishu(t *testing.T) {
+func TestFormatDiscordAndGeneric(t *testing.T) {
 	ev := server.Event{Type: server.EventGameStart, Server: "S", RoomID: "RID", ChartName: "C", UserCount: 2}
 
 	body, ct := Format("discord", ev)
@@ -216,14 +216,16 @@ func TestFormatDiscordAndFeishu(t *testing.T) {
 		t.Fatalf("discord body invalid: %v body=%s", err, body)
 	}
 
+	// feishu 现走飞书开放平台 SDK（Dispatcher.deliverFeishu），Format 应返回 nil 跳过 HTTP 通道。
 	body, _ = Format("feishu", ev)
-	var fmsg struct {
-		MsgType string `json:"msg_type"`
-		Content struct {
-			Text string `json:"text"`
-		} `json:"content"`
+	if body != nil {
+		t.Fatalf("feishu should bypass HTTP channel, got body=%s", body)
 	}
-	if err := json.Unmarshal(body, &fmsg); err != nil || fmsg.MsgType != "text" || fmsg.Content.Text == "" {
-		t.Fatalf("feishu body invalid: %v body=%s", err, body)
+
+	// generic 仍输出完整结构化 JSON。
+	body, _ = Format("generic", ev)
+	var got server.Event
+	if err := json.Unmarshal(body, &got); err != nil || got.RoomID != "RID" {
+		t.Fatalf("generic body invalid: %v body=%s", err, body)
 	}
 }

@@ -262,6 +262,14 @@ log-gui-window-launched = GUI window opened: { $url }
 log-gui-window-failed = Failed to open the GUI window automatically. Open this URL in a local browser: { $url }
 log-admin-room-message = Admin sent message to room "{ $room }": { $message }
 log-room-disbanded-by-admin = Room "{ $room }" disbanded by admin
+log-feishu-upload-failed = Feishu image upload failed: { $error }
+log-feishu-send-error = Feishu message send failed: { $error }
+log-feishu-send-failed = Feishu send failed (logId={ $logId }, code={ $code }): { $msg }
+log-webhook-queue-dropped = Webhook queue full, dropping event: { $event }
+log-webhook-rejected = Webhook target rejected event { $event } ({ $type } { $url }), not retrying
+log-webhook-gave-up = Webhook gave up delivering event { $event } to { $type } { $url }
+log-webhook-request-error = Webhook request error: { $error }
+log-webhook-bad-status = Webhook delivery to { $url } returned status { $status } (retryable: { $retryable })
 
 room-disbanded-by-admin = Room has been disbanded by administrator
 
