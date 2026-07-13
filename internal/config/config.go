@@ -242,7 +242,7 @@ func parseNetutilValue(v any) (*NetutilConfig, bool) {
 // parseWebhookValue 解析 WEBHOOK 块。结构合法即返回（即便 ENABLED 缺省为 false / TARGETS 为空），
 // 仅当 v 根本不是 map 时返回 false（视为未设置）。逐个目标解析：
 //   - Type=generic/discord：缺 URL 的目标跳过。
-//   - Type=onebot_v11：校验 URL、MESSAGE_TYPE（private/group）与正数 TARGET_ID；ACCESS_TOKEN 可选。
+//   - Type=onebot_v11：校验 URL、MESSAGE_TYPE（private/group）与正数 TARGET_ID（单值或数组）；ACCESS_TOKEN 可选。
 //   - Type=feishu：走飞书开放平台 SDK，URL 不再使用，改为校验 AppID/AppSecret/ReceiveOpenID。模板 ID 可选覆盖，留空走内置默认。
 func parseWebhookValue(v any) (*WebhookConfig, bool) {
 	m, ok := asRecord(v)
@@ -310,8 +310,20 @@ func parseWebhookValue(v any) (*WebhookConfig, bool) {
 					url, okURL := parseStringValue(tm["URL"])
 					messageType, _ := parseStringValue(tm["MESSAGE_TYPE"])
 					messageType = strings.ToLower(messageType)
-					targetID, okTargetID := asInt(tm["TARGET_ID"])
-					if !okURL || (messageType != "private" && messageType != "group") || !okTargetID || targetID <= 0 {
+					targetIDs, okTargetID := parseIntegerListValue(tm["TARGET_ID"])
+					if !okURL || (messageType != "private" && messageType != "group") || !okTargetID {
+						continue
+					}
+					ids := make([]int64, len(targetIDs))
+					validTargetIDs := true
+					for i, targetID := range targetIDs {
+						if targetID <= 0 {
+							validTargetIDs = false
+							break
+						}
+						ids[i] = int64(targetID)
+					}
+					if !validTargetIDs {
 						continue
 					}
 					accessToken, _ := parseStringValue(tm["ACCESS_TOKEN"])
@@ -321,7 +333,8 @@ func parseWebhookValue(v any) (*WebhookConfig, bool) {
 						Events:      events,
 						AccessToken: accessToken,
 						MessageType: messageType,
-						TargetID:    int64(targetID),
+						TargetID:    ids[0],
+						TargetIDs:   ids,
 					})
 					continue
 				}

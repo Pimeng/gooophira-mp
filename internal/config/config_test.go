@@ -334,6 +334,23 @@ func TestParseWebhookOneBotV11(t *testing.T) {
 	}
 }
 
+func TestParseWebhookOneBotV11TargetIDArray(t *testing.T) {
+	cfg, ok := parseWebhookValue(map[string]any{
+		"ENABLED": true,
+		"TARGETS": []any{map[string]any{
+			"TYPE": "onebot_v11", "URL": "http://127.0.0.1:5700",
+			"MESSAGE_TYPE": "group", "TARGET_ID": []any{123456, "654321"},
+		}},
+	})
+	if !ok || len(cfg.Targets) != 1 {
+		t.Fatalf("unexpected webhook config: ok=%v cfg=%+v", ok, cfg)
+	}
+	target := cfg.Targets[0]
+	if target.TargetID != 123456 || len(target.TargetIDs) != 2 || target.TargetIDs[0] != 123456 || target.TargetIDs[1] != 654321 {
+		t.Fatalf("unexpected OneBot target IDs: %+v", target)
+	}
+}
+
 func TestWebhookTargetScoreSubmittedIsFeishuLiveOnly(t *testing.T) {
 	cases := []struct {
 		name   string

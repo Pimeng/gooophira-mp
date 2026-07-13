@@ -80,9 +80,10 @@ type WebhookTarget struct {
 	Secret string   // 可选：HMAC-SHA256 签名密钥（写入 X-Phira-Signature 头；仅 HTTP 目标用）
 
 	// OneBot v11 HTTP API 字段（仅 Type=onebot_v11 使用）。
-	AccessToken string // 可选：OneBot access token（Authorization: Bearer ...）
-	MessageType string // 消息目标类型：private | group
-	TargetID    int64  // 私聊 QQ 号或群号
+	AccessToken string  // 可选：OneBot access token（Authorization: Bearer ...）
+	MessageType string  // 消息目标类型：private | group
+	TargetID    int64   // 私聊 QQ 号或群号；单值配置及单次投递使用
+	TargetIDs   []int64 // TARGET_ID 为数组时的私聊 QQ 号或群号列表
 
 	// 飞书开放平台 SDK 字段（仅 Type=feishu 使用）。
 	AppID                  string // 应用 App ID

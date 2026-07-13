@@ -138,6 +138,16 @@ func (d *Dispatcher) handle(ev server.Event) {
 				continue
 			}
 		}
+		if t.Type == "onebot_v11" && len(t.TargetIDs) > 1 {
+			// 每个目标独立重试，避免部分成功后重试整组造成重复消息。
+			for _, targetID := range t.TargetIDs {
+				singleTarget := t
+				singleTarget.TargetID = targetID
+				singleTarget.TargetIDs = nil
+				d.deliver(a, singleTarget, ev, timeout, retries)
+			}
+			continue
+		}
 		d.deliver(a, t, ev, timeout, retries)
 	}
 }

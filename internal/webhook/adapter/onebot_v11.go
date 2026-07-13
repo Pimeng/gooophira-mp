@@ -29,6 +29,7 @@ type oneBotResponse struct {
 }
 
 // Deliver 使用 send_private_msg 或 send_group_msg 发送内置格式的纯文本消息。
+// TargetIDs 非空时依次向其中的每个目标发送，否则发送给 TargetID。
 func (o *OneBotV11) Deliver(ctx context.Context, t config.WebhookTarget, ev server.Event) (ok, retryable bool) {
 	action, idField := "send_private_msg", "user_id"
 	if t.MessageType == "group" {
@@ -37,8 +38,33 @@ func (o *OneBotV11) Deliver(ctx context.Context, t config.WebhookTarget, ev serv
 		return false, false
 	}
 
+	targetIDs := t.TargetIDs
+	if len(targetIDs) == 0 && t.TargetID > 0 {
+		targetIDs = []int64{t.TargetID}
+	}
+	if len(targetIDs) == 0 {
+		return false, false
+	}
+
+	allOK := true
+	anyRetryable := false
+	for _, targetID := range targetIDs {
+		if targetID <= 0 {
+			allOK = false
+			continue
+		}
+		delivered, canRetry := o.deliverOne(ctx, t, ev, action, idField, targetID)
+		if !delivered {
+			allOK = false
+			anyRetryable = anyRetryable || canRetry
+		}
+	}
+	return allOK, anyRetryable
+}
+
+func (o *OneBotV11) deliverOne(ctx context.Context, t config.WebhookTarget, ev server.Event, action, idField string, targetID int64) (ok, retryable bool) {
 	body, err := json.Marshal(map[string]any{
-		idField:       t.TargetID,
+		idField:       targetID,
 		"message":     RenderText(ev),
 		"auto_escape": true,
 	})

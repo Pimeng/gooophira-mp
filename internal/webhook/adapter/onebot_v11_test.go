@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
@@ -59,6 +60,35 @@ func TestOneBotV11DeliversPrivateText(t *testing.T) {
 	}, server.Event{Type: server.EventMaintenance, Enabled: true})
 	if !ok || retryable || gotPath != "/send_private_msg" || gotBody["user_id"] != float64(654321) {
 		t.Fatalf("unexpected delivery: ok=%v retryable=%v path=%q body=%#v", ok, retryable, gotPath, gotBody)
+	}
+}
+
+func TestOneBotV11DeliversToTargetIDArray(t *testing.T) {
+	var gotIDs []int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			GroupID int64 `json:"group_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		gotIDs = append(gotIDs, body.GroupID)
+		if body.GroupID == 222 {
+			_, _ = w.Write([]byte(`{"status":"failed","retcode":100}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"ok","retcode":0}`))
+	}))
+	defer srv.Close()
+
+	ok, retryable := NewOneBotV11(srv.Client()).Deliver(context.Background(), config.WebhookTarget{
+		URL: srv.URL, MessageType: "group", TargetIDs: []int64{111, 222, 333},
+	}, server.Event{Type: server.EventGameEnd})
+	if ok || retryable {
+		t.Fatalf("Deliver()=(%v,%v), want (false,false)", ok, retryable)
+	}
+	if !slices.Equal(gotIDs, []int64{111, 222, 333}) {
+		t.Fatalf("delivered target IDs=%v, want [111 222 333]", gotIDs)
 	}
 }
 

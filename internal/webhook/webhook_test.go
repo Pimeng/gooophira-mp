@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/server"
+	"github.com/Pimeng/gooophira-mp/internal/webhook/adapter"
 )
 
 // capture 是一个收集收到的请求的测试服务器助手。
@@ -77,6 +79,42 @@ func newDispatcher(t *testing.T, cfg *config.WebhookConfig) *Dispatcher {
 	d.SetConfig(cfg)
 	t.Cleanup(d.Close)
 	return d
+}
+
+type targetCaptureAdapter struct {
+	targets []config.WebhookTarget
+}
+
+func (a *targetCaptureAdapter) Deliver(_ context.Context, target config.WebhookTarget, _ server.Event) (bool, bool) {
+	a.targets = append(a.targets, target)
+	return true, false
+}
+
+func TestDispatcherSplitsOneBotTargetIDArray(t *testing.T) {
+	capture := &targetCaptureAdapter{}
+	d := &Dispatcher{
+		stop: make(chan struct{}),
+		adapters: map[string]adapter.Adapter{
+			"onebot_v11": capture,
+		},
+	}
+	d.cfg.Store(&config.WebhookConfig{
+		Enabled: true,
+		Targets: []config.WebhookTarget{{
+			Type: "onebot_v11", TargetID: 111, TargetIDs: []int64{111, 222, 333},
+		}},
+	})
+
+	d.handle(server.Event{Type: server.EventGameEnd})
+
+	if len(capture.targets) != 3 {
+		t.Fatalf("delivery count=%d, want 3", len(capture.targets))
+	}
+	for i, want := range []int64{111, 222, 333} {
+		if got := capture.targets[i]; got.TargetID != want || got.TargetIDs != nil {
+			t.Fatalf("delivery %d target=%+v, want TargetID=%d and no TargetIDs", i, got, want)
+		}
+	}
 }
 
 func TestDispatcherDeliversGenericJSON(t *testing.T) {

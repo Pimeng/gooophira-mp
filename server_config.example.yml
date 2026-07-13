@@ -206,7 +206,7 @@ REDIS:
 #       URL: "http://127.0.0.1:5700"
 #       ACCESS_TOKEN: "your_onebot_access_token"
 #       MESSAGE_TYPE: group  # private（私聊）或 group（群聊）
-#       TARGET_ID: 123456789 # private 时填 QQ 号，group 时填群号
+#       TARGET_ID: 123456789 # private 时填 QQ 号，group 时填群号；也可填写数组 [123456789, 987654321] 分别推送
 #       EVENTS: [game_start, game_end]
 
 #     # 飞书走开放平台 SDK（不经 webhook URL，改用应用凭据 + 接收人）。
