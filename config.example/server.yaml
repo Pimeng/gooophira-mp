@@ -1,0 +1,140 @@
+# Phira MP 核心配置文件
+#
+# 本文件必须存在。首次启动时，程序会自动生成一份最小的 config/server.yaml。
+# 未写出的配置项使用程序内置默认值；通常只需要保留并修改自己关心的项目。
+# replay.yaml、redis.yaml、webhook.yaml、stats.yaml、network.yaml 均为可选扩展，
+# 不要把 config.example 整个目录直接复制到 config，否则会启用全部扩展功能。
+#
+# 配置优先级：命令行参数 > 环境变量 > 本文件 > 内置默认值。
+# 修改大部分运行参数会自动热重载；标注“需要重启”的项目不会立即生效。
+
+# 配置格式版本。必须保留，当前只支持 1。
+version: 1
+
+# ==================== 服务监听 ====================
+
+# TCP 游戏服务监听地址，默认 "::"（监听所有 IPv6 地址，通常也兼容 IPv4）。
+# 仅监听 IPv4 可填 "0.0.0.0"；仅允许本机访问可填 "127.0.0.1"。
+# 修改后需要重启。
+HOST: "::"
+
+# TCP 游戏服务监听端口，范围 1~65535，默认 12346。
+# 修改后需要重启。
+PORT: 12346
+
+# 显示给玩家的服务器名称，默认 "Phira MP"。
+SERVER_NAME: "Phira MP"
+
+# 服务端语言，影响日志、CLI 和 HTTP 默认输出。
+# 推荐值：zh-CN、zh-TW、en-US、ja-JP、ko-KR、ru-RU。
+# 环境变量优先级：PHIRA_MP_LANG > LANG > 本项 > zh-CN。
+LANG: "zh-CN"
+
+# ==================== HTTP 与管理界面 ====================
+
+# 是否启用 HTTP 查询、管理 API 和 WebSocket 服务，默认 false。
+# Docker 镜像通过环境变量将其默认设为 true。
+# 修改后需要重启。
+# HTTP_SERVICE: true
+
+# HTTP 服务监听端口，范围 1~65535，默认 12347。
+# 修改后需要重启。
+# HTTP_PORT: 12347
+
+# 是否在启动时打开本地 GUI 控制台窗口，默认 false。
+# GUI 包含性能监控、房间/玩家信息和命令控制台；启用时会自动开启 HTTP 服务。
+# 也可通过启动参数 --gui 开启。修改后需要重启。
+# GUI: true
+
+# 管理接口鉴权令牌。未配置时，依赖固定令牌的管理访问不可用。
+# 请求时推荐使用 X-Admin-Token 或 Authorization: Bearer <token>。
+# 敏感信息，生产环境推荐通过 ADMIN_TOKEN 环境变量注入，不要提交到版本库。
+# ADMIN_TOKEN: "replace_me"
+
+# 是否允许通过 URL 查询参数 ?token=... 传递管理令牌，默认 false。
+# 开启后令牌可能进入浏览器历史、访问日志和代理日志，仅兼容旧脚本时使用。
+# ALLOW_TOKEN_IN_QUERY: false
+
+# 管理数据（封禁、比赛房间等）的 JSON 持久化路径，默认 ./admin_data.json。
+# 修改后需要重启。
+# ADMIN_DATA_PATH: "./admin_data.json"
+
+# HTTP API 单 IP 限流：一个窗口内最多允许的请求数，默认 100。
+# HTTP_RATE_LIMIT_MAX_REQUESTS: 100
+
+# HTTP API 限流窗口长度，单位毫秒，默认 60000（1 分钟）。
+# HTTP_RATE_LIMIT_WINDOW_MS: 60000
+
+# ==================== 房间与玩家 ====================
+
+# 单个房间最大用户数，默认 512，最大 32767。
+# 已存在的房间不会因该值降低而立即踢出玩家。
+# ROOM_MAX_USERS: 512
+
+# 是否允许普通玩家创建新房间，默认 true。
+# 可通过 CLI `roomcreation on|off` 或管理 API 动态切换。
+# ROOM_CREATION_ENABLED: true
+
+# 对局进行中断线后的重连宽限时间，单位秒，默认 5，最大 120。
+# 填 0 关闭宽限，恢复为对局中断线后立即判定离开。
+# PLAYING_RECONNECT_GRACE: 5
+
+# 全服同时存在的房间数上限。省略表示不限制。
+# 小内存机器可设置合理上限，避免房间过多导致资源耗尽。
+# MAX_ROOMS: 200
+
+# 全服同时在线的 TCP 连接数上限。省略表示不限制。
+# MAX_CONNECTIONS: 2000
+
+# 单个 IP 每 10 秒允许建立的新 TCP 连接数，默认 30。
+# 超限后该 IP 会被临时封禁 30 秒；回环地址不受此限制。
+# 反向代理或大型 NAT 后的玩家可能共享 IP，需要相应调高。
+# CONNECTION_RATE_LIMIT: 30
+
+# 是否启用认证会话的命令令牌桶限流，默认 true。
+# 限制聊天、房间操作、选谱和成绩上报等命令；心跳和实时游戏数据不受影响。
+# COMMAND_RATE_LIMIT: true
+
+# 是否启用玩家聊天，默认 true。关闭后玩家聊天会被替换为安全提示。
+# CHAT_ENABLED: true
+
+# 允许观战的 Phira 用户 ID 列表，默认 [2]。
+# 空列表可写成 MONITORS: []。
+# MONITORS:
+#   - 2
+
+# 测试账号 ID 列表，默认 [1739989]。
+# 这些账号产生的常规日志默认不写入日志文件，适合压测或自动化测试账号。
+# TEST_ACCOUNT_IDS:
+#   - 1739989
+
+# 系统消息发送者的用户 ID，默认 0，客户端按“系统”身份渲染。
+# 配置真实用户 ID 后，系统消息及回放录制器会尽量使用该账号的昵称和身份。
+# 建议使用不会实际登录服务器的专用 bot 账号，避免身份冲突。
+# SYSTEM_USER_ID: 0
+
+# 玩家登录后在房间列表末尾显示的附加提示；省略表示不显示。
+# ROOM_LIST_TIP: "欢迎加入交流群：123456"
+
+# ==================== 上游服务 ====================
+
+# Phira API 端点，用于玩家认证、查询谱面和成绩。
+# 通常无需修改；自建兼容 API 时再覆盖。
+# PHIRA_API_ENDPOINT: "https://phira.5wyxi.com"
+
+# 欢迎消息使用的一言 API 地址，默认 https://v1.hitokoto.cn/。
+# HITOKOTO_API_URL: "https://v1.hitokoto.cn/"
+
+# ==================== 日志维护 ====================
+
+# 日志等级，默认 INFO。
+# 可选：DEBU、INFO、MARK、WARN、ERRO；兼容旧写法 DEBUG、ERROR。
+# LOG_LEVEL: INFO
+
+# 历史日志超过多少天后自动 gzip 压缩，默认 14；填 0 关闭压缩。
+# 当天正在写入的日志不会被处理。
+# LOG_COMPRESS_AFTER_DAYS: 14
+
+# 日志目录总占用上限，单位 MB，默认 500；填 0 表示不限制。
+# 超出后从最旧的历史日志开始删除。
+# LOG_MAX_TOTAL_MB: 500

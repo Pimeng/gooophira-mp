@@ -40,14 +40,13 @@ import (
 const (
 	defaultPort     = 12346
 	defaultHTTPPort = 12347
-	// defaultConfigPath 是配置文件默认路径，被 -config/-c 共用；常量集中避免复制粘贴
-	// 不一致（曾因两处默认值漂移导致 -c 实际指向老路径）。
-	defaultConfigPath = "server_config.yml"
 )
 
 func main() {
+	maybeRunConfigCommand()
 	configPath := flag.String("config", defaultConfigPath, "配置文件路径（YAML）")
 	flag.StringVar(configPath, "c", defaultConfigPath, "配置文件路径（YAML）（-config 的别名）")
+	configDir := flag.String("config-dir", defaultConfigDir, "多文件配置目录（默认优先使用）")
 	// 校验类参数用字符串接收（默认空 = 未传），便于非法时按启动期语言本地化报错——
 	// 对齐 TS main 的 requireParse。实际取值在 applyCLIOverrides 经 flag.Visit + f.Value 读取。
 	portFlag := flag.String("port", "", "TCP 监听端口（覆盖配置中的 PORT）")
@@ -64,16 +63,12 @@ func main() {
 	flag.String("protocol-hack-delay", "", "ProtocolHack 客户端补偿延迟（5ms 默认；单位 ms；0=关闭）")
 	flag.Parse()
 
-	// 首次运行未找到配置文件时自动生成默认配置（本地示例 > 内置模板），当次即加载生效——
-	// 对齐 TS autoCreateConfig。失败不致命，继续用内存默认值。
-	configCreated, _ := config.EnsureDefaultFile(*configPath)
-
-	// 配置优先级：命令行参数 > 环境变量 > 配置文件 > 内置默认值。
-	cfg, fromFile, err := config.LoadMerged(*configPath)
+	loadedConfig, err := loadStartupConfig(*configPath, *configDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to load config %s: %v\n", *configPath, err)
+		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
 		os.Exit(1)
 	}
+	cfg := loadedConfig.cfg
 
 	// 启动期语言在配置加载后即可确定（与 state.ServerLang 同源：PHIRA_MP_LANG > LANG >
 	// 配置 LANG），供 CLI 参数校验报错与启动期日志本地化。
@@ -110,12 +105,13 @@ func main() {
 	if n := l10n.LoadOverrides("locales"); n > 0 {
 		logger.Info(l10n.TL(lang, "log-locale-overrides-loaded", map[string]string{"count": strconv.Itoa(n)}))
 	}
-	if configCreated {
-		logger.Info(l10n.TL(lang, "log-config-created", map[string]string{"path": *configPath}))
-	} else if fromFile {
-		logger.Info(l10n.TL(lang, "log-config-loaded", map[string]string{"path": *configPath}))
+	if loadedConfig.created {
+		logger.Info(l10n.TL(lang, "log-config-created", map[string]string{"path": loadedConfig.path}))
+	} else if loadedConfig.legacy && loadedConfig.fromLegacy {
+		logger.Info(l10n.TL(lang, "log-config-loaded", map[string]string{"path": loadedConfig.path}))
+		logger.Warn("legacy single-file configuration is deprecated; run `phira-mp config migrate`")
 	} else {
-		logger.Info(l10n.TL(lang, "log-config-not-found", nil))
+		logger.Info(l10n.TL(lang, "log-config-loaded", map[string]string{"path": loadedConfig.path}))
 	}
 
 	// Redis 缓存（启用时谱面/记录/token 缓存转为多实例共享）。startup-only：仅启动时初始化。
@@ -128,7 +124,11 @@ func main() {
 	defer cache.CloseRedis()
 
 	adminDataPath := strOr(cfg.AdminDataPath, "admin_data.json")
-	state := server.NewServerState(cfg, logger, cfg.EffectiveServerName(), adminDataPath, *configPath)
+	state := server.NewServerState(cfg, logger, cfg.EffectiveServerName(), adminDataPath, loadedConfig.path)
+	if !loadedConfig.legacy {
+		state.ConfigPath = ""
+		state.ConfigDir = loadedConfig.dir
+	}
 	// 配置热重载时同步日志级别。
 	state.OnConfigReload(func(c *config.ServerConfig) { logger.SetLevel(c.EffectiveLogLevel()) })
 	state.OnConfigReload(func(c *config.ServerConfig) {
@@ -199,12 +199,16 @@ func main() {
 	// 对局成绩持久化（SQLite）：每局结算写入 match_results + 增量 rollup，
 	// 支撑玩家档案、排行榜、谱面热度榜。DB 文件路径可经 STATS_DB_PATH 配置。
 	statsPath := cfg.EffectiveStatsDBPath()
-	statsStore, statsErr := stats.Open(statsPath)
-	if statsErr != nil {
-		logger.Warn(l10n.TL(lang, "log-stats-open-failed", map[string]string{"path": statsPath, "error": statsErr.Error()}))
-	} else {
-		logger.Mark(l10n.TL(lang, "log-stats-opened", map[string]string{"path": statsPath}))
-		defer statsStore.Close()
+	var statsStore *stats.Store
+	if loadedConfig.extensionEnabled("stats.yaml") {
+		var statsErr error
+		statsStore, statsErr = stats.Open(statsPath)
+		if statsErr != nil {
+			logger.Warn(l10n.TL(lang, "log-stats-open-failed", map[string]string{"path": statsPath, "error": statsErr.Error()}))
+		} else {
+			logger.Mark(l10n.TL(lang, "log-stats-opened", map[string]string{"path": statsPath}))
+			defer statsStore.Close()
+		}
 	}
 
 	hub.OnEnterPlaying = func(room *server.Room) {
@@ -371,8 +375,8 @@ func main() {
 	}
 
 	// 配置文件热重载：轮询配置文件变更，重新加载并热生效（startup-only 项仅提示需重启）。
-	watcher := config.NewFileWatcher(*configPath, 2*time.Second, func() {
-		next, _, lerr := config.LoadMerged(*configPath)
+	watcher := loadedConfig.watcher(func() {
+		next, lerr := loadedConfig.reload()
 		if lerr != nil {
 			logger.Warn(l10n.TL(lang, "log-config-reload-skipped", map[string]string{"error": lerr.Error()}))
 			return

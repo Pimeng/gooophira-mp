@@ -41,6 +41,8 @@ type ServerState struct {
 	AdminDataPath string
 	// ConfigPath 配置文件路径（持久化运行时配置变更用）。
 	ConfigPath string
+	// ConfigDir 非空表示使用多文件配置；运行时改动按字段写入对应模块文件。
+	ConfigDir string
 	// ReplayEnabled 是否启用回放录制。
 	ReplayEnabled bool
 	// RoomCreationEnabled 是否允许建房。
@@ -246,7 +248,11 @@ func (s *ServerState) ApplyRuntimePatch(res config.RuntimePatchResult) (changed,
 
 	res.Apply(&clone)
 
-	if s.ConfigPath != "" {
+	if s.ConfigDir != "" {
+		if err := config.PersistConfigDirValues(s.ConfigDir, res.Persist); err != nil && s.Logger != nil {
+			s.Logger.Warn("failed to persist config: " + err.Error())
+		}
+	} else if s.ConfigPath != "" {
 		if err := config.PersistConfigValues(s.ConfigPath, res.Persist); err != nil && s.Logger != nil {
 			s.Logger.Warn("failed to persist config: " + err.Error())
 		}

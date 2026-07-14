@@ -45,21 +45,17 @@ Phira 多人游戏服务端的 Go 实现
 
 ## 快速开始
 
-1. 准备配置文件（复制示例并按需修改）：
+1. 启动服务。首次运行会自动生成最小核心配置 `config/server.yaml`：
 
    ```bash
-   cp server_config.example.yml server_config.yml
-   ```
-
-2. 启动服务：
-
-   ```bash
-   ./phira-mp-server -config server_config.yml
+   ./phira-mp-server
    ```
 
    默认监听：
    - TCP 游戏端口：`12346`
    - HTTP 服务端口：`12347`（需在配置中开启 `HTTP_SERVICE: true`）
+
+2. 按需编辑 `config/server.yaml`，或从 [`config.example`](config.example) 选择单个扩展文件放入 `config/`。
 
 3. 管理服务：
    - 终端中直接输入 `help` 查看 CLI 命令
@@ -69,81 +65,40 @@ Phira 多人游戏服务端的 Go 实现
 
 ## 配置
 
-配置优先级：**环境变量 > 配置文件 > 内置默认值**。  
-完整带注释的示例见 [`server_config.example.yml`](server_config.example.yml)。
+配置优先级：**环境变量 > 配置文件 > 内置默认值**。新配置采用固定文件名的目录布局：
 
-### 关键配置项
+```text
+config/
+├── server.yaml       # 必须存在；首次启动自动生成
+├── network.yaml      # 可选：代理、DNS、CORS、真实 IP、HAProxy
+├── replay.yaml       # 可选：存在即启用回放录制
+├── redis.yaml        # 可选：存在即启用 Redis
+├── webhook.yaml      # 可选：存在即启用事件通知
+└── stats.yaml        # 可选：存在即启用持久化统计
+```
 
-完整带注释的示例见 [`server_config.example.yml`](server_config.example.yml)。
+每个文件必须包含 `version: 1`。程序只加载上述固定文件名，不会把备份文件或其它 YAML 意外当成配置。可选文件不存在时，对应扩展不会初始化；文件存在但为空、含未知键或非法值时，启动失败，热重载时则保留上一份有效配置。
 
-| 配置项 | 环境变量 | 默认值 | 说明 |
-|--------|----------|--------|------|
-| `HOST` / `PORT` | `HOST` / `PORT` | `::` / `12346` | TCP 游戏服务监听地址/端口 |
-| `HTTP_SERVICE` / `HTTP_PORT` | 同名 | `false` / `12347` | 是否开启 HTTP 管理服务 |
-| `GUI` | `GUI` | `false` | 启动时自动弹出 GUI 窗口（需 HTTP 服务） |
-| `ADMIN_TOKEN` | `ADMIN_TOKEN` | 空 | HTTP 管理接口鉴权令牌（不配则禁用管理接口） |
-| `LOG_LEVEL` | `LOG_LEVEL` | `INFO` | 日志级别：`DEBU`/`INFO`/`MARK`/`WARN`/`ERRO`（兼容旧名 `DEBUG`/`ERROR`） |
-| `LANG` | `PHIRA_MP_LANG` > `LANG` | `zh-CN` | 服务端语言：`zh-CN`/`en-US`/`zh-TW`/`ja-JP`/`ko-KR`/`ru-RU` |
-| `ROOM_MAX_USERS` | `ROOM_MAX_USERS` | `32` | 单个房间最大人数 |
-| `REPLAY_ENABLED` | `REPLAY_ENABLED` | `false` | 是否录制回放（可运行时切换） |
-| `REDIS` | `REDIS_ENABLED` / `REDIS_HOST` ... | 关闭 | Redis 多实例共享缓存（见高级功能） |
+不要把 [`config.example`](config.example) 整个目录复制为活动配置；只复制需要启用的扩展。例如启用回放：
 
-**网络与安全：**
-| 配置项 | 环境变量 | 默认值 | 说明 |
-|--------|----------|--------|------|
-| `HAPROXY_PROTOCOL` | 同名 | `false` | 是否启用 HAProxy PROXY v1/v2 协议 |
-| `MAX_CONNECTIONS` | 同名 | `0`（不限） | 全服 TCP 连接数上限 |
-| `CONNECTION_RATE_LIMIT` | 同名 | `30` | 单 IP 每 10s 窗口允许新建连接数 |
-| `COMMAND_RATE_LIMIT` | 同名 | `true` | 会话级命令令牌桶限流 |
-| `HTTP_RATE_LIMIT_MAX_REQUESTS` | 同名 | `100` | HTTP API 单 IP 限流窗口内最大请求数 |
-| `HTTP_RATE_LIMIT_WINDOW_MS` | 同名 | `60000` | HTTP API 限流窗口（毫秒） |
-| `CORS_ORIGINS` | 同名 | `[]`（不返回 CORS 头） | HTTP CORS 允许来源列表；`["*"]` 显式允许所有 |
-| `REAL_IP_HEADER` | 同名 | `""`（关闭） | HTTP 真实 IP 头名称（仅可信反代场景启用） |
-| `ALLOW_TOKEN_IN_QUERY` | 同名 | `false` | 是否允许 URL 查询参数传 token |
+```bash
+cp config.example/replay.yaml config/replay.yaml
+```
 
-**房间与对局：**
-| 配置项 | 环境变量 | 默认值 | 说明 |
-|--------|----------|--------|------|
-| `ROOM_CREATION_ENABLED` | 同名 | `true` | 是否允许玩家创建房间 |
-| `MAX_ROOMS` | 同名 | `0`（不限） | 全服同时存在的房间数上限 |
-| `PLAYING_RECONNECT_GRACE` | 同名 | `5` | 对局断线重连宽限时长（秒） |
-| `CHAT_ENABLED` | 同名 | `true` | 是否启用聊天 |
-| `SERVER_NAME` | 同名 | `"Phira MP"` | 服务器名称（显示在欢迎信息中） |
-| `MONITORS` | 同名 | `[2]` | 观战用户 ID 列表 |
-| `TEST_ACCOUNT_IDS` | 同名 | `[1739989]` | 测试账号 ID（日志不写入文件） |
-| `ROOM_LIST_TIP` | 同名 | 空 | 房间列表后追加显示的提示文案 |
+核心配置常用项见 [`config.example/server.yaml`](config.example/server.yaml)，其它字段按功能查看对应示例文件。多文件模式下，环境变量只能覆盖已存在的扩展，不能单独安装扩展。
 
-**回放：**
-| 配置项 | 环境变量 | 默认值 | 说明 |
-|--------|----------|--------|------|
-| `REPLAY_BASE_DIR` | 同名 | `<工作目录>/record` | 回放录制目录 |
-| `REPLAY_TTL_DAYS` | 同名 | `4` | 回放文件保留天数（每日凌晨清理） |
-| `REPLAY_AUTO_UPLOAD` | 同名 | `false` | 是否自动上传回放到分享站 |
-| `SHARE_STATION` | `SHARE_STATION_URL` / `SHARE_STATION_TOKEN` | 未设置 | 分享站地址与 token |
+### 旧配置迁移
 
-**日志：**
-| 配置项 | 环境变量 | 默认值 | 说明 |
-|--------|----------|--------|------|
-| `LOG_COMPRESS_AFTER_DAYS` | 同名 | `14` | 历史日志超天数后 gzip 压缩；0 关闭 |
-| `LOG_MAX_TOTAL_MB` | 同名 | `500` | 日志目录总占用上限（MB）；0 不限制 |
+已有 `server_config.yml` 时，服务会继续按旧格式启动并打印弃用提示。可以先预览拆分结果，再执行迁移：
 
-**外部服务：**
-| 配置项 | 环境变量 | 默认值 | 说明 |
-|--------|----------|--------|------|
-| `PHIRA_API_ENDPOINT` | 同名 | `https://phira.5wyxi.com` | Phira API 端点地址 |
-| `HITOKOTO_API_URL` | 同名 | `https://v1.hitokoto.cn/` | 一言 API 地址 |
-| `OUTBOUND_PROXY` | `OUTBOUND_PROXY` | 未设置 | 出站代理（false=直连 / URL=指定代理） |
-| `WEBHOOK` | 仅 YAML | 未设置 | Webhook 事件通知（见高级功能） |
+```bash
+./phira-mp-server config migrate --dry-run
+./phira-mp-server config migrate --from server_config.yml --to config
+```
 
-**管理数据与统计：**
-| 配置项 | 环境变量 | 默认值 | 说明 |
-|--------|----------|--------|------|
-| `ADMIN_DATA_PATH` | 同名 | `admin_data.json` | 管理数据持久化路径 |
-| `STATS_DB_PATH` | 同名 | `stats.db` | 统计数据库路径（SQLite） |
-| `STATS_DETAIL_RETENTION_DAYS` | 同名 | `90` | 统计数据明细保留天数 |
-| `STATS_DB_MAX_MB` | 同名 | `500` | 统计数据库文件大小上限（MB） |
+迁移不会删除旧文件，也不会覆盖 `config/` 中已经存在的目标文件。新旧配置同时存在时默认优先 `config/server.yaml`；可用 `-config` 显式启动旧格式，或用 `-config-dir` 指定新目录。
 
-> **热重载**：修改配置文件后服务自动加载新配置（连接限速、日志级别、回放开关等即时生效）；仅端口、GUI、Redis 等启动项需重启。
+> **热重载**：任一已知配置文件新增、修改或删除都会重新加载完整配置快照。端口、GUI、Redis、统计数据库路径等启动项修改后提示重启；其它支持项即时生效。
 
 ---
 
@@ -219,9 +174,9 @@ stop, shutdown                优雅关闭
 
 ### 回放录制与上传
 
-- 开启 `REPLAY_ENABLED` 后，对局结束自动生成 `.phirarec` 文件
+- 添加 `config/replay.yaml` 后，对局结束自动生成 `.phirarec` 文件
 - 可通过 HTTP 接口下载、删除
-- 配置 `SHARE_STATION_URL` 后支持对局结束自动上传至分享站
+- 在该文件配置 `SHARE_STATION` 后支持对局结束自动上传至分享站
 
 ### Redis 共享缓存
 
@@ -229,15 +184,16 @@ stop, shutdown                优雅关闭
 
 配置示例：
 ```yaml
-REDIS:
-  ENABLED: true
-  HOST: "127.0.0.1"
-  PORT: 6379
-  # PASSWORD: "your_password"
-  DB: 0
+# config/redis.yaml
+version: 1
+HOST: "127.0.0.1"
+PORT: 6379
+# PASSWORD: "your_password"
+DB: 0
 ```
 
-或用环境变量：`REDIS_ENABLED=true REDIS_HOST=... REDIS_PORT=...`。  
+文件存在后可用环境变量覆盖：`REDIS_ENABLED=true REDIS_HOST=... REDIS_PORT=...`。
+
 启用后所有缓存读写走共享 Redis（键前缀 `cache:<name>:<key>`，按 TTL 过期），启动时把本地内存数据迁移过去。Redis 不可达时自动降级为本地缓存。
 
 ### 比赛模式
@@ -246,24 +202,24 @@ REDIS:
 
 ### Webhook 通知
 
-把服务器事件异步推送到群机器人或自建服务，投递带缓冲队列、超时与失败重试，目标不可达也不阻塞对局逻辑；配置热重载（改 `WEBHOOK` 块即时生效）。
+把服务器事件异步推送到群机器人或自建服务，投递带缓冲队列、超时与失败重试，目标不可达也不阻塞对局逻辑；配置热重载（修改 `config/webhook.yaml` 即时生效）。
 
 - 事件类型：`room_create`、`room_disband`、`user_join`、`maintenance`
 - 载荷格式（`TYPE`）：`generic`（结构化 JSON，自定义机器人自行渲染）、`discord`、`feishu`
 - 可选 `SECRET`：请求带 `X-Phira-Signature: sha256=<HMAC(body)>` 头供接收端验签
 
 ```yaml
-WEBHOOK:
-  ENABLED: true
-  TIMEOUT_MS: 5000   # 单次请求超时(ms)，默认 5000
-  RETRIES: 2         # 仅对 5xx/429/网络错误重试，默认 2
-  TARGETS:
-    - URL: "https://discord.com/api/webhooks/xxx/yyy"
-      TYPE: discord
-      EVENTS: [room_create, room_disband, maintenance]   # 省略 = 订阅全部
-    - URL: "https://example.com/hook"
-      TYPE: generic
-      SECRET: "shared_secret"
+# config/webhook.yaml
+version: 1
+TIMEOUT_MS: 5000   # 单次请求超时(ms)，默认 5000
+RETRIES: 2         # 仅对 5xx/429/网络错误重试，默认 2
+TARGETS:
+  - URL: "https://discord.com/api/webhooks/xxx/yyy"
+    TYPE: discord
+    EVENTS: [room_create, room_disband, maintenance]   # 省略 = 订阅全部
+  - URL: "https://example.com/hook"
+    TYPE: generic
+    SECRET: "shared_secret"
 ```
 
 ---
@@ -322,7 +278,7 @@ cp .env.example .env      # 按需填 ADMIN_TOKEN 等
 docker compose up -d --build
 ```
 
-容器内默认 `HTTP_SERVICE=true` 并内置 `HEALTHCHECK`；首次运行自动生成 `/data/server_config.yml`。`internal/version/VERSION` 升高或手动触发 [`docker-image.yml`](.github/workflows/docker-image.yml) 会构建 `amd64`+`arm64` 多架构镜像推送 GHCR。
+容器内默认 `HTTP_SERVICE=true` 并内置 `HEALTHCHECK`；首次运行自动生成 `/data/config/server.yaml`，已有 `/data/server_config.yml` 的数据卷继续兼容旧格式。Compose 会挂载 `redis.yaml` 以启用 Redis。`internal/version/VERSION` 升高或手动触发 [`docker-image.yml`](.github/workflows/docker-image.yml) 会构建 `amd64`+`arm64` 多架构镜像推送 GHCR。
 
 ### 测试
 

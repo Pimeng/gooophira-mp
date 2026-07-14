@@ -42,9 +42,9 @@ RUN apk add --no-cache ca-certificates tzdata \
 
 COPY --from=build /out/phira-mp /usr/local/bin/phira-mp
 
-# 工作目录即数据目录：server_config.yml / logs / record / cache / admin_data.json 均相对于此。
+# 工作目录即数据目录：config / logs / record / cache / admin_data.json 均相对于此。
 WORKDIR /data
-RUN chown phira:phira /data
+RUN mkdir -p /data/config && chown -R phira:phira /data
 USER phira
 
 # 容器内默认开启 HTTP 服务（GUI/管理接口/健康检查依赖它）；均可经 -e 覆盖。
@@ -60,6 +60,5 @@ EXPOSE 12346 12347
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget -qO- "http://127.0.0.1:${HTTP_PORT}/room-creation/config" >/dev/null 2>&1 || exit 1
 
-# 首次运行自动生成 server_config.yml（EnsureDefaultFile）；环境变量优先级高于配置文件。
+# 首次运行自动生成 config/server.yaml；已有 server_config.yml 的数据卷继续兼容旧格式。
 ENTRYPOINT ["phira-mp"]
-CMD ["-config", "/data/server_config.yml"]

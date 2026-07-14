@@ -140,6 +140,33 @@ func TestApplyRuntimePatch_PersistsAndApplies(t *testing.T) {
 	}
 }
 
+func TestApplyRuntimePatch_PersistsToConfigDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, config.CoreConfigFile), []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := NewServerState(&config.ServerConfig{}, nil, "test", "", "")
+	st.ConfigDir = dir
+
+	res := config.ParseRuntimeConfigPatch(map[string]any{
+		"ROOM_CREATION_ENABLED": false,
+		"REPLAY_ENABLED":        true,
+	})
+	if !res.OK {
+		t.Fatal("patch should be valid")
+	}
+	st.ApplyRuntimePatch(res)
+
+	serverRaw, _ := os.ReadFile(filepath.Join(dir, config.CoreConfigFile))
+	if !strings.Contains(string(serverRaw), "ROOM_CREATION_ENABLED: false") {
+		t.Fatalf("server.yaml not updated:\n%s", serverRaw)
+	}
+	replayRaw, _ := os.ReadFile(filepath.Join(dir, "replay.yaml"))
+	if !strings.Contains(string(replayRaw), "version: 1") || !strings.Contains(string(replayRaw), "REPLAY_ENABLED: true") {
+		t.Fatalf("replay.yaml not created correctly:\n%s", replayRaw)
+	}
+}
+
 // contains 在 reload_test 与其它测试间共用（定义在本文件）。
 func contains(s []string, v string) bool {
 	return slices.Contains(s, v)

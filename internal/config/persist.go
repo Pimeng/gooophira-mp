@@ -2,6 +2,8 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -92,6 +94,36 @@ func PersistConfigValues(configPath string, updates map[string]any) error {
 	if err := os.Rename(tmp, configPath); err != nil {
 		_ = os.Remove(configPath) // 文件可能不存在
 		return os.Rename(tmp, configPath)
+	}
+	return nil
+}
+
+// PersistConfigDirValues writes runtime updates to the file that owns each key.
+// An optional file is created only when an explicit runtime update targets it.
+func PersistConfigDirValues(configDir string, updates map[string]any) error {
+	byFile := make(map[string]map[string]any)
+	for key, value := range updates {
+		name := configFileForKey(key)
+		if byFile[name] == nil {
+			byFile[name] = make(map[string]any)
+		}
+		byFile[name][key] = value
+	}
+	for name, fileUpdates := range byFile {
+		path := filepath.Join(configDir, name)
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			if name == CoreConfigFile {
+				return fmt.Errorf("required configuration file does not exist: %s", path)
+			}
+			if err := os.WriteFile(path, []byte("version: 1\n"), 0o644); err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		}
+		if err := PersistConfigValues(path, fileUpdates); err != nil {
+			return err
+		}
 	}
 	return nil
 }

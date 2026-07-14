@@ -249,7 +249,7 @@ var configFields = []fieldSpec{
 		set:   func(c *ServerConfig, v any) { c.Webhook = v.(*WebhookConfig) },
 		clear: func(c *ServerConfig) { c.Webhook = nil },
 	},
-	strField("STATS_DB_PATH", false, parseStringValue, func(c *ServerConfig) **string { return &c.StatsDBPath }),
+	strField("STATS_DB_PATH", true, parseStringValue, func(c *ServerConfig) **string { return &c.StatsDBPath }),
 	intField("STATS_DETAIL_RETENTION_DAYS", false, parseNonNegativeIntValue, func(c *ServerConfig) **int { return &c.StatsDetailRetentionDays }),
 	intField("STATS_DB_MAX_MB", false, parsePositiveIntValue, func(c *ServerConfig) **int { return &c.StatsDBMaxMB }),
 }
@@ -299,6 +299,10 @@ func LoadEnv() *ServerConfig {
 // BuildFromMap 从已解析的 map（YAML/JSON 来源，键为大写 ENV 名）构建配置。
 // 仅设置 map 中存在且解析有效的字段；monitors 缺省时落地默认 [2]（与 TS 一致）。
 func BuildFromMap(raw map[string]any) *ServerConfig {
+	return buildFromMap(raw, true)
+}
+
+func buildFromMap(raw map[string]any, applyDefaults bool) *ServerConfig {
 	c := &ServerConfig{}
 	for _, f := range configFields {
 		v, present := raw[f.env]
@@ -309,7 +313,7 @@ func BuildFromMap(raw map[string]any) *ServerConfig {
 			f.set(c, parsed)
 		}
 	}
-	if c.Monitors == nil {
+	if applyDefaults && c.Monitors == nil {
 		c.Monitors = append([]int(nil), DefaultMonitors...)
 	}
 	return c

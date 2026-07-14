@@ -2,6 +2,8 @@ package config
 
 import (
 	"os"
+	"path/filepath"
+	"reflect"
 	"time"
 )
 
@@ -10,7 +12,7 @@ import (
 // 不依赖 fsnotify 等外部库（保持零额外依赖、跨平台一致）。轮询天然带去抖：两次轮询间的
 // 多次写入只触发一次回调。对应 TS core/configWatcher.ts（其用 fs.watch + 200ms 去抖）。
 type FileWatcher struct {
-	path     string
+	paths    []string
 	interval time.Duration
 	onChange func()
 	stop     chan struct{}
@@ -34,11 +36,25 @@ func statSig(path string) fileSig {
 
 // NewFileWatcher 创建一个轮询配置文件的监视器（尚未启动）。interval<=0 时回退 2s。
 func NewFileWatcher(path string, interval time.Duration, onChange func()) *FileWatcher {
+	return newFileWatcher([]string{path}, interval, onChange)
+}
+
+// NewConfigDirWatcher watches the fixed multi-file configuration set. It also
+// observes absent optional files so creating one triggers a reload.
+func NewConfigDirWatcher(dir string, interval time.Duration, onChange func()) *FileWatcher {
+	paths := make([]string, 0, len(ConfigFileNames()))
+	for _, name := range ConfigFileNames() {
+		paths = append(paths, filepath.Join(dir, name))
+	}
+	return newFileWatcher(paths, interval, onChange)
+}
+
+func newFileWatcher(paths []string, interval time.Duration, onChange func()) *FileWatcher {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
 	return &FileWatcher{
-		path:     path,
+		paths:    paths,
 		interval: interval,
 		onChange: onChange,
 		stop:     make(chan struct{}),
@@ -53,7 +69,7 @@ func (w *FileWatcher) Start() {
 
 func (w *FileWatcher) loop() {
 	defer close(w.done)
-	last := statSig(w.path)
+	last := w.signatures()
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 	for {
@@ -61,13 +77,21 @@ func (w *FileWatcher) loop() {
 		case <-w.stop:
 			return
 		case <-ticker.C:
-			cur := statSig(w.path)
-			if cur != last {
+			cur := w.signatures()
+			if !reflect.DeepEqual(cur, last) {
 				last = cur
 				w.onChange()
 			}
 		}
 	}
+}
+
+func (w *FileWatcher) signatures() []fileSig {
+	out := make([]fileSig, len(w.paths))
+	for i, path := range w.paths {
+		out[i] = statSig(path)
+	}
+	return out
 }
 
 // Stop 停止轮询并等待后台 goroutine 退出（幂等）。

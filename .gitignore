@@ -5,6 +5,7 @@ tmp/
 cache/
 admin_data.json
 server_config.yml
+/config/
 stats.db
 
 # 编译产物

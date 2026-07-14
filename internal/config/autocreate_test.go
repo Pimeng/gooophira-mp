@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestEnsureDefaultFile_CopiesLocalExample(t *testing.T) {
@@ -50,6 +52,17 @@ func TestEnsureDefaultFile_FallsBackToBuiltinTemplate(t *testing.T) {
 	}
 	if string(got) != DefaultConfigYAML {
 		t.Fatalf("config content = %q, want builtin template", got)
+	}
+}
+
+func TestDefaultConfigYAMLMatchesRuntimeDefaults(t *testing.T) {
+	var raw map[string]any
+	if err := yaml.Unmarshal([]byte(DefaultConfigYAML), &raw); err != nil {
+		t.Fatalf("parse DefaultConfigYAML: %v", err)
+	}
+	cfg := BuildFromMap(raw)
+	if cfg.EffectiveRoomMaxUsers() != DefaultRoomMaxUsers {
+		t.Fatalf("template ROOM_MAX_USERS = %d, runtime default = %d", cfg.EffectiveRoomMaxUsers(), DefaultRoomMaxUsers)
 	}
 }
 

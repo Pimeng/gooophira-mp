@@ -229,7 +229,8 @@ jobs:
           TAG: v${{ needs.check-version.outputs.version }}
           PRERELEASE: ${{ needs.check-version.outputs.prerelease }}
         run: |
-          # 随二进制一并附上示例配置，便于部署。
+          # 随二进制一并附上新旧格式示例配置，便于部署与迁移。
+          tar -czf artifacts/config.example.tar.gz config.example
           FILES=(artifacts/* server_config.example.yml)
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $TAG 已存在，覆盖上传产物"

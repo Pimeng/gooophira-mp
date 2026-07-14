@@ -29,7 +29,7 @@ services:
       ADMIN_TOKEN: "${ADMIN_TOKEN:-}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
       PHIRA_MP_LANG: "${PHIRA_MP_LANG:-zh-CN}"
-      ROOM_MAX_USERS: "${ROOM_MAX_USERS:-12}"
+      ROOM_MAX_USERS: "${ROOM_MAX_USERS:-512}"
       TZ: "${TZ:-Asia/Shanghai}"
       # —— Redis 多实例共享缓存 ——
       REDIS_ENABLED: "true"
@@ -37,6 +37,8 @@ services:
       REDIS_PORT: "6379"
     volumes:
       - phira-data:/data
+      # redis.yaml 的存在启用 Redis；连接地址继续由上面的环境变量覆盖。
+      - ./config.example/redis.yaml:/data/config/redis.yaml:ro
     depends_on:
       redis:
         condition: service_healthy

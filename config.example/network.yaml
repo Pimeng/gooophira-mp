@@ -1,0 +1,42 @@
+# 高级网络配置
+#
+# 将本文件复制为 config/network.yaml 后，程序才会加载这些设置。
+# 不使用反向代理、出站代理或 Android/Termux 特殊 DNS 时，无需创建本文件。
+# 修改本文件会自动热重载，但已经建立的连接不会被重新创建。
+
+# 配置格式版本。必须保留，当前只支持 1。
+version: 1
+
+# 是否接受 HAProxy PROXY Protocol v1/v2，默认 false。
+# 用于 TCP 四层代理传递玩家真实 IP。只有可信代理位于服务端前方时才开启，
+# 否则普通客户端无法完成正确握手，也可能产生伪造来源信息的风险。
+# HAPROXY_PROTOCOL: false
+
+# HTTP 反向代理传递真实客户端 IP 的请求头名称，默认不启用。
+# 常见值：X-Forwarded-For、X-Real-IP、CF-Connecting-IP。
+# 只有所有 HTTP 流量都经过可信代理/CDN 时才能配置，否则客户端可伪造 IP，
+# 绕过 HTTP 限流或污染日志。本项只影响 HTTP，不影响 TCP 游戏连接。
+# REAL_IP_HEADER: "X-Forwarded-For"
+
+# 浏览器跨域访问 HTTP API 时允许的来源列表，默认 []（不返回 CORS 头）。
+# 必须填写完整来源，即“协议 + 域名 + 可选端口”，不要附带路径。
+# ["*"] 表示允许任意来源，生产环境建议仅列出可信管理面板。
+# CORS_ORIGINS:
+#   - "https://admin.example.com"
+#   - "http://localhost:5173"
+
+# 服务端访问 Phira API、一言 API、分享站和 Webhook 等出站 HTTP 请求的代理。
+# 省略：沿用操作系统/运行环境的默认代理行为。
+# false：强制直连，不使用代理。
+# 字符串：强制使用指定代理，支持 http(s):// 和 socks:// 等 Go 可识别地址。
+# OUTBOUND_PROXY: false
+# OUTBOUND_PROXY: "http://127.0.0.1:7890"
+
+# 出站 HTTP 的底层 DNS 配置，主要用于没有本地 stub resolver 的 Android/Termux。
+# DNS_SERVERS 按顺序回退，地址必须包含端口。
+# 省略或空列表时使用内置默认 [1.1.1.1:53, 8.8.8.8:53]；非 Android 平台忽略。
+# 也可通过 NETUTIL_DNS_SERVERS 环境变量覆盖，多个地址用逗号、空格或分号分隔。
+# NETUTIL:
+#   DNS_SERVERS:
+#     - "1.1.1.1:53"
+#     - "8.8.8.8:53"

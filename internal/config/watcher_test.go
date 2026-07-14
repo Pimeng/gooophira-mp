@@ -55,3 +55,24 @@ func TestFileWatcher_StopIdempotent(t *testing.T) {
 	w.Stop()
 	w.Stop() // 第二次不应阻塞或 panic
 }
+
+func TestConfigDirWatcher_FiresWhenOptionalFileAppears(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, CoreConfigFile), []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fired := make(chan struct{}, 1)
+	w := NewConfigDirWatcher(dir, 10*time.Millisecond, func() { fired <- struct{}{} })
+	w.Start()
+	defer w.Stop()
+
+	time.Sleep(20 * time.Millisecond)
+	if err := os.WriteFile(filepath.Join(dir, "replay.yaml"), []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-fired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("directory watcher did not detect optional file")
+	}
+}

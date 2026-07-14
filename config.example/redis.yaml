@@ -1,0 +1,27 @@
+# Redis 共享缓存配置
+#
+# 将本文件复制为 config/redis.yaml 即启用 Redis 扩展。
+# Redis 用于在多实例之间共享玩家鉴权 token、成绩记录等缓存。
+# 连接失败时服务端会记录警告并回退到本地缓存。
+# Redis 属于启动期组件：创建、删除或修改本文件后需要重启服务端。
+
+# 配置格式版本。必须保留，当前只支持 1。
+version: 1
+
+# 是否实际连接 Redis。本文件存在时默认 true。
+# 可设为 false 暂时停用；通常直接删除本文件更清晰。
+# ENABLED: true
+
+# Redis 主机名或 IP，默认 127.0.0.1。
+# Docker Compose 中通常由 REDIS_HOST=redis 环境变量覆盖。
+HOST: "127.0.0.1"
+
+# Redis TCP 端口，默认 6379，范围 1~65535。
+PORT: 6379
+
+# Redis 数据库编号，默认 0，必须为非负整数。
+DB: 0
+
+# Redis 认证密码。服务端无需密码时省略。
+# 敏感信息，生产环境推荐通过 REDIS_PASSWORD 环境变量注入。
+# PASSWORD: "replace_me"

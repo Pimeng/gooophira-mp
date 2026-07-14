@@ -1,0 +1,92 @@
+# Webhook 事件通知配置
+#
+# 将本文件复制为 config/webhook.yaml 即启用 Webhook 扩展。
+# 通知会异步投递，目标不可达不会阻塞房间和对局逻辑。
+# 修改本文件可自动热重载；删除文件会停止新的事件投递并关闭扩展。
+#
+# 支持的目标类型：
+#   generic    通用结构化 JSON，适合自建服务
+#   discord    Discord Webhook 消息
+#   onebot_v11 OneBot v11 HTTP API 私聊或群聊消息
+#   feishu     飞书开放平台应用消息/模板卡片
+#
+# 常用事件类型：
+#   room_create     房间创建
+#   room_disband    房间解散
+#   user_join       玩家加入
+#   game_start      对局开始
+#   game_end        对局结束
+#   maintenance     维护状态变化
+#   score_submitted 玩家提交成绩，仅供启用 LIVE_UPDATE 的飞书目标内部使用
+
+# 配置格式版本。必须保留，当前只支持 1。
+version: 1
+
+# 是否实际投递事件。本文件存在时默认 true。
+# 可设为 false 暂停投递并保留目标配置；通常直接删除本文件更清晰。
+# ENABLED: true
+
+# 单次请求或 SDK 调用的超时时间，单位毫秒，默认 5000，必须大于 0。
+TIMEOUT_MS: 5000
+
+# 失败后的额外重试次数，默认 2，必须为非负整数。
+# 仅网络错误、HTTP 429 和 5xx 等可恢复错误会重试；配置或鉴权错误不会无限重试。
+RETRIES: 2
+
+# 投递目标列表，可同时配置多个不同类型的目标。
+# 每个目标的 EVENTS 省略或设为空列表时表示订阅该目标支持的全部事件。
+TARGETS:
+  # -------------------- 通用 JSON --------------------
+  # 向 URL POST 结构化事件 JSON，适合自建机器人或中转服务。
+  # SECRET 可选；配置后请求携带：
+  #   X-Phira-Signature: sha256=<HMAC-SHA256(请求体)>
+  # 接收端应使用同一密钥验签。SECRET 属于敏感信息，不要公开。
+  - TYPE: generic
+    URL: "https://example.com/hook"
+    EVENTS: [room_create, game_start, game_end]
+    # SECRET: "replace_me"
+
+  # -------------------- Discord --------------------
+  # URL 填 Discord 频道创建的 Webhook 完整地址。
+  # - TYPE: discord
+  #   URL: "https://discord.com/api/webhooks/xxx/yyy"
+  #   EVENTS: [room_create, room_disband, maintenance]
+
+  # -------------------- OneBot v11 --------------------
+  # 通过 OneBot v11 HTTP API 发送纯文本消息，auto_escape=true，不解析 CQ 码。
+  # URL 填 OneBot HTTP API 根地址；ACCESS_TOKEN 在 OneBot 未启用鉴权时可省略。
+  # MESSAGE_TYPE 只能为 private（私聊）或 group（群聊）。
+  # TARGET_ID 可填一个正整数，也可填数组以分别推送多个 QQ 号或群号。
+  # - TYPE: onebot_v11
+  #   URL: "http://127.0.0.1:5700"
+  #   ACCESS_TOKEN: "replace_me"
+  #   MESSAGE_TYPE: group
+  #   TARGET_ID: 123456789
+  #   # TARGET_ID: [123456789, 987654321]
+  #   EVENTS: [game_start, game_end]
+
+  # -------------------- 飞书开放平台 --------------------
+  # 飞书目标不使用 URL，而是通过应用凭据创建 SDK 客户端并向指定 open_id 发消息。
+  # APP_SECRET 属于敏感信息，请妥善保管。
+  #
+  # game_start 和 game_end 各有内置模板 ID/版本；下面四项仅在使用自定义模板时填写：
+  #   TEMPLATE_ID / TEMPLATE_VERSION                   覆盖 game_start 模板
+  #   GAME_END_TEMPLATE_ID / GAME_END_TEMPLATE_VERSION 覆盖 game_end 模板
+  #
+  # game_start 模板变量：
+  #   room_id、chart_name、player_list、chart_difficulty、chart_charter、chart_pic
+  # game_end 模板变量：
+  #   room_id、player_score_rank
+  #
+  # LIVE_UPDATE=true 时，首个成绩提交后发送卡片，后续成绩通过 PATCH 实时刷新，
+  # 对局结束时完成最终更新并清理状态；此时会自动接收所需的成绩与清理事件。
+  # - TYPE: feishu
+  #   APP_ID: "cli_xxxxxxxxxxxx"
+  #   APP_SECRET: "replace_me"
+  #   RECEIVE_OPEN_ID: "ou_xxxxxxxxxxxx"
+  #   # TEMPLATE_ID: ""
+  #   # TEMPLATE_VERSION: "1.0.2"
+  #   # GAME_END_TEMPLATE_ID: ""
+  #   # GAME_END_TEMPLATE_VERSION: "1.0.1"
+  #   # LIVE_UPDATE: true
+  #   EVENTS: [game_start, game_end]

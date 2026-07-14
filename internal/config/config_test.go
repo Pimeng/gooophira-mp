@@ -198,7 +198,7 @@ func TestParseOutboundProxy(t *testing.T) {
 
 func TestStartupOnlyEnvNames(t *testing.T) {
 	names := StartupOnlyEnvNames()
-	want := map[string]bool{"HOST": true, "PORT": true, "HTTP_SERVICE": true, "HTTP_PORT": true, "GUI": true, "ADMIN_DATA_PATH": true, "REDIS": true}
+	want := map[string]bool{"HOST": true, "PORT": true, "HTTP_SERVICE": true, "HTTP_PORT": true, "GUI": true, "ADMIN_DATA_PATH": true, "REDIS": true, "STATS_DB_PATH": true}
 	for _, n := range names {
 		if !want[n] {
 			t.Errorf("unexpected startup-only key %q", n)
