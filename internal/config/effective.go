@@ -87,6 +87,38 @@ func (c *ServerConfig) EffectiveStatsDetailRetentionDays() int {
 	return intOr(c.StatsDetailRetentionDays, DefaultStatsDetailRetentionDays)
 }
 func (c *ServerConfig) EffectiveStatsDBMaxMB() int { return intOr(c.StatsDBMaxMB, DefaultStatsDBMaxMB) }
+func (c *ServerConfig) EffectiveAgentIPC() AgentIPCConfig {
+	if c.AgentIPC == nil {
+		return AgentIPCConfig{
+			Endpoint:      DefaultAgentIPCEndpoint,
+			DiscoveryFile: DefaultAgentIPCDiscoveryFile,
+			Instance:      DefaultAgentIPCInstance,
+			OutboxDir:     DefaultAgentOutboxDir,
+			OutboxMaxMB:   DefaultAgentOutboxMaxMB,
+			WebhookOwner:  DefaultAgentWebhookOwner,
+		}
+	}
+	out := *c.AgentIPC
+	if out.Endpoint == "" {
+		out.Endpoint = DefaultAgentIPCEndpoint
+	}
+	if out.DiscoveryFile == "" {
+		out.DiscoveryFile = DefaultAgentIPCDiscoveryFile
+	}
+	if out.Instance == "" {
+		out.Instance = DefaultAgentIPCInstance
+	}
+	if out.OutboxDir == "" {
+		out.OutboxDir = DefaultAgentOutboxDir
+	}
+	if out.OutboxMaxMB <= 0 {
+		out.OutboxMaxMB = DefaultAgentOutboxMaxMB
+	}
+	if out.WebhookOwner == "" {
+		out.WebhookOwner = DefaultAgentWebhookOwner
+	}
+	return out
+}
 func (w *WebhookConfig) WebhookTimeoutMS() int {
 	if w == nil || w.TimeoutMS <= 0 {
 		return DefaultWebhookTimeoutMS

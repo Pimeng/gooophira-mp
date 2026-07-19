@@ -35,6 +35,7 @@ var configFileKeys = map[string][]string{
 		"ROOM_LIST_TIP", "LOG_LEVEL", "LOG_COMPRESS_AFTER_DAYS",
 		"LOG_MAX_TOTAL_MB", "LANG", "PHIRA_API_ENDPOINT", "HITOKOTO_API_URL",
 		"ALLOW_TOKEN_IN_QUERY",
+		"AGENT_IPC",
 	},
 	"network.yaml": {
 		"REAL_IP_HEADER", "CORS_ORIGINS", "HAPROXY_PROTOCOL", "OUTBOUND_PROXY", "NETUTIL",
@@ -220,6 +221,13 @@ func normalizeModuleMap(name string, raw map[string]any) (map[string]any, error)
 			raw["STATS_DB_PATH"] = "stats.db"
 		}
 		return raw, nil
+	case CoreConfigFile:
+		if value, present := raw["AGENT_IPC"]; present {
+			if err := validateRecordKeys("AGENT_IPC", value, []string{"ENDPOINT", "TOKEN", "DISCOVERY_FILE", "INSTANCE", "OUTBOX_DIR", "OUTBOX_MAX_MB", "WEBHOOK_OWNER"}); err != nil {
+				return nil, err
+			}
+		}
+		return raw, nil
 	default:
 		return raw, nil
 	}
@@ -301,7 +309,7 @@ func validateRedisMap(raw map[string]any) error {
 }
 
 var webhookTargetKeys = []string{
-	"URL", "TYPE", "EVENTS", "SECRET", "ACCESS_TOKEN", "MESSAGE_TYPE", "TARGET_ID",
+	"ID", "URL", "TYPE", "EVENTS", "SECRET", "ACCESS_TOKEN", "MESSAGE_TYPE", "TARGET_ID",
 	"APP_ID", "APP_SECRET", "RECEIVE_OPEN_ID", "TEMPLATE_ID", "TEMPLATE_VERSION",
 	"GAME_END_TEMPLATE_ID", "GAME_END_TEMPLATE_VERSION", "LIVE_UPDATE",
 }
@@ -371,6 +379,8 @@ func configFileForKey(key string) string {
 		return "webhook.yaml"
 	case "STATS_DB_PATH", "STATS_DETAIL_RETENTION_DAYS", "STATS_DB_MAX_MB":
 		return "stats.yaml"
+	case "AGENT_IPC":
+		return CoreConfigFile
 	default:
 		return CoreConfigFile
 	}
@@ -393,6 +403,10 @@ PORT: 12346
 SERVER_NAME: "Phira MP"
 # 服务端语言，影响日志、CLI 和 HTTP 默认输出。
 LANG: "zh-CN"
+
+# 可选 Agent 默认关闭。启用时可设为 auto，Agent 不在线不影响主程序。
+# AGENT_IPC:
+#   ENDPOINT: auto
 `
 
 // EnsureConfigDir creates only the required minimal server.yaml. Optional files

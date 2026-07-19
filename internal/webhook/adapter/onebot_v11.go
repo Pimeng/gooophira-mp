@@ -10,7 +10,7 @@ import (
 	"net/url"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
-	"github.com/Pimeng/gooophira-mp/internal/server"
+	"github.com/Pimeng/gooophira-mp/internal/webhookmodel"
 )
 
 // OneBotV11 是 OneBot v11 HTTP API 适配器。
@@ -30,7 +30,7 @@ type oneBotResponse struct {
 
 // Deliver 使用 send_private_msg 或 send_group_msg 发送内置格式的纯文本消息。
 // TargetIDs 非空时依次向其中的每个目标发送，否则发送给 TargetID。
-func (o *OneBotV11) Deliver(ctx context.Context, t config.WebhookTarget, ev server.Event) (ok, retryable bool) {
+func (o *OneBotV11) Deliver(ctx context.Context, t config.WebhookTarget, ev webhookmodel.Event) (ok, retryable bool) {
 	action, idField := "send_private_msg", "user_id"
 	if t.MessageType == "group" {
 		action, idField = "send_group_msg", "group_id"
@@ -62,7 +62,7 @@ func (o *OneBotV11) Deliver(ctx context.Context, t config.WebhookTarget, ev serv
 	return allOK, anyRetryable
 }
 
-func (o *OneBotV11) deliverOne(ctx context.Context, t config.WebhookTarget, ev server.Event, action, idField string, targetID int64) (ok, retryable bool) {
+func (o *OneBotV11) deliverOne(ctx context.Context, t config.WebhookTarget, ev webhookmodel.Event, action, idField string, targetID int64) (ok, retryable bool) {
 	body, err := json.Marshal(map[string]any{
 		idField:       targetID,
 		"message":     RenderText(ev),

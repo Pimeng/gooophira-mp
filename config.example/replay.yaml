@@ -1,8 +1,8 @@
-# 回放录制与自动上传配置
+# 回放录制配置
 #
 # 将本文件复制为 config/replay.yaml 即启用回放扩展。
 # REPLAY_ENABLED 省略时默认为 true；删除本文件会关闭回放并结束正在进行的录制。
-# 修改录制目录、保留天数和上传参数可自动热重载。
+# 修改录制目录和保留天数可自动热重载。
 
 # 配置格式版本。必须保留，当前只支持 1。
 version: 1
@@ -19,15 +19,11 @@ REPLAY_BASE_DIR: "./record"
 # 服务端启动时和之后每天清理超过该期限的回放；长期留存请另行备份。
 REPLAY_TTL_DAYS: 4
 
-# 是否在对局结束后自动上传回放到分享站，默认 false。
-# 开启时必须同时提供完整的 SHARE_STATION，否则配置校验会失败。
-# 玩家侧的自动上传偏好仍会参与最终判断。
-# REPLAY_AUTO_UPLOAD: true
-
-# Phira Replay 分享站连接信息，用于自动上传。
-# URL 为分享站服务地址；TOKEN 为服务端认证令牌。
-# TOKEN 属于敏感信息，推荐通过 SHARE_STATION_URL 和 SHARE_STATION_TOKEN
-# 环境变量注入，不要提交到版本库或公开日志。
+# 分享站手动上传和自动上传已由可选 Agent 独占。
+# 请在 config/agent.yaml 的 REPLAY_UPLOAD 块配置 BASE_DIR、URL 和 TOKEN，
+# 并确保 BASE_DIR 与此处 REPLAY_BASE_DIR 指向同一目录。
+# 旧 REPLAY_AUTO_UPLOAD / SHARE_STATION 字段仍可用于迁移识别，但新部署不要使用。
+# REPLAY_AUTO_UPLOAD: false
 # SHARE_STATION:
-#   URL: "https://replay.example.com"
-#   TOKEN: "replace_me"
+#   URL: ""
+#   TOKEN: ""

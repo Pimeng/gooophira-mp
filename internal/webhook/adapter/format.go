@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/Pimeng/gooophira-mp/internal/server"
+	"github.com/Pimeng/gooophira-mp/internal/webhookmodel"
 )
 
 const ctJSON = "application/json; charset=utf-8"
@@ -14,7 +14,7 @@ const ctJSON = "application/json; charset=utf-8"
 //   - generic：结构化 JSON（含全部字段），便于自定义机器人自行渲染。
 //   - discord：{"content": "<文本>"}
 //   - feishu/onebot_v11 及其它不支持的类型：返回 nil（由对应适配器处理）。
-func Format(typ string, ev server.Event) (body []byte, contentType string) {
+func Format(typ string, ev webhookmodel.Event) (body []byte, contentType string) {
 	switch typ {
 	case "discord":
 		b, err := json.Marshal(map[string]any{"content": RenderText(ev)})
@@ -35,30 +35,30 @@ func Format(typ string, ev server.Event) (body []byte, contentType string) {
 }
 
 // RenderText 生成事件的人类可读文本（用于 Discord/飞书等纯文本机器人）。
-func RenderText(ev server.Event) string {
+func RenderText(ev webhookmodel.Event) string {
 	srv := ev.Server
 	if srv == "" {
 		srv = "Phira MP"
 	}
 	prefix := "[" + srv + "] "
 	switch ev.Type {
-	case server.EventGameStart:
+	case webhookmodel.EventGameStart:
 		if ev.ChartName != "" {
 			return fmt.Sprintf("%s🎮 房间 %s 开始游戏：%s（%d 人）", prefix, ev.RoomID, ev.ChartName, ev.UserCount)
 		}
 		return fmt.Sprintf("%s🎮 房间 %s 开始游戏（%d 人）", prefix, ev.RoomID, ev.UserCount)
-	case server.EventGameEnd:
+	case webhookmodel.EventGameEnd:
 		if ev.ChartName != "" {
 			return fmt.Sprintf("%s🏁 房间 %s 本局结束：%s", prefix, ev.RoomID, ev.ChartName)
 		}
 		return fmt.Sprintf("%s🏁 房间 %s 本局结束", prefix, ev.RoomID)
-	case server.EventRoomCreate:
+	case webhookmodel.EventRoomCreate:
 		return fmt.Sprintf("%s➕ %s 创建了房间 %s", prefix, ev.UserName, ev.RoomID)
-	case server.EventRoomDisband:
+	case webhookmodel.EventRoomDisband:
 		return fmt.Sprintf("%s➖ 房间 %s 已解散", prefix, ev.RoomID)
-	case server.EventUserJoin:
+	case webhookmodel.EventUserJoin:
 		return fmt.Sprintf("%s👤 %s 加入房间 %s（当前 %d 人）", prefix, ev.UserName, ev.RoomID, ev.UserCount)
-	case server.EventMaintenance:
+	case webhookmodel.EventMaintenance:
 		if ev.Enabled {
 			if ev.Message != "" {
 				return fmt.Sprintf("%s🛠️ 已进入维护模式：%s", prefix, ev.Message)

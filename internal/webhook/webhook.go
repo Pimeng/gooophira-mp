@@ -14,6 +14,11 @@ package webhook
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +28,7 @@ import (
 	"github.com/Pimeng/gooophira-mp/internal/netutil"
 	"github.com/Pimeng/gooophira-mp/internal/server"
 	"github.com/Pimeng/gooophira-mp/internal/webhook/adapter"
+	"github.com/Pimeng/gooophira-mp/internal/webhookmodel"
 )
 
 // Logger 是本包所需的最小日志接口（与 server.Logger 兼容，便于注入）。
@@ -30,6 +36,23 @@ type Logger interface {
 	Debug(msg string)
 	Warn(msg string)
 }
+
+type TargetDelivery struct {
+	ID     string
+	Target config.WebhookTarget
+}
+
+type DeliveryOutcome uint8
+
+const (
+	DeliverySucceeded DeliveryOutcome = iota
+	DeliveryPermanentFailure
+	DeliveryRetryableFailure
+)
+
+type permanentDeliveryError struct{ message string }
+
+func (e permanentDeliveryError) Error() string { return e.message }
 
 const (
 	queueSize  = 256             // 事件缓冲队列容量（满即丢弃，保护命令处理）
@@ -42,7 +65,7 @@ type Dispatcher struct {
 	lang   *l10n.Language
 	cfg    atomic.Pointer[config.WebhookConfig]
 
-	ch   chan server.Event
+	ch   chan webhookmodel.Event
 	stop chan struct{}
 	wg   sync.WaitGroup
 
@@ -63,7 +86,7 @@ func New(logger Logger, lang *l10n.Language) *Dispatcher {
 	d := &Dispatcher{
 		logger:   logger,
 		lang:     lang,
-		ch:       make(chan server.Event, queueSize),
+		ch:       make(chan webhookmodel.Event, queueSize),
 		stop:     make(chan struct{}),
 		adapters: make(map[string]adapter.Adapter),
 	}
@@ -90,6 +113,10 @@ func (d *Dispatcher) SetConfig(c *config.WebhookConfig) {
 
 // Emit 入队一个事件（非阻塞）。未启用或队列满时静默丢弃。
 func (d *Dispatcher) Emit(ev server.Event) {
+	d.EmitEvent(FromServerEvent(ev))
+}
+
+func (d *Dispatcher) EmitEvent(ev webhookmodel.Event) {
 	c := d.cfg.Load()
 	if c == nil || !c.Enabled || len(c.Targets) == 0 {
 		return
@@ -119,7 +146,7 @@ func (d *Dispatcher) run() {
 	}
 }
 
-func (d *Dispatcher) handle(ev server.Event) {
+func (d *Dispatcher) handle(ev webhookmodel.Event) {
 	c := d.cfg.Load()
 	if c == nil || !c.Enabled {
 		return
@@ -152,22 +179,99 @@ func (d *Dispatcher) handle(ev server.Event) {
 	}
 }
 
+// DeliverEvent synchronously applies configured filtering, retries, and all
+// target deliveries. It is used by the Agent before advancing its durable
+// processing cursor.
+func (d *Dispatcher) DeliverEvent(ctx context.Context, ev webhookmodel.Event) error {
+	for _, delivery := range d.Plan(ev) {
+		if outcome, err := d.DeliverTarget(ctx, delivery.Target, ev); outcome == DeliveryRetryableFailure {
+			return err
+		}
+	}
+	return nil
+}
+
+func (d *Dispatcher) Plan(ev webhookmodel.Event) []TargetDelivery {
+	c := d.cfg.Load()
+	if c == nil || !c.Enabled {
+		return nil
+	}
+	var out []TargetDelivery
+	for _, target := range c.Targets {
+		if !target.Subscribes(ev.Type) {
+			continue
+		}
+		targets := []config.WebhookTarget{target}
+		if target.Type == "onebot_v11" && len(target.TargetIDs) > 1 {
+			targets = make([]config.WebhookTarget, 0, len(target.TargetIDs))
+			for _, id := range target.TargetIDs {
+				single := target
+				single.TargetID, single.TargetIDs = id, nil
+				targets = append(targets, single)
+			}
+		}
+		for _, single := range targets {
+			out = append(out, TargetDelivery{ID: targetFingerprint(single), Target: single})
+		}
+	}
+	return out
+}
+
+func (d *Dispatcher) DeliverTarget(ctx context.Context, target config.WebhookTarget, ev webhookmodel.Event) (DeliveryOutcome, error) {
+	c := d.cfg.Load()
+	if c == nil || !c.Enabled {
+		return DeliverySucceeded, nil
+	}
+	a := d.adapters[target.Type]
+	if a == nil {
+		a = d.adapters["generic"]
+	}
+	if a == nil {
+		return DeliveryPermanentFailure, nil
+	}
+	err := d.deliverContext(ctx, a, target, ev, time.Duration(c.WebhookTimeoutMS())*time.Millisecond, c.WebhookRetryCount())
+	if err != nil {
+		var permanent permanentDeliveryError
+		if errors.As(err, &permanent) {
+			return DeliveryPermanentFailure, err
+		}
+		return DeliveryRetryableFailure, err
+	}
+	return DeliverySucceeded, nil
+}
+
+func targetFingerprint(target config.WebhookTarget) string {
+	if target.ID != "" {
+		return target.ID
+	}
+	data, _ := json.Marshal(target)
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:16])
+}
+
 // deliver 向单个目标投递，由对应 Adapter 执行单次平台调用；失败按退避重试。
 // 适配器返回可重试则重试；业务错误不重试；跳过（ok=true）视为成功。
-func (d *Dispatcher) deliver(a adapter.Adapter, t config.WebhookTarget, ev server.Event, timeout time.Duration, retries int) {
+
+func (d *Dispatcher) deliver(a adapter.Adapter, t config.WebhookTarget, ev webhookmodel.Event, timeout time.Duration, retries int) {
+	_ = d.deliverContext(context.Background(), a, t, ev, timeout, retries)
+}
+
+func (d *Dispatcher) deliverContext(parent context.Context, a adapter.Adapter, t config.WebhookTarget, ev webhookmodel.Event, timeout time.Duration, retries int) error {
 	for attempt := 0; attempt <= retries; attempt++ {
 		if attempt > 0 {
 			select {
+			case <-parent.Done():
+				return parent.Err()
 			case <-d.stop:
-				return
+				return context.Canceled
 			case <-time.After(retryDelay * time.Duration(attempt)):
 			}
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(parent, timeout)
 		ok, retryable := a.Deliver(ctx, t, ev)
 		cancel()
 		if ok {
-			return
+			return nil
 		}
 		if !retryable {
 			d.warn("log-webhook-rejected", map[string]string{
@@ -175,7 +279,7 @@ func (d *Dispatcher) deliver(a adapter.Adapter, t config.WebhookTarget, ev serve
 				"type":  t.Type,
 				"url":   t.URL,
 			})
-			return
+			return permanentDeliveryError{message: fmt.Sprintf("webhook delivery permanently rejected: type=%s event=%s", t.Type, ev.Type)}
 		}
 	}
 	d.warn("log-webhook-gave-up", map[string]string{
@@ -183,6 +287,7 @@ func (d *Dispatcher) deliver(a adapter.Adapter, t config.WebhookTarget, ev serve
 		"type":  t.Type,
 		"url":   t.URL,
 	})
+	return fmt.Errorf("webhook delivery exhausted retries: type=%s event=%s", t.Type, ev.Type)
 }
 
 // tl 把 l10n key + args 翻译为当前语言文本。

@@ -276,6 +276,7 @@ func parseWebhookValue(v any) (*WebhookConfig, bool) {
 				if typ == "" {
 					typ = "generic"
 				}
+				id, _ := parseStringValue(tm["ID"])
 				events, _ := parseStringListValue(tm["EVENTS"]) // nil = 订阅全部
 
 				if typ == "feishu" {
@@ -292,6 +293,7 @@ func parseWebhookValue(v any) (*WebhookConfig, bool) {
 					gameEndTemplateVersion, _ := parseStringValue(tm["GAME_END_TEMPLATE_VERSION"])
 					liveUpdate, _ := parseBoolValue(tm["LIVE_UPDATE"])
 					targets = append(targets, WebhookTarget{
+						ID:                     id,
 						Type:                   typ,
 						Events:                 events,
 						AppID:                  appID,
@@ -328,6 +330,7 @@ func parseWebhookValue(v any) (*WebhookConfig, bool) {
 					}
 					accessToken, _ := parseStringValue(tm["ACCESS_TOKEN"])
 					targets = append(targets, WebhookTarget{
+						ID:          id,
 						URL:         url,
 						Type:        typ,
 						Events:      events,
@@ -345,7 +348,7 @@ func parseWebhookValue(v any) (*WebhookConfig, bool) {
 					continue
 				}
 				secret, _ := parseStringValue(tm["SECRET"])
-				targets = append(targets, WebhookTarget{URL: url, Type: typ, Events: events, Secret: secret})
+				targets = append(targets, WebhookTarget{ID: id, URL: url, Type: typ, Events: events, Secret: secret})
 			}
 		}
 	}

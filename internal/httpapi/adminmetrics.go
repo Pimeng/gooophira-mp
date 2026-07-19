@@ -87,6 +87,19 @@ func (s *Service) handleAdminMetrics(w http.ResponseWriter, r *http.Request, _ *
 			"roomCreationEnabled": roomCreationEnabled,
 		},
 	}
+	agentStatus := map[string]any{"enabled": false, "online": false}
+	if s.agent != nil {
+		status := s.agent.Status()
+		agentStatus = map[string]any{
+			"enabled": status.Enabled, "online": status.Online,
+			"endpoint": status.Endpoint, "consumerId": status.ConsumerID,
+			"agentVersion": status.AgentVersion, "lastSeen": status.LastSeen,
+			"ackedSequence": status.AckedSequence, "latestSequence": status.LatestSequence,
+			"pendingEvents": status.PendingEvents, "outboxBytes": status.OutboxBytes,
+			"droppedNormal": status.DroppedNormal,
+		}
+	}
+	resp["agent"] = agentStatus
 	// ?history=1 附带 CPU/内存历史采样（GUI 图表回填）。
 	if r.URL.Query().Get("history") == "1" {
 		resp["history"] = s.statsProc.History()

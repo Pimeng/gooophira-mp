@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"reflect"
+	"strings"
 )
 
 // 配置字段元数据表：一处定义，驱动 env 加载、map 构建、合并、差异比对、startup-only 分类。
@@ -252,6 +253,98 @@ var configFields = []fieldSpec{
 	strField("STATS_DB_PATH", true, parseStringValue, func(c *ServerConfig) **string { return &c.StatsDBPath }),
 	intField("STATS_DETAIL_RETENTION_DAYS", false, parseNonNegativeIntValue, func(c *ServerConfig) **int { return &c.StatsDetailRetentionDays }),
 	intField("STATS_DB_MAX_MB", false, parsePositiveIntValue, func(c *ServerConfig) **int { return &c.StatsDBMaxMB }),
+	{
+		env: "AGENT_IPC", startupOnly: true,
+		parse: func(v any) (any, bool) { return parseAgentIPCValue(v) },
+		get: func(c *ServerConfig) any {
+			if c.AgentIPC == nil {
+				return nil
+			}
+			return *c.AgentIPC
+		},
+		set:   func(c *ServerConfig, v any) { c.AgentIPC = v.(*AgentIPCConfig) },
+		clear: func(c *ServerConfig) { c.AgentIPC = nil },
+		envInput: func() (any, bool) {
+			values := map[string]any{
+				"ENDPOINT": os.Getenv("AGENT_IPC_ENDPOINT"), "TOKEN": os.Getenv("AGENT_IPC_TOKEN"),
+				"DISCOVERY_FILE": os.Getenv("AGENT_IPC_DISCOVERY_FILE"),
+				"INSTANCE":       os.Getenv("AGENT_IPC_INSTANCE"),
+				"OUTBOX_DIR":     os.Getenv("AGENT_OUTBOX_DIR"),
+				"OUTBOX_MAX_MB":  os.Getenv("AGENT_OUTBOX_MAX_MB"),
+				"WEBHOOK_OWNER":  os.Getenv("AGENT_WEBHOOK_OWNER"),
+			}
+			present := false
+			for _, value := range values {
+				if value != "" {
+					present = true
+					break
+				}
+			}
+			if !present {
+				return nil, false
+			}
+			return values, true
+		},
+	},
+}
+
+func parseAgentIPCValue(v any) (*AgentIPCConfig, bool) {
+	m, ok := asRecord(v)
+	if !ok {
+		return nil, false
+	}
+	allowed := map[string]bool{"ENDPOINT": true, "TOKEN": true, "DISCOVERY_FILE": true, "INSTANCE": true, "OUTBOX_DIR": true, "OUTBOX_MAX_MB": true, "WEBHOOK_OWNER": true}
+	for key := range m {
+		if !allowed[key] {
+			return nil, false
+		}
+	}
+	endpoint := ""
+	if raw, present := m["ENDPOINT"]; present {
+		if raw != "" {
+			endpoint, ok = parseStringValue(raw)
+			if !ok {
+				return nil, false
+			}
+		}
+	}
+	if endpoint != "" && endpoint != "disabled" && endpoint != "auto" &&
+		!strings.HasPrefix(endpoint, "unix://") &&
+		!strings.HasPrefix(endpoint, "npipe://") &&
+		!strings.HasPrefix(endpoint, "tcp://") {
+		return nil, false
+	}
+	out := &AgentIPCConfig{Endpoint: endpoint}
+	for key, target := range map[string]*string{
+		"TOKEN": &out.Token, "DISCOVERY_FILE": &out.DiscoveryFile, "INSTANCE": &out.Instance, "OUTBOX_DIR": &out.OutboxDir,
+	} {
+		if raw, present := m[key]; present {
+			if raw == "" {
+				continue
+			}
+			value, valid := parseStringValue(raw)
+			if !valid {
+				return nil, false
+			}
+			*target = value
+		}
+	}
+	if raw, present := m["WEBHOOK_OWNER"]; present && raw != "" {
+		owner, valid := parseStringValue(raw)
+		owner = strings.ToLower(owner)
+		if !valid || (owner != "server" && owner != "agent") {
+			return nil, false
+		}
+		out.WebhookOwner = owner
+	}
+	if raw, present := m["OUTBOX_MAX_MB"]; present && raw != "" {
+		value, valid := parsePositiveIntValue(raw)
+		if !valid {
+			return nil, false
+		}
+		out.OutboxMaxMB = value
+	}
+	return out, true
 }
 
 // KnownEnvNames 返回所有已知配置项的 ENV/YAML 名。
@@ -336,7 +429,42 @@ func Merge(base, override *ServerConfig) *ServerConfig {
 	if merged.TestAccountIDs == nil {
 		merged.TestAccountIDs = append([]int(nil), DefaultTestAccountIDs...)
 	}
+	merged.AgentIPC = mergeAgentIPC(base.AgentIPC, override.AgentIPC)
 	return merged
+}
+
+func mergeAgentIPC(base, override *AgentIPCConfig) *AgentIPCConfig {
+	if base == nil && override == nil {
+		return nil
+	}
+	var out AgentIPCConfig
+	if base != nil {
+		out = *base
+	}
+	if override != nil {
+		if override.Endpoint != "" {
+			out.Endpoint = override.Endpoint
+		}
+		if override.Token != "" {
+			out.Token = override.Token
+		}
+		if override.DiscoveryFile != "" {
+			out.DiscoveryFile = override.DiscoveryFile
+		}
+		if override.Instance != "" {
+			out.Instance = override.Instance
+		}
+		if override.OutboxDir != "" {
+			out.OutboxDir = override.OutboxDir
+		}
+		if override.OutboxMaxMB > 0 {
+			out.OutboxMaxMB = override.OutboxMaxMB
+		}
+		if override.WebhookOwner != "" {
+			out.WebhookOwner = override.WebhookOwner
+		}
+	}
+	return &out
 }
 
 // ensureParsed 把 get() 返回的解引用值还原成 set() 期望的形态（标量直传，
@@ -352,6 +480,8 @@ func ensureParsed(v any) any {
 	case RedisConfig:
 		return &x
 	case WebhookConfig:
+		return &x
+	case AgentIPCConfig:
 		return &x
 	default:
 		return v

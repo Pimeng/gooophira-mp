@@ -48,6 +48,7 @@ func BuildScoreRank(room *Room, st StatePlaying) []ScoreRankEntry {
 			stdScore = *rec.StdScore
 		}
 		rank = append(rank, ScoreRankEntry{
+			PlayerID: uid,
 			Player:   name,
 			Score:    rec.Score,
 			StdScore: stdScore,

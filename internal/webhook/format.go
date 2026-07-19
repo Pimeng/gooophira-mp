@@ -3,6 +3,7 @@ package webhook
 import (
 	"github.com/Pimeng/gooophira-mp/internal/server"
 	"github.com/Pimeng/gooophira-mp/internal/webhook/adapter"
+	"github.com/Pimeng/gooophira-mp/internal/webhookmodel"
 )
 
 // Format 按目标类型把事件编码为请求体与 Content-Type。
@@ -13,11 +14,25 @@ import (
 // 返回 nil body 表示该类型无法编码 / 不走 HTTP（跳过该目标）。
 // 实际格式化逻辑在 adapter 包，这里保留导出 API 转调以兼容外部（测试）使用。
 func Format(typ string, ev server.Event) (body []byte, contentType string) {
-	return adapter.Format(typ, ev)
+	return adapter.Format(typ, FromServerEvent(ev))
 }
 
 // RenderText 生成事件的人类可读文本（用于 Discord/飞书等纯文本机器人）。
 // 转调 adapter.RenderText 以保留导出 API。
 func RenderText(ev server.Event) string {
-	return adapter.RenderText(ev)
+	return adapter.RenderText(FromServerEvent(ev))
+}
+
+func FromServerEvent(ev server.Event) webhookmodel.Event {
+	ranks := make([]webhookmodel.ScoreRankEntry, 0, len(ev.PlayerScoreRank))
+	for _, rank := range ev.PlayerScoreRank {
+		ranks = append(ranks, webhookmodel.ScoreRankEntry{PlayerID: rank.PlayerID, Player: rank.Player, Score: rank.Score, StdScore: rank.StdScore})
+	}
+	return webhookmodel.Event{
+		Type: string(ev.Type), Time: ev.Time, Server: ev.Server, RoomID: ev.RoomID,
+		ChartID: ev.ChartID, ChartName: ev.ChartName, UserID: ev.UserID, UserName: ev.UserName,
+		UserCount: ev.UserCount, Enabled: ev.Enabled, Message: ev.Message,
+		ChartDifficulty: ev.ChartDifficulty, ChartCharter: ev.ChartCharter,
+		PlayerList: ev.PlayerList, ImageURL: ev.ImageURL, PlayerScoreRank: ranks,
+	}
 }

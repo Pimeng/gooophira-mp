@@ -13,24 +13,25 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Pimeng/gooophira-mp/internal/agentipc"
 	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
 	"github.com/Pimeng/gooophira-mp/internal/procstats"
 	"github.com/Pimeng/gooophira-mp/internal/server"
-	"github.com/Pimeng/gooophira-mp/internal/stats"
 )
 
 // Service 是 HTTP 服务实例。
 type Service struct {
-	state      *server.ServerState
-	hub        *server.Hub
-	rl         *rateLimiter
-	auth       *adminAuth
-	ws         *wsHub
-	statsProc  *procstats.Sampler
-	statsStore *stats.Store
-	pprofURL   string
-	http       *http.Server
+	state         *server.ServerState
+	hub           *server.Hub
+	rl            *rateLimiter
+	auth          *adminAuth
+	ws            *wsHub
+	statsProc     *procstats.Sampler
+	statsProvider StatsProvider
+	agent         *agentipc.Service
+	pprofURL      string
+	http          *http.Server
 
 	roomCacheMu sync.Mutex
 	roomCache   []byte
@@ -54,12 +55,17 @@ type Service struct {
 	startedAt time.Time // 启动时间（用于 /admin/metrics uptime）
 }
 
+// SetAgentService exposes the optional Agent connection state through existing
+// authenticated management metrics. A nil service means Agent IPC is disabled
+// or failed to start.
+func (s *Service) SetAgentService(agent *agentipc.Service) { s.agent = agent }
+
 // cleanupInterval 是 replay/otp 过期项独立清理的间隔（短于 replaySessionTTL=30min 与 OTP 封禁时长）。
 const cleanupInterval = 5 * time.Minute
 
-// New 创建 HTTP 服务（未启动）。statsStore 为 nil 时统计端点返回 503。
+// New 创建 HTTP 服务（未启动）。statsProvider 为 nil 时统计端点返回 503。
 // 同时把 WebSocket hub 注入 state.WSService。
-func New(state *server.ServerState, hub *server.Hub, statsStore *stats.Store, pprofURL ...string) *Service {
+func New(state *server.ServerState, hub *server.Hub, statsProvider StatsProvider, pprofURL ...string) *Service {
 	cfg := state.Config
 	s := &Service{
 		state: state,
@@ -69,7 +75,7 @@ func New(state *server.ServerState, hub *server.Hub, statsStore *stats.Store, pp
 			time.Duration(cfg.EffectiveHTTPRateLimitWindowMS())*time.Millisecond,
 		),
 		auth:           newAdminAuth(),
-		statsStore:     statsStore,
+		statsProvider:  statsProvider,
 		replaySessions: make(map[string]replaySession),
 		otpSessions:    make(map[string]otpSession),
 		otpFailIP:      make(map[string]int),

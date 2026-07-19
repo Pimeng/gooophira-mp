@@ -40,6 +40,12 @@ func TestAdminMetrics(t *testing.T) {
 			Cores   int     `json:"cores"`
 			Percent float64 `json:"percent"`
 		} `json:"cpu"`
+		Agent struct {
+			Enabled       bool  `json:"enabled"`
+			Online        bool  `json:"online"`
+			PendingEvents int   `json:"pendingEvents"`
+			OutboxBytes   int64 `json:"outboxBytes"`
+		} `json:"agent"`
 		Business struct {
 			OnlineUsers       int  `json:"onlineUsers"`
 			ActiveRooms       int  `json:"activeRooms"`
@@ -68,6 +74,9 @@ func TestAdminMetrics(t *testing.T) {
 	}
 	if resp.Process.Runtime == "" {
 		t.Error("process.runtime should be set for GUI subtitle")
+	}
+	if resp.Agent.Enabled || resp.Agent.Online {
+		t.Errorf("Agent should be observably disabled in the default test service: %+v", resp.Agent)
 	}
 	// addUser(1) + addRoom 的房主(2) = 2 名在线用户。
 	if resp.Business.OnlineUsers != 2 || resp.Business.ActiveRooms != 1 || resp.Business.ServerBannedUsers != 1 {

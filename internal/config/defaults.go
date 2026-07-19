@@ -19,6 +19,12 @@ const (
 	DefaultWebhookRetries           = 2
 	DefaultStatsDetailRetentionDays = 90
 	DefaultStatsDBMaxMB             = 500
+	DefaultAgentIPCEndpoint         = "disabled"
+	DefaultAgentIPCDiscoveryFile    = "agent-ipc.json"
+	DefaultAgentIPCInstance         = "default"
+	DefaultAgentOutboxDir           = "agent-outbox"
+	DefaultAgentOutboxMaxMB         = 64
+	DefaultAgentWebhookOwner        = "agent"
 )
 
 var (

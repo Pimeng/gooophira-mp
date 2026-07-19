@@ -9,10 +9,23 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Pimeng/gooophira-mp/internal/agentproto"
+	"github.com/Pimeng/gooophira-mp/internal/agentstats"
 	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/server"
 	"github.com/Pimeng/gooophira-mp/internal/stats"
 )
+
+type localStatsProvider struct{ handler agentstats.QueryHandler }
+
+func (p localStatsProvider) QueryStats(_ context.Context, method string, params any) (int, json.RawMessage, error) {
+	data, err := json.Marshal(params)
+	if err != nil {
+		return 0, nil, err
+	}
+	response := p.handler.Handle(agentproto.QueryRequest{ID: "test", Method: method, Params: data})
+	return response.StatusCode, response.Body, nil
+}
 
 func newStatsService(t *testing.T) (*Service, *stats.Store) {
 	t.Helper()
@@ -52,7 +65,7 @@ func newStatsService(t *testing.T) (*Service, *stats.Store) {
 	}
 
 	state := server.NewServerState(&config.ServerConfig{}, nil, "test", "", "")
-	svc := New(state, server.NewHub(state, nil), store)
+	svc := New(state, server.NewHub(state, nil), localStatsProvider{handler: agentstats.QueryHandler{Store: store}})
 	t.Cleanup(func() { _ = svc.Close() })
 	return svc, store
 }

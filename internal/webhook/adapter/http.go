@@ -19,7 +19,7 @@ import (
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
-	"github.com/Pimeng/gooophira-mp/internal/server"
+	"github.com/Pimeng/gooophira-mp/internal/webhookmodel"
 )
 
 // HTTP 是 HTTP POST 投递适配器。日志文案经 l10n 本地化（lang nil 走默认语言）。
@@ -56,7 +56,7 @@ func (h *HTTP) warn(key string, args map[string]string) {
 
 // Deliver 向单个 HTTP 目标投递一次格式化载荷。
 // 返回 (成功, 失败时是否可重试)。载荷经 webhook.Format 生成；feishu 返回 nil 视为跳过（ok=true）。
-func (h *HTTP) Deliver(ctx context.Context, t config.WebhookTarget, ev server.Event) (ok, retryable bool) {
+func (h *HTTP) Deliver(ctx context.Context, t config.WebhookTarget, ev webhookmodel.Event) (ok, retryable bool) {
 	body, contentType := Format(t.Type, ev)
 	if body == nil {
 		// 该类型不走 HTTP（如 feishu）：静默跳过，不计失败、不重试。

@@ -69,12 +69,33 @@ type RecordMatchResult struct {
 func (s *Store) RecordMatch(ctx context.Context, roomID string, chartID int, chartName string,
 	userIDs []int, results map[int]config.RecordData, userNames map[int]string,
 	durationSec float64) ([]RecordMatchResult, error) {
+	return s.RecordMatchEvent(ctx, "", roomID, chartID, chartName, userIDs, results, userNames, durationSec)
+}
+
+// RecordMatchEvent records an Agent event idempotently. The event ID claim and
+// all match/stat updates share one SQLite transaction.
+func (s *Store) RecordMatchEvent(ctx context.Context, eventID, roomID string, chartID int, chartName string,
+	userIDs []int, results map[int]config.RecordData, userNames map[int]string,
+	durationSec float64) ([]RecordMatchResult, error) {
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("stats: begin tx: %w", err)
 	}
 	defer tx.Rollback()
+	if eventID != "" {
+		claim, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO consumed_events(event_id) VALUES(?)`, eventID)
+		if err != nil {
+			return nil, fmt.Errorf("stats: claim event: %w", err)
+		}
+		rows, err := claim.RowsAffected()
+		if err != nil {
+			return nil, fmt.Errorf("stats: claim event rows: %w", err)
+		}
+		if rows == 0 {
+			return nil, nil
+		}
+	}
 
 	// 1. 插入 match 行
 	res, err := tx.ExecContext(ctx,

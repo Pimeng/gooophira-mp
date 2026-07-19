@@ -13,21 +13,25 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/jpeg"
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/disintegration/imaging"
 	"github.com/google/uuid"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+	xdraw "golang.org/x/image/draw"
+	"golang.org/x/image/webp"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
-	"github.com/Pimeng/gooophira-mp/internal/server"
+	"github.com/Pimeng/gooophira-mp/internal/webhookmodel"
 )
 
 const (
@@ -135,16 +139,16 @@ func (f *Feishu) warn(key string, args map[string]string) {
 // EventRoomDisband 清理流式更新状态；
 // 其余事件走纯文本（msg_type=text），内容用 RenderText(ev) 生成，降低模板配额占用。
 // 返回 (成功, 失败时是否可重试)。重试/超时由调用方（webhook.Dispatcher）控制。
-func (f *Feishu) Deliver(ctx context.Context, t config.WebhookTarget, ev server.Event) (ok, retryable bool) {
+func (f *Feishu) Deliver(ctx context.Context, t config.WebhookTarget, ev webhookmodel.Event) (ok, retryable bool) {
 	client := f.larkClient(t.AppID, t.AppSecret)
 	f.debug(fmt.Sprintf("开始投递飞书事件：%s", ev.Type))
 	switch ev.Type {
-	case server.EventGameStart:
+	case webhookmodel.EventGameStart:
 		if t.LiveUpdate {
 			f.clearLiveUpdate(liveUpdateKey(ev.RoomID, t))
 		}
 		return f.deliverTemplate(ctx, client, t, ev)
-	case server.EventScoreSubmitted:
+	case webhookmodel.EventScoreSubmitted:
 		if !t.LiveUpdate {
 			return true, false // 未启用流式更新：跳过
 		}
@@ -152,7 +156,7 @@ func (f *Feishu) Deliver(ctx context.Context, t config.WebhookTarget, ev server.
 			return true, false // 无成绩：跳过
 		}
 		return f.deliverScoreUpdate(ctx, client, t, ev)
-	case server.EventGameEnd:
+	case webhookmodel.EventGameEnd:
 		if t.LiveUpdate {
 			if handled, ok, retryable := f.deliverGameEndLive(ctx, client, t, ev); handled {
 				return ok, retryable
@@ -166,7 +170,7 @@ func (f *Feishu) Deliver(ctx context.Context, t config.WebhookTarget, ev server.
 		}
 		_, ok, retryable = f.deliverGameEndTemplate(ctx, client, t, ev, "")
 		return ok, retryable
-	case server.EventRoomDisband:
+	case webhookmodel.EventRoomDisband:
 		f.cleanLiveUpdateEntries(ev.RoomID)
 		return true, false
 	default:
@@ -211,7 +215,7 @@ func liveUpdateKey(roomID string, t config.WebhookTarget) feishuLiveUpdateKey {
 }
 
 // deliverScoreUpdate 处理 ScoreSubmitted 事件：首次发送卡片，后续 PATCH 更新。
-func (f *Feishu) deliverScoreUpdate(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev server.Event) (ok, retryable bool) {
+func (f *Feishu) deliverScoreUpdate(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev webhookmodel.Event) (ok, retryable bool) {
 	key := liveUpdateKey(ev.RoomID, t)
 	f.liveMu.Lock()
 	entry := f.msgIDs[key]
@@ -235,7 +239,7 @@ func (f *Feishu) deliverScoreUpdate(ctx context.Context, client *lark.Client, t 
 
 // deliverGameEndLive 处理 LiveUpdate 开启时的 GameEnd 事件。
 // handled=false 表示本局没有流式状态，调用方可降级为一次性发送；可重试失败时保留状态。
-func (f *Feishu) deliverGameEndLive(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev server.Event) (handled, ok, retryable bool) {
+func (f *Feishu) deliverGameEndLive(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev webhookmodel.Event) (handled, ok, retryable bool) {
 	key := liveUpdateKey(ev.RoomID, t)
 	f.liveMu.Lock()
 	entry := f.msgIDs[key]
@@ -293,7 +297,7 @@ func (f *Feishu) cleanLiveUpdateEntries(roomID string) {
 }
 
 // deliverTemplate 投递 EventGameStart 的交互式模板消息。
-func (f *Feishu) deliverTemplate(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev server.Event) (ok, retryable bool) {
+func (f *Feishu) deliverTemplate(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev webhookmodel.Event) (ok, retryable bool) {
 	tplVars := feishuTemplateVariables(ev)
 	chartPicKey := ""
 
@@ -321,7 +325,7 @@ func (f *Feishu) deliverTemplate(ctx context.Context, client *lark.Client, t con
 
 // deliverGameEndTemplate 投递 EventGameEnd 的卡片模板消息（含成绩排行）。
 // reqUUID 非空时设入请求实现幂等去重；返回 messageID 供流式更新 PATCH 使用。
-func (f *Feishu) deliverGameEndTemplate(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev server.Event, reqUUID string) (messageID string, ok, retryable bool) {
+func (f *Feishu) deliverGameEndTemplate(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev webhookmodel.Event, reqUUID string) (messageID string, ok, retryable bool) {
 	// player_score_rank 作为数组对象传入模板变量，供模板表格组件迭代生成行。
 	// 不可传 JSON 字符串：飞书表格组件无法迭代字符串，会报 table rows is invalid（230099）。
 	tplVars := map[string]any{
@@ -335,7 +339,7 @@ func (f *Feishu) deliverGameEndTemplate(ctx context.Context, client *lark.Client
 }
 
 // patchGameEndTemplate 用 PATCH 更新已发送的 game_end 卡片（成绩实时刷新）。
-func (f *Feishu) patchGameEndTemplate(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev server.Event, messageID string) (ok, retryable bool) {
+func (f *Feishu) patchGameEndTemplate(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev webhookmodel.Event, messageID string) (ok, retryable bool) {
 	tplVars := map[string]any{
 		"room_id":           ev.RoomID,
 		"player_score_rank": ev.PlayerScoreRank,
@@ -347,7 +351,7 @@ func (f *Feishu) patchGameEndTemplate(ctx context.Context, client *lark.Client, 
 }
 
 // deliverText 投递纯文本消息（msg_type=text）。内容用 RenderText 生成。
-func (f *Feishu) deliverText(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev server.Event) (ok, retryable bool) {
+func (f *Feishu) deliverText(ctx context.Context, client *lark.Client, t config.WebhookTarget, ev webhookmodel.Event) (ok, retryable bool) {
 	text := RenderText(ev)
 	f.debug(fmt.Sprintf("飞书文本投递内容：%s", text))
 	_, ok, retryable = f.sendMessage(ctx, client, t, "text", feishuTextContent(text), "")
@@ -421,55 +425,78 @@ func (f *Feishu) patchMessage(ctx context.Context, client *lark.Client, messageI
 	return true, false
 }
 
-// compressImage 把图片字节流压缩到 ≤ maxBytes。策略：
-//  1. 逐步降低 JPEG 质量（95→85→75→65→55）；
-//  2. 若仍超限，按 0.85 系数逐级缩小尺寸后重编码（保留长宽比）。
-//
-// GIF 保持原样返回（imaging 对动图只编首帧，会丢失动画——交给飞书原样处理）。
-// 失败（解码/编码出错）时返回错误，由调用方决定是否回退到原图（飞书会拒）。
-func compressImage(src []byte, maxBytes int) ([]byte, error) {
-	// GIF 不压缩（动图首帧会丢动画）。
-	if strings.HasPrefix(http.DetectContentType(src), "image/gif") {
-		return src, nil
+// compressWebP explicitly decodes a static WebP, composites transparency onto
+// white, and encodes progressively smaller JPEGs until the upload limit fits.
+func compressWebP(src []byte, maxBytes int) ([]byte, error) {
+	if !isWebP(src) {
+		return nil, fmt.Errorf("unsupported image format: expected WebP")
 	}
-	img, err := imaging.Decode(bytes.NewReader(src))
+	if isAnimatedWebP(src) {
+		return nil, fmt.Errorf("animated WebP is not supported")
+	}
+	img, err := webp.Decode(bytes.NewReader(src))
 	if err != nil {
-		return nil, fmt.Errorf("decode: %w", err)
+		return nil, fmt.Errorf("decode WebP: %w", err)
 	}
-
-	// 第一阶段：降 JPEG 质量，不缩尺寸。
-	qualities := []int{95, 85, 75, 65, 55}
-	for _, q := range qualities {
+	base := whiteBackground(img)
+	for _, quality := range []int{90, 80, 70, 60, 50} {
 		var buf bytes.Buffer
-		if err := imaging.Encode(&buf, img, imaging.JPEG, imaging.JPEGQuality(q)); err != nil {
-			return nil, fmt.Errorf("encode q=%d: %w", q, err)
+		if err := jpeg.Encode(&buf, base, &jpeg.Options{Quality: quality}); err != nil {
+			return nil, fmt.Errorf("encode JPEG q=%d: %w", quality, err)
 		}
 		if buf.Len() <= maxBytes {
 			return buf.Bytes(), nil
 		}
 	}
-
-	// 第二阶段：仍超限，逐级缩尺寸（每轮 ×0.85）后再按 75 质量编码。
-	for scale := 0.85; ; scale *= 0.85 {
-		bounds := img.Bounds()
-		w := int(float64(bounds.Dx()) * scale)
-		h := int(float64(bounds.Dy()) * scale)
+	current := image.Image(base)
+	for {
+		bounds := current.Bounds()
+		w := int(float64(bounds.Dx()) * 0.85)
+		h := int(float64(bounds.Dy()) * 0.85)
 		if w < 2 || h < 2 {
 			return nil, fmt.Errorf("cannot shrink below %d bytes", maxBytes)
 		}
-		resized := imaging.Resize(img, w, h, imaging.Lanczos)
+		resized := image.NewRGBA(image.Rect(0, 0, w, h))
+		xdraw.CatmullRom.Scale(resized, resized.Bounds(), current, current.Bounds(), draw.Src, nil)
 		var buf bytes.Buffer
-		if err := imaging.Encode(&buf, resized, imaging.JPEG, imaging.JPEGQuality(75)); err != nil {
+		if err := jpeg.Encode(&buf, resized, &jpeg.Options{Quality: 75}); err != nil {
 			return nil, fmt.Errorf("encode resized %dx%d: %w", w, h, err)
 		}
 		if buf.Len() <= maxBytes {
 			return buf.Bytes(), nil
 		}
-		// 防止无限循环：尺寸已极小仍超限时退出。
 		if w <= 8 || h <= 8 {
 			return nil, fmt.Errorf("still %d bytes after max shrink", buf.Len())
 		}
+		current = resized
 	}
+}
+
+func whiteBackground(src image.Image) *image.RGBA {
+	bounds := src.Bounds()
+	dst := image.NewRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
+	draw.Draw(dst, dst.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
+	draw.Draw(dst, dst.Bounds(), src, bounds.Min, draw.Over)
+	return dst
+}
+
+func isWebP(src []byte) bool {
+	return len(src) >= 12 && string(src[:4]) == "RIFF" && string(src[8:12]) == "WEBP"
+}
+
+func isAnimatedWebP(src []byte) bool {
+	if !isWebP(src) {
+		return false
+	}
+	for offset := 12; offset+8 <= len(src); {
+		chunk := string(src[offset : offset+4])
+		size := int(uint32(src[offset+4]) | uint32(src[offset+5])<<8 | uint32(src[offset+6])<<16 | uint32(src[offset+7])<<24)
+		if chunk == "ANIM" || chunk == "ANMF" {
+			return true
+		}
+		offset += 8 + size + size%2
+	}
+	return false
 }
 
 // feishuTextContent 组装文本消息的 content 字段：{"text":"<文本>"}（JSON 序列化字符串）。
@@ -548,8 +575,11 @@ func (f *Feishu) uploadImageFromURL(ctx context.Context, client *lark.Client, ap
 	// 只接受 io.Reader、无法传文件名，飞书后端靠内容嗅探识别格式。这里做一次本地嗅探，
 	// 及早发现非图片内容（例如 HTML 错误页）以给出清晰错误。
 	contentType := http.DetectContentType(imgBytes)
-	if !strings.HasPrefix(contentType, "image/") {
-		return "", fmt.Errorf("not an image: detected %s", contentType)
+	if !isWebP(imgBytes) {
+		return "", fmt.Errorf("unsupported illustration format: detected %s, expected static WebP", contentType)
+	}
+	if isAnimatedWebP(imgBytes) {
+		return "", fmt.Errorf("animated WebP illustration is not supported")
 	}
 	f.debug(fmt.Sprintf("飞书消息图片下载完成（%d 字节，%s）", len(imgBytes), contentType))
 	// 以原图字节内容的 sha256 为缓存键：同一张原图（无论从哪个 URL 下载、是否压缩）
@@ -569,7 +599,7 @@ func (f *Feishu) uploadImageFromURL(ctx context.Context, client *lark.Client, ap
 	uploadBytes := imgBytes
 	// 软限 feishuImageMaxBytes（10 MB）：超过则本地压缩到 ≤10 MB 再上传，避免被飞书 234006 拒。
 	if len(imgBytes) > feishuImageMaxBytes {
-		uploadBytes, err = compressImage(imgBytes, feishuImageMaxBytes)
+		uploadBytes, err = compressWebP(imgBytes, feishuImageMaxBytes)
 		if err != nil {
 			return "", fmt.Errorf("compress image: %w", err)
 		}
@@ -605,7 +635,7 @@ func (f *Feishu) uploadImageFromURL(ctx context.Context, client *lark.Client, ap
 
 // feishuTemplateVariables 把事件字段映射到飞书模板变量。
 // chart_pic 由调用方在图片上传成功后覆写为 {"img_key": ...}。
-func feishuTemplateVariables(ev server.Event) map[string]any {
+func feishuTemplateVariables(ev webhookmodel.Event) map[string]any {
 	return map[string]any{
 		"room_id":          ev.RoomID,
 		"chart_name":       ev.ChartName,

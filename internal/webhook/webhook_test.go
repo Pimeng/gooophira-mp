@@ -17,6 +17,7 @@ import (
 	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/server"
 	"github.com/Pimeng/gooophira-mp/internal/webhook/adapter"
+	"github.com/Pimeng/gooophira-mp/internal/webhookmodel"
 )
 
 // capture 是一个收集收到的请求的测试服务器助手。
@@ -85,7 +86,7 @@ type targetCaptureAdapter struct {
 	targets []config.WebhookTarget
 }
 
-func (a *targetCaptureAdapter) Deliver(_ context.Context, target config.WebhookTarget, _ server.Event) (bool, bool) {
+func (a *targetCaptureAdapter) Deliver(_ context.Context, target config.WebhookTarget, _ webhookmodel.Event) (bool, bool) {
 	a.targets = append(a.targets, target)
 	return true, false
 }
@@ -105,7 +106,7 @@ func TestDispatcherSplitsOneBotTargetIDArray(t *testing.T) {
 		}},
 	})
 
-	d.handle(server.Event{Type: server.EventGameEnd})
+	d.handle(webhookmodel.Event{Type: webhookmodel.EventGameEnd})
 
 	if len(capture.targets) != 3 {
 		t.Fatalf("delivery count=%d, want 3", len(capture.targets))

@@ -17,7 +17,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Pimeng/gooophira-mp/internal/autoupload"
+	"github.com/Pimeng/gooophira-mp/internal/agentbridge"
+	"github.com/Pimeng/gooophira-mp/internal/agentipc"
+	"github.com/Pimeng/gooophira-mp/internal/agentoutbox"
+	"github.com/Pimeng/gooophira-mp/internal/agentproto"
 	"github.com/Pimeng/gooophira-mp/internal/cache"
 	"github.com/Pimeng/gooophira-mp/internal/cli"
 	"github.com/Pimeng/gooophira-mp/internal/config"
@@ -32,8 +35,7 @@ import (
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
 	"github.com/Pimeng/gooophira-mp/internal/replay"
 	"github.com/Pimeng/gooophira-mp/internal/server"
-	"github.com/Pimeng/gooophira-mp/internal/stats"
-	"github.com/Pimeng/gooophira-mp/internal/webhook"
+	"github.com/Pimeng/gooophira-mp/internal/version"
 )
 
 // 默认监听端口（标准 Phira MP 端口）。
@@ -138,12 +140,61 @@ func main() {
 	// 日志旁路到 GUI 控制台缓冲（供 /admin/console/logs 回填与 WS 推送）。
 	logger.SetOnLog(state.ConsoleHub.Push)
 
-	// Webhook 事件外发（对局/房间/维护事件 → 群机器人等）。非阻塞，未配置则 no-op；热重载生效。
-	webhookDispatcher := webhook.New(logger, lang)
-	webhookDispatcher.SetConfig(cfg.EffectiveWebhook())
-	state.Events = webhookDispatcher
-	state.OnConfigReload(func(c *config.ServerConfig) { webhookDispatcher.SetConfig(c.EffectiveWebhook()) })
-	defer webhookDispatcher.Close()
+	// Optional Agent IPC. Failure is a degraded extension state and must never
+	// prevent the real-time game server from starting.
+	agentCfg := cfg.EffectiveAgentIPC()
+	var outbox *agentoutbox.Store
+	if agentCfg.Endpoint != "disabled" {
+		outbox, err = agentoutbox.Open(agentoutbox.Config{
+			Dir: agentCfg.OutboxDir, MaxBytes: int64(agentCfg.OutboxMaxMB) * 1024 * 1024,
+		})
+		if err != nil {
+			logger.Warn("Agent outbox unavailable: " + err.Error())
+		}
+	}
+	var agentPublisher *agentbridge.Publisher
+	if outbox != nil {
+		agentPublisher = agentbridge.New(outbox, logger, 1024)
+		defer func() {
+			agentPublisher.Close()
+			if err := outbox.Close(); err != nil {
+				logger.Warn("Agent outbox shutdown failed: " + err.Error())
+			}
+		}()
+	}
+	agentSvc, agentErr := agentipc.Start(agentipc.Config{
+		Endpoint: agentCfg.Endpoint, Token: agentCfg.Token,
+		DiscoveryFile: agentCfg.DiscoveryFile, Instance: agentCfg.Instance,
+		ServerVersion: version.Get(), Outbox: outbox,
+	})
+	if agentErr != nil {
+		logger.Warn("Agent IPC unavailable: " + agentErr.Error())
+	} else if agentSvc != nil {
+		logger.Info("Agent IPC listening at " + agentSvc.Endpoint())
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if err := agentSvc.Close(ctx); err != nil {
+				logger.Warn("Agent IPC shutdown failed: " + err.Error())
+			}
+		}()
+	}
+	// Webhook delivery is Agent-owned. The main process only emits durable
+	// domain events and never imports platform SDKs or extension credentials.
+	eventSinks := server.EventSinks{}
+	if cfg.EffectiveWebhook() != nil {
+		logger.Warn("server webhook.yaml is deprecated and not delivered; move targets to config/agent.yaml")
+	}
+	if loadedConfig.extensionEnabled("stats.yaml") {
+		logger.Warn("server stats.yaml is deprecated and not opened; move STATS settings to config/agent.yaml")
+	}
+	if agentCfg.WebhookOwner != "agent" {
+		logger.Warn("AGENT_IPC.WEBHOOK_OWNER=server is no longer supported; use agent")
+	}
+	if agentPublisher != nil {
+		eventSinks = append(eventSinks, agentPublisher)
+	}
+	state.Events = eventSinks
 	if err := state.LoadAdminData(); err != nil {
 		logger.Warn(l10n.TL(lang, "log-admin-data-load-failed", map[string]string{"error": err.Error()}))
 	}
@@ -167,8 +218,7 @@ func main() {
 	defer logMaint.Stop()
 
 	phiraEndpoint := strOr(cfg.PhiraAPIEndpoint, "")
-	// rootCtx 在服务器关闭时取消（rootCancel），用于中断进行中的上游 HTTP 调用
-	// 与 stats.RecordMatch 的 SQL 操作，避免关闭后仍有悬挂请求。
+	// rootCtx 在服务器关闭时取消（rootCancel），用于中断进行中的上游 HTTP 调用。
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
 	phiraClient := phira.NewClient(phiraEndpoint)
@@ -190,26 +240,6 @@ func main() {
 		replay.WithSystemUser(int32(cfg.EffectiveSystemUserID()), phiraClient.FetchUserName),
 	)
 	state.ReplayRecorder = recorder
-
-	// 对局结束自动上传分享站（延迟 30s）。仅在 REPLAY_AUTO_UPLOAD 开启且分享站配置时实际生效。
-	autoUploader := autoupload.New(state, autoupload.DefaultDelay)
-	state.AutoUploadCallback = autoUploader.Handle
-	defer autoUploader.Close()
-
-	// 对局成绩持久化（SQLite）：每局结算写入 match_results + 增量 rollup，
-	// 支撑玩家档案、排行榜、谱面热度榜。DB 文件路径可经 STATS_DB_PATH 配置。
-	statsPath := cfg.EffectiveStatsDBPath()
-	var statsStore *stats.Store
-	if loadedConfig.extensionEnabled("stats.yaml") {
-		var statsErr error
-		statsStore, statsErr = stats.Open(statsPath)
-		if statsErr != nil {
-			logger.Warn(l10n.TL(lang, "log-stats-open-failed", map[string]string{"path": statsPath, "error": statsErr.Error()}))
-		} else {
-			logger.Mark(l10n.TL(lang, "log-stats-opened", map[string]string{"path": statsPath}))
-			defer statsStore.Close()
-		}
-	}
 
 	hub.OnEnterPlaying = func(room *server.Room) {
 		ev := server.Event{Type: server.EventGameStart, RoomID: room.ID.String(), UserCount: room.UserCount()}
@@ -233,6 +263,7 @@ func main() {
 				name = strconv.Itoa(uid)
 			}
 			playerParts = append(playerParts, fmt.Sprintf("%s(%d)", name, uid))
+			ev.Players = append(ev.Players, server.EventPlayer{ID: uid, Name: name})
 		}
 		ev.PlayerList = strings.Join(playerParts, "、")
 		state.EmitEvent(ev) // 无视回放开关，每局开始都发
@@ -250,6 +281,8 @@ func main() {
 		recorder.StartRoom(room.ID, room.Chart.ID, room.Chart.Name, users)
 	}
 	hub.OnGameEnd = func(room *server.Room) {
+		serverName := state.ServerName
+		roomID := room.ID.String()
 		ev := server.Event{Type: server.EventGameEnd, RoomID: room.ID.String()}
 		if room.Chart != nil {
 			ev.ChartID, ev.ChartName = room.Chart.ID, room.Chart.Name
@@ -259,42 +292,41 @@ func main() {
 			ev.PlayerScoreRank = server.BuildScoreRank(room, st)
 		}
 		state.EmitEvent(ev)
+		match, hasMatch := agentbridge.CaptureMatchFinished(serverName, room)
+		if !hasMatch && agentPublisher != nil {
+			ended := agentproto.GameEndedV1{Server: serverName, RoomID: roomID}
+			if room.Chart != nil {
+				ended.Chart = agentproto.ChartV1{ID: room.Chart.ID, Name: room.Chart.Name, Difficulty: room.Chart.Level, Charter: room.Chart.Charter, Illustration: room.Chart.Illustration}
+			}
+			go func() {
+				if err := agentPublisher.PublishCritical(agentproto.EventGameEndedV1, ended); err != nil {
+					logger.Warn("Agent game-end event append failed: " + err.Error())
+				}
+			}()
+		}
 		go func() {
 			recorder.EndRoom(room.ID) // 落盘放到 goroutine，避免阻塞命令处理（持有 state.Mu）
-			// 落盘完成后逐个触发自动上传（Handle 内部判断开关/分享站/延迟）。
+			replayIDs := make(map[int]string)
+			// Replay completion is published after the file is durably closed. The
+			// optional Agent owns upload scheduling and share-station credentials.
 			for _, f := range recorder.ListRoomFiles(room.ID) {
-				autoUploader.Handle(f.UserID, f.ChartID, f.Timestamp, 0)
+				replayID := replay.IDFromFile(f).String()
+				replayIDs[f.UserID] = replayID
+				if agentPublisher != nil {
+					if err := agentPublisher.PublishCritical(agentproto.EventReplayCompletedV1, agentproto.ReplayCompletedV1{
+						Server: serverName, RoomID: roomID, ReplayID: replayID, UserID: f.UserID, ChartID: f.ChartID,
+					}); err != nil {
+						logger.Warn("Agent replay event append failed: " + err.Error())
+					}
+				}
+			}
+			if hasMatch && agentPublisher != nil {
+				agentbridge.AttachReplayIDs(&match, replayIDs)
+				if err := agentPublisher.PublishCritical(agentproto.EventMatchFinishedV1, match); err != nil {
+					logger.Warn("Agent match event append failed: " + err.Error())
+				}
 			}
 		}()
-		// 成绩持久化：异步写入 SQLite（不阻塞命令循环）。拷贝状态避免 room 状态
-		// 被重置为 StateSelectChart 后原 map/slice 被覆写。
-		if statsStore != nil {
-			st, ok := room.PlayingState()
-			if ok && len(st.Results) > 0 {
-				roomID := room.ID.String()
-				chartID := 0
-				chartName := ""
-				if room.Chart != nil {
-					chartID = room.Chart.ID
-					chartName = room.Chart.Name
-				}
-				userIDs := room.UserIDs()
-				results := make(map[int]config.RecordData, len(st.Results))
-				userNames := make(map[int]string, len(st.Results))
-				for uid, rd := range st.Results {
-					results[uid] = rd
-					if u := state.Users[uid]; u != nil {
-						userNames[uid] = u.Name
-					}
-				}
-				durationSec := time.Since(st.StartedAt).Seconds()
-				go func() {
-					if _, err := statsStore.RecordMatch(rootCtx, roomID, chartID, chartName, userIDs, results, userNames, durationSec); err != nil {
-						logger.Warn("stats write failed: " + err.Error())
-					}
-				}()
-			}
-		}
 	}
 
 	// 回放过期清理：启动时清一次，并每日定时清理。
@@ -314,24 +346,6 @@ func main() {
 			}
 		}
 	}()
-
-	// 成绩统计明细裁剪：每日清理超过保留期的 match_results 明细（rollup 不受影响）。
-	if statsStore != nil {
-		statsStore.CleanupDetail(cfg.EffectiveStatsDetailRetentionDays())
-		go func() {
-			ticker := time.NewTicker(24 * time.Hour)
-			defer ticker.Stop()
-			for range ticker.C {
-				retDays := cfg.EffectiveStatsDetailRetentionDays()
-				if err := statsStore.CleanupDetail(retDays); err != nil {
-					logger.Warn("stats cleanup failed: " + err.Error())
-				}
-				if err := statsStore.VacuumIfNeeded(statsPath, cfg.EffectiveStatsDBMaxMB()); err != nil {
-					logger.Warn("stats vacuum failed: " + err.Error())
-				}
-			}
-		}()
-	}
 
 	host := strOr(cfg.Host, "::")
 	port := defaultPort
@@ -362,7 +376,8 @@ func main() {
 		if cfg.HTTPPort != nil {
 			httpPort = *cfg.HTTPPort
 		}
-		httpSvc = httpapi.New(state, hub, statsStore, pprofURL)
+		httpSvc = httpapi.New(state, hub, agentSvc, pprofURL)
+		httpSvc.SetAgentService(agentSvc)
 		httpAddr, herr := httpSvc.Start(net.JoinHostPort(host, strconv.Itoa(httpPort)))
 		if herr != nil {
 			logger.Error(l10n.TL(lang, "log-http-start-failed", map[string]string{"error": herr.Error()}))

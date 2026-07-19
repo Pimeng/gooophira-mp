@@ -59,6 +59,11 @@ CREATE TABLE IF NOT EXISTS chart_stats (
     popularity    REAL    NOT NULL DEFAULT 0.0,
     updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS consumed_events (
+    event_id     TEXT PRIMARY KEY,
+    processed_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `
 
 // migrations 是增量 ALTER TABLE 语句序列，按顺序执行；

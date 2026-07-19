@@ -43,10 +43,17 @@ type Event struct {
 
 	// game_end 事件的成绩排行（按 score 降序）。飞书模板变量 player_score_rank 消费此切片。
 	PlayerScoreRank []ScoreRankEntry `json:"player_score_rank,omitempty"`
+	Players         []EventPlayer    `json:"players,omitempty"`
+}
+
+type EventPlayer struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
 }
 
 // ScoreRankEntry 是单条房间成绩排行数据，用于 game_end 事件的 player_score_rank 模板变量。
 type ScoreRankEntry struct {
+	PlayerID int     `json:"player_id"`
 	Player   string  `json:"player"`    // 玩家昵称
 	Score    int     `json:"score"`     // 成绩
 	StdScore float64 `json:"std_score"` // 标准分

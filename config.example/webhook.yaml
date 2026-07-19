@@ -1,8 +1,7 @@
 # Webhook 事件通知配置
 #
-# 将本文件复制为 config/webhook.yaml 即启用 Webhook 扩展。
-# 通知会异步投递，目标不可达不会阻塞房间和对局逻辑。
-# 修改本文件可自动热重载；删除文件会停止新的事件投递并关闭扩展。
+# 此文件仅作为旧配置迁移参考。主程序不再投递 Webhook。
+# 请将目标和密钥移至 config/agent.yaml，并由可选 Agent 进程负责投递。
 #
 # 支持的目标类型：
 #   generic    通用结构化 JSON，适合自建服务
@@ -42,6 +41,7 @@ TARGETS:
   #   X-Phira-Signature: sha256=<HMAC-SHA256(请求体)>
   # 接收端应使用同一密钥验签。SECRET 属于敏感信息，不要公开。
   - TYPE: generic
+    ID: primary-generic
     URL: "https://example.com/hook"
     EVENTS: [room_create, game_start, game_end]
     # SECRET: "replace_me"

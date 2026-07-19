@@ -37,6 +37,8 @@ func TestEffectiveDefaults(t *testing.T) {
 		{"Monitors", c.EffectiveMonitors(), []int{2}},
 		{"TestAccountIDs", c.EffectiveTestAccountIDs(), []int{1739989}},
 		{"CorsOrigins", c.EffectiveCorsOrigins(), []string{}},
+		{"AgentIPCEndpoint", c.EffectiveAgentIPC().Endpoint, "disabled"},
+		{"AgentWebhookOwner", c.EffectiveAgentIPC().WebhookOwner, "agent"},
 	}
 	for _, ck := range checks {
 		if !reflect.DeepEqual(ck.got, ck.want) {
@@ -127,6 +129,23 @@ func TestMerge(t *testing.T) {
 	}
 }
 
+func TestMergeAgentIPCFields(t *testing.T) {
+	base := &ServerConfig{AgentIPC: &AgentIPCConfig{Endpoint: "auto", DiscoveryFile: "server.json", Instance: "blue", OutboxDir: "queue", OutboxMaxMB: 32, WebhookOwner: "agent"}}
+	override := &ServerConfig{AgentIPC: &AgentIPCConfig{Token: "environment-secret"}}
+	merged := Merge(base, override).EffectiveAgentIPC()
+	if merged.Endpoint != "auto" || merged.DiscoveryFile != "server.json" || merged.Instance != "blue" || merged.Token != "environment-secret" || merged.OutboxDir != "queue" || merged.OutboxMaxMB != 32 || merged.WebhookOwner != "agent" {
+		t.Fatalf("Agent IPC fields were not merged independently: %+v", merged)
+	}
+}
+
+func TestLoadEnvAgentIPCTokenOnly(t *testing.T) {
+	t.Setenv("AGENT_IPC_TOKEN", "environment-secret")
+	cfg := LoadEnv()
+	if cfg.AgentIPC == nil || cfg.AgentIPC.Token != "environment-secret" || cfg.AgentIPC.Endpoint != "" {
+		t.Fatalf("token-only Agent IPC environment override = %+v", cfg.AgentIPC)
+	}
+}
+
 func TestChangedKeys(t *testing.T) {
 	a := BuildFromMap(map[string]any{"ROOM_MAX_USERS": 8, "CHAT_ENABLED": true})
 	b := BuildFromMap(map[string]any{"ROOM_MAX_USERS": 16, "CHAT_ENABLED": true})
@@ -198,7 +217,7 @@ func TestParseOutboundProxy(t *testing.T) {
 
 func TestStartupOnlyEnvNames(t *testing.T) {
 	names := StartupOnlyEnvNames()
-	want := map[string]bool{"HOST": true, "PORT": true, "HTTP_SERVICE": true, "HTTP_PORT": true, "GUI": true, "ADMIN_DATA_PATH": true, "REDIS": true, "STATS_DB_PATH": true}
+	want := map[string]bool{"HOST": true, "PORT": true, "HTTP_SERVICE": true, "HTTP_PORT": true, "GUI": true, "ADMIN_DATA_PATH": true, "REDIS": true, "STATS_DB_PATH": true, "AGENT_IPC": true}
 	for _, n := range names {
 		if !want[n] {
 			t.Errorf("unexpected startup-only key %q", n)

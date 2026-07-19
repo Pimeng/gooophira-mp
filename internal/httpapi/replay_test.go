@@ -142,52 +142,11 @@ func TestReplay_Delete(t *testing.T) {
 }
 
 func TestReplay_UploadToShareStation(t *testing.T) {
-	// mock 分享站：/upload_direct 返回 replay_id；/show/ 返回 200。
-	ss := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/upload_direct" {
-			_ = json.NewEncoder(w).Encode(map[string]any{"replay_id": "100_42_555.phirarec"})
-			return
-		}
-		w.WriteHeader(200)
-	}))
-	defer ss.Close()
-
-	dir := t.TempDir()
-	rec := replay.NewRecorder(dir, nil)
-	roomID := protocol.RoomID("r")
-	rec.StartRoom(roomID, 42, "MyChart", []replay.Participant{{ID: 100, Name: "alice"}})
-	rec.AppendTouches(roomID, 100, []protocol.TouchFrame{{Time: 1, Points: []protocol.TouchPoint{{ID: 0, Pos: protocol.CompactPos{X: 0.5, Y: 0.5}}}}})
-	rec.SetRecordID(roomID, 100, 777)
-	rec.EndRoom(roomID)
-	ts := rec.ListRoomFiles(roomID)[0].Timestamp
-
-	cfg := &config.ServerConfig{ReplayBaseDir: &dir, ShareStation: &config.ShareStation{URL: ss.URL, Token: "tok"}}
-	state := server.NewServerState(cfg, nil, "test", "", "")
-	svc := New(state, server.NewHub(state, fakeReplayPhira{id: 100}), nil)
-
+	svc, _, _, ts := newReplayService(t)
 	body := fmt.Sprintf(`{"token":"valid","chartId":42,"timestamp":%d}`, ts)
 	w := doReq(svc, http.MethodPost, "/replay/upload", body)
-	if w.Code != 200 {
-		t.Fatalf("upload status = %d body=%s", w.Code, w.Body.String())
-	}
-	var resp struct {
-		OK      bool `json:"ok"`
-		ScoreID int  `json:"scoreId"`
-	}
-	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	if !resp.OK || resp.ScoreID != 555 {
-		t.Fatalf("unexpected upload response: %s", w.Body.String())
-	}
-	// 上传成功后本地文件应删除。
-	if len(replay.ListReplaysForUser(dir, 100)) != 0 {
-		t.Error("local replay should be deleted after upload")
-	}
-	// 元数据应记录。
-	state.Mu.Lock()
-	metas := state.UploadedReplayMeta[100][42]
-	state.Mu.Unlock()
-	if len(metas) != 1 || metas[0].ScoreID != 555 {
-		t.Errorf("uploaded meta not stored: %v", metas)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("upload without Agent status = %d body=%s", w.Code, w.Body.String())
 	}
 }
 
@@ -200,30 +159,17 @@ func TestReplay_UploadNotConfigured(t *testing.T) {
 }
 
 func TestReplay_AutoUploadConfig(t *testing.T) {
-	svc, state, _, _ := newReplayService(t)
+	svc, _, _, _ := newReplayService(t)
 
 	// GET 默认 show=false。
 	w := doReq(svc, http.MethodGet, "/replay/auto-upload/config?token=valid", "")
-	if w.Code != 200 {
+	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("get config status = %d body=%s", w.Code, w.Body.String())
-	}
-	var g struct {
-		Show bool `json:"show"`
-	}
-	_ = json.Unmarshal(w.Body.Bytes(), &g)
-	if g.Show {
-		t.Error("show should default to false")
 	}
 
 	// POST show=true。
-	if w := doReq(svc, http.MethodPost, "/replay/auto-upload/config", `{"token":"valid","show":true}`); w.Code != 200 {
+	if w := doReq(svc, http.MethodPost, "/replay/auto-upload/config", `{"token":"valid","show":true}`); w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("post config status = %d body=%s", w.Code, w.Body.String())
-	}
-	state.Mu.Lock()
-	cfg := state.AutoUploadConfigs[100]
-	state.Mu.Unlock()
-	if cfg == nil || !cfg.Show {
-		t.Error("show should be true after POST")
 	}
 
 	// 无 token → 400。

@@ -1,0 +1,31 @@
+# Agent-owned extension configuration.
+# Copy this file to config/agent.yaml and start phira-mp-agent normally.
+# Deployment, systemd, Windows, migration and troubleshooting: docs/agent.md
+# The server does not load this file or use these extension credentials.
+version: 1
+ENABLED: false
+TIMEOUT_MS: 5000
+RETRIES: 2
+TARGETS:
+  # Generic JSON example. See webhook.yaml for all target types.
+  # - TYPE: generic
+  #   ID: primary-generic
+  #   URL: "https://example.com/hook"
+  #   EVENTS: [room_create, game_start, game_end]
+  []
+
+STATS:
+  ENABLED: false
+  DB_PATH: stats.db
+  DETAIL_RETENTION_DAYS: 90
+  DB_MAX_MB: 500
+
+# Optional replay uploads. BASE_DIR must point to the server replay root.
+REPLAY_UPLOAD:
+  ENABLED: false
+  AUTO_UPLOAD: false
+  BASE_DIR: replays
+  URL: ""
+  TOKEN: ""
+  STATE_PATH: agent-inbox/upload-state.json
+  DELAY_MS: 30000

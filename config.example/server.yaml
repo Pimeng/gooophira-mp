@@ -55,6 +55,26 @@ LANG: "zh-CN"
 # 开启后令牌可能进入浏览器历史、访问日志和代理日志，仅兼容旧脚本时使用。
 # ALLOW_TOKEN_IN_QUERY: false
 
+# ==================== 可选 Agent IPC ====================
+
+# Agent 是独立的可选扩展进程；未安装、未启动或崩溃均不影响游戏服务。
+# ENDPOINT 支持 disabled（默认）、auto、unix://、npipe:// 和仅回环 tcp://。
+# auto 在 Unix 使用 Unix Domain Socket、Windows 使用 Named Pipe，本地 IPC 创建失败时
+# 才回退到随机 loopback TCP。显式 transport 失败不会静默降级。修改后需要重启。
+AGENT_IPC:
+  ENDPOINT: disabled
+  # 多实例标识，用于生成默认 socket/pipe 名称。
+  INSTANCE: default
+  # 发现文件包含实际 endpoint 和随机 token，程序以 0600 权限原子写入。
+  DISCOVERY_FILE: agent-ipc.json
+  # 主程序持久化事件目录与硬容量上限；比赛结算等关键事件可使用全部容量。
+  OUTBOX_DIR: agent-outbox
+  OUTBOX_MAX_MB: 64
+  # Webhook 已由 Agent 独占；旧值 server 仅用于识别并输出迁移警告。
+  WEBHOOK_OWNER: agent
+  # 通常留空并让服务端每次启动随机生成。固定 token 推荐通过 AGENT_IPC_TOKEN 环境变量注入。
+  TOKEN: ""
+
 # 管理数据（封禁、比赛房间等）的 JSON 持久化路径，默认 ./admin_data.json。
 # 修改后需要重启。
 # ADMIN_DATA_PATH: "./admin_data.json"

@@ -1,12 +1,50 @@
 package adapter
 
 import (
+	"bytes"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/jpeg"
 	"net/http"
 	"testing"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
 )
+
+func TestAnimatedWebPDetection(t *testing.T) {
+	animated := append([]byte("RIFF\x10\x00\x00\x00WEBP"), []byte("ANIM\x00\x00\x00\x00")...)
+	if !isAnimatedWebP(animated) {
+		t.Fatal("ANIM chunk should be detected as animated WebP")
+	}
+	if _, err := compressWebP(animated, 1024); err == nil {
+		t.Fatal("animated WebP should be rejected")
+	}
+}
+
+func TestCompressWebPRejectsOtherFormats(t *testing.T) {
+	if _, err := compressWebP([]byte("not-webp"), 1024); err == nil {
+		t.Fatal("non-WebP input should be rejected")
+	}
+}
+
+func TestWhiteBackgroundCompositesTransparency(t *testing.T) {
+	src := image.NewNRGBA(image.Rect(0, 0, 1, 1))
+	src.SetNRGBA(0, 0, color.NRGBA{R: 255, A: 128})
+	composited := whiteBackground(src)
+	var encoded bytes.Buffer
+	if err := jpeg.Encode(&encoded, composited, &jpeg.Options{Quality: 100}); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := jpeg.Decode(bytes.NewReader(encoded.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, g, b, _ := decoded.At(0, 0).RGBA()
+	if r < 60000 || g < 28000 || b < 28000 {
+		t.Fatalf("transparent red was not composited onto white: r=%d g=%d b=%d", r, g, b)
+	}
+}
 
 func TestLiveUpdateKeyIsolatesTargets(t *testing.T) {
 	base := config.WebhookTarget{

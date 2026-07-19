@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
-	"github.com/Pimeng/gooophira-mp/internal/server"
+	"github.com/Pimeng/gooophira-mp/internal/webhookmodel"
 )
 
 func TestOneBotV11DeliversGroupText(t *testing.T) {
@@ -28,8 +28,8 @@ func TestOneBotV11DeliversGroupText(t *testing.T) {
 	target := config.WebhookTarget{
 		URL: srv.URL + "/onebot/?source=webhook", AccessToken: "token", MessageType: "group", TargetID: 123456,
 	}
-	ok, retryable := NewOneBotV11(srv.Client()).Deliver(context.Background(), target, server.Event{
-		Type: server.EventRoomDisband, Server: "Test", RoomID: "ROOM",
+	ok, retryable := NewOneBotV11(srv.Client()).Deliver(context.Background(), target, webhookmodel.Event{
+		Type: webhookmodel.EventRoomDisband, Server: "Test", RoomID: "ROOM",
 	})
 	if !ok || retryable {
 		t.Fatalf("Deliver()=(%v,%v), want (true,false)", ok, retryable)
@@ -57,7 +57,7 @@ func TestOneBotV11DeliversPrivateText(t *testing.T) {
 
 	ok, retryable := NewOneBotV11(srv.Client()).Deliver(context.Background(), config.WebhookTarget{
 		URL: srv.URL, MessageType: "private", TargetID: 654321,
-	}, server.Event{Type: server.EventMaintenance, Enabled: true})
+	}, webhookmodel.Event{Type: webhookmodel.EventMaintenance, Enabled: true})
 	if !ok || retryable || gotPath != "/send_private_msg" || gotBody["user_id"] != float64(654321) {
 		t.Fatalf("unexpected delivery: ok=%v retryable=%v path=%q body=%#v", ok, retryable, gotPath, gotBody)
 	}
@@ -83,7 +83,7 @@ func TestOneBotV11DeliversToTargetIDArray(t *testing.T) {
 
 	ok, retryable := NewOneBotV11(srv.Client()).Deliver(context.Background(), config.WebhookTarget{
 		URL: srv.URL, MessageType: "group", TargetIDs: []int64{111, 222, 333},
-	}, server.Event{Type: server.EventGameEnd})
+	}, webhookmodel.Event{Type: webhookmodel.EventGameEnd})
 	if ok || retryable {
 		t.Fatalf("Deliver()=(%v,%v), want (false,false)", ok, retryable)
 	}
@@ -113,7 +113,7 @@ func TestOneBotV11ClassifiesFailures(t *testing.T) {
 			defer srv.Close()
 			ok, retryable := NewOneBotV11(srv.Client()).Deliver(context.Background(), config.WebhookTarget{
 				URL: srv.URL, MessageType: "group", TargetID: 1,
-			}, server.Event{Type: server.EventGameEnd})
+			}, webhookmodel.Event{Type: webhookmodel.EventGameEnd})
 			if ok || retryable != tc.retryable {
 				t.Fatalf("Deliver()=(%v,%v), want (false,%v)", ok, retryable, tc.retryable)
 			}

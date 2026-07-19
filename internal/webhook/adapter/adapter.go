@@ -17,7 +17,7 @@ import (
 	"context"
 
 	"github.com/Pimeng/gooophira-mp/internal/config"
-	"github.com/Pimeng/gooophira-mp/internal/server"
+	"github.com/Pimeng/gooophira-mp/internal/webhookmodel"
 )
 
 // userAgent 出站 HTTP 请求统一的 User-Agent（HTTP 投递与飞书下载图片共用）。
@@ -31,7 +31,7 @@ const userAgent = "phira-mp-webhook"
 //   - ok=false, retryable=true：瞬时故障（网络/超时/5xx/429），Dispatcher 可重试。
 //   - ok=false, retryable=false：客户端/配置/权限类错误，不重试。
 type Adapter interface {
-	Deliver(ctx context.Context, t config.WebhookTarget, ev server.Event) (ok, retryable bool)
+	Deliver(ctx context.Context, t config.WebhookTarget, ev webhookmodel.Event) (ok, retryable bool)
 }
 
 // Logger 是适配器所需的最小日志接口（与 webhook.Logger / server.Logger 兼容，便于注入）。

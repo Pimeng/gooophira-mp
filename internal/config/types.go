@@ -56,6 +56,20 @@ type ServerConfig struct {
 	StatsDBPath              *string
 	StatsDetailRetentionDays *int
 	StatsDBMaxMB             *int
+	AgentIPC                 *AgentIPCConfig
+}
+
+// AgentIPCConfig owns the server side of the optional local Agent boundary.
+// An empty token is generated at startup and only exposed through the
+// user-readable discovery file.
+type AgentIPCConfig struct {
+	Endpoint      string
+	Token         string
+	DiscoveryFile string
+	Instance      string
+	OutboxDir     string
+	OutboxMaxMB   int
+	WebhookOwner  string
 }
 
 // ShareStation 是回放分享站配置（自动上传到第三方平台用）。
@@ -74,6 +88,7 @@ type ShareStation struct {
 // 模板 ID/版本可选覆盖（game_start 与 game_end 分别配置），留空时走飞书适配器
 // 内置默认；事件字段（含可选 ImageURL 上传后换回的 image_key）映射到模板变量。
 type WebhookTarget struct {
+	ID     string   // Agent 幂等账本中的稳定目标 ID；省略时从目标配置派生
 	URL    string   // 投递地址（Type=generic/discord/onebot_v11 使用；feishu 不用）
 	Type   string   // 目标类型：generic | discord | onebot_v11 | feishu（未知按 generic）
 	Events []string // 订阅的事件类型；空 = 订阅全部

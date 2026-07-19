@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"os"
 	"sort"
@@ -8,11 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Pimeng/gooophira-mp/internal/agentipc"
+	"github.com/Pimeng/gooophira-mp/internal/agentproto"
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
 	"github.com/Pimeng/gooophira-mp/internal/protocol"
 	"github.com/Pimeng/gooophira-mp/internal/replay"
-	"github.com/Pimeng/gooophira-mp/internal/server"
-	"github.com/Pimeng/gooophira-mp/internal/sharestation"
 )
 
 // 玩家可见的回放路由（对应 TS routes/replayPublicRoutes.ts，去除依赖分享站的手动上传）：
@@ -191,19 +193,7 @@ func (s *Service) handleReplayDelete(w http.ResponseWriter, r *http.Request, lan
 	s.writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// shareStationClient 按当前配置构造分享站客户端（未配置返回 ok=false）。
-func (s *Service) shareStationClient() (*sharestation.Client, bool) {
-	s.state.Mu.Lock()
-	cfg := s.state.Config
-	s.state.Mu.Unlock()
-	ss := cfg.ShareStation
-	if ss == nil || ss.URL == "" || ss.Token == "" {
-		return nil, false
-	}
-	return sharestation.NewClient(sharestation.Config{URL: ss.URL, Token: ss.Token}), true
-}
-
-// handleReplayUpload 手动上传一份本地回放到分享站：校验归属 → 上传 → 设可见 → 记录元数据 → 删本地。
+// handleReplayUpload validates player ownership and delegates the upload to Agent.
 func (s *Service) handleReplayUpload(w http.ResponseWriter, r *http.Request, lang *l10n.Language) {
 	body, _ := decodeJSONObject(r)
 	token := strings.TrimSpace(jsonString(body["token"]))
@@ -218,51 +208,8 @@ func (s *Service) handleReplayUpload(w http.ResponseWriter, r *http.Request, lan
 		s.adminErr(w, lang, http.StatusUnauthorized, "unauthorized", "auth-unauthorized")
 		return
 	}
-	client, configured := s.shareStationClient()
-	if !configured {
-		s.adminErr(w, lang, http.StatusServiceUnavailable, "share-station-not-configured", "share-station-not-configured")
-		return
-	}
-
-	path := replay.FilePath(s.replayBaseDir(), userID, chartID, timestamp)
-	header, herr := replay.ReadReplayHeader(path)
-	if herr != nil || header.UserID != userID || header.ChartID != chartID {
-		s.adminErr(w, lang, http.StatusNotFound, "not-found", "http-not-found")
-		return
-	}
-	data, ferr := os.ReadFile(path)
-	if ferr != nil {
-		s.adminErr(w, lang, http.StatusNotFound, "not-found", "http-not-found")
-		return
-	}
-
-	filename := strconv.FormatInt(timestamp, 10) + ".phirarec"
-	res, uerr := client.Upload(data, filename, header.ChartName, header.UserName)
-	if uerr != nil {
-		s.adminErr(w, lang, http.StatusInternalServerError, "upload-failed", "upload-failed")
-		return
-	}
-
-	if res.ScoreID != 0 {
-		s.state.Mu.Lock()
-		um := s.state.UploadedReplayMeta[userID]
-		if um == nil {
-			um = make(map[int][]server.UploadedReplayMeta)
-			s.state.UploadedReplayMeta[userID] = um
-		}
-		um[chartID] = append(um[chartID], server.UploadedReplayMeta{ScoreID: res.ScoreID, ChartID: chartID, Timestamp: timestamp})
-		s.state.Mu.Unlock()
-
-		_ = client.SetVisibility(res.ScoreID, true) // 手动上传默认可见
-		if rmErr := os.Remove(path); rmErr != nil && s.state.Logger != nil {
-			s.state.Logger.Warn("failed to delete local replay after upload: " + rmErr.Error())
-		}
-	}
-
-	s.writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true, "userId": userID, "chartId": chartID,
-		"recordId": header.RecordID, "scoreId": res.ScoreID, "message": "upload-success",
-	})
+	replayID := (replay.ID{UserID: userID, ChartID: chartID, Timestamp: timestamp}).String()
+	s.queryReplayAgent(w, r, lang, agentproto.QueryReplayUpload, agentproto.ReplayUploadParams{ReplayID: replayID, Visible: true})
 }
 
 func (s *Service) handleAutoUploadConfig(w http.ResponseWriter, r *http.Request, lang *l10n.Language) {
@@ -291,25 +238,28 @@ func (s *Service) handleAutoUploadConfig(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	s.state.Mu.Lock()
-	cfg := s.state.AutoUploadConfigs[userID]
-	if cfg == nil {
-		cfg = &server.AutoUploadConfig{Show: false}
-		s.state.AutoUploadConfigs[userID] = cfg
-	}
-	if setShow != nil {
-		cfg.Show = *setShow
-	}
-	show := cfg.Show
-	shareStationConfigured := s.state.ShareStationConfigured()
-	autoUploadEnabled := s.state.Config.EffectiveReplayAutoUpload()
-	s.state.Mu.Unlock()
+	s.queryReplayAgent(w, r, lang, agentproto.QueryReplayAutoConfig, agentproto.ReplayAutoConfigParams{UserID: userID, Show: setShow})
+}
 
-	s.writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true, "userId": userID, "show": show,
-		"shareStationConfigured": shareStationConfigured,
-		"autoUploadEnabled":      autoUploadEnabled,
-	})
+func (s *Service) queryReplayAgent(w http.ResponseWriter, r *http.Request, lang *l10n.Language, method string, params any) {
+	if s.agent == nil {
+		s.adminErr(w, lang, http.StatusServiceUnavailable, "agent-unavailable", "service-unavailable")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 65*time.Second)
+	defer cancel()
+	response, err := s.agent.Query(ctx, method, params)
+	if err != nil {
+		status := http.StatusBadGateway
+		if errors.Is(err, agentipc.ErrAgentUnavailable) {
+			status = http.StatusServiceUnavailable
+		}
+		s.adminErr(w, lang, status, "agent-unavailable", "service-unavailable")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(response.StatusCode)
+	_, _ = w.Write(response.Body)
 }
 
 // jsonInt64 把 JSON 值（float64/int）转为 int64。
