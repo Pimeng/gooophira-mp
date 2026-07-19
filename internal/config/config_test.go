@@ -169,7 +169,7 @@ func TestKeepStartupOnly(t *testing.T) {
 	host2 := "0.0.0.0"
 	mu16 := 16
 	prev := &ServerConfig{Host: &host1}
-	next := &ServerConfig{Host: &host2, RoomMaxUsers: &mu16} // HOST 是 startup-only
+	next := &ServerConfig{Host: &host2, RoomMaxUsers: &mu16} // HOST 仅启动期生效。
 	cfg, restart := KeepStartupOnly(prev, next)
 	if cfg.Host == nil || *cfg.Host != "127.0.0.1" {
 		t.Errorf("startup-only HOST should revert to prev, got %v", cfg.Host)

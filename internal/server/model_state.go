@@ -197,7 +197,7 @@ func (s *ServerState) OnConfigReload(fn func(*config.ServerConfig)) {
 	s.Mu.Unlock()
 }
 
-// ReloadConfig 用 next 热重载配置：保留 startup-only 项（仅记录需重启的键），计算变更键，
+// ReloadConfig 用 next 热重载配置：保留仅启动期配置（只记录需重启的键），计算变更键，
 // 应用到状态，处理回放开关副作用（刷新房间 live / 关闭时结束进行中的录制），并回调各监听器。
 // 返回实际变更键与「需重启才能生效」的键。无变更时为 no-op。对应 TS reloadRuntimeConfig。
 func (s *ServerState) ReloadConfig(next *config.ServerConfig) (changed, restart []string) {

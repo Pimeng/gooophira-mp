@@ -1,5 +1,5 @@
-// Package agentstats consumes match events into SQLite with transactional
-// event-id idempotency and serves stats queries for the server proxy.
+// agentstats 包把比赛事件写入 SQLite，通过事务保证事件 ID 幂等，
+// 并为服务端代理提供统计查询。
 package agentstats
 
 import (

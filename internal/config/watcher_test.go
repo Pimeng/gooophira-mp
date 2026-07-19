@@ -26,7 +26,7 @@ func TestFileWatcher_FiresOnChange(t *testing.T) {
 
 	select {
 	case <-fired:
-		// ok
+		// 变更通知已收到。
 	case <-time.After(2 * time.Second):
 		t.Fatal("watcher did not fire on file change")
 	}

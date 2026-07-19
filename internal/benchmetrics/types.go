@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// ── Latency ────────────────────────────────────────────────────────────
+// ── 延迟 ──────────────────────────────────────────────────────────────
 
 // LatencyStats 是延迟统计的最终计算结果，包含完整的分位值、分布和直方图。
 type LatencyStats struct {
@@ -40,7 +40,7 @@ type HistoBucket struct {
 	Pct   float64 `json:"pct"`
 }
 
-// ── Throughput ─────────────────────────────────────────────────────────
+// ── 吞吐量 ────────────────────────────────────────────────────────────
 
 // ThroughputStats 吞吐量统计。
 type ThroughputStats struct {
@@ -57,7 +57,7 @@ type ThroughputStats struct {
 	PerSecondTimeline []int64 `json:"per_second_timeline,omitempty"`
 }
 
-// ── Connection ─────────────────────────────────────────────────────────
+// ── 连接 ──────────────────────────────────────────────────────────────
 
 // ConnectionStats 连接生命周期统计。
 type ConnectionStats struct {
@@ -74,7 +74,7 @@ type ConnectionStats struct {
 	AuthRate    float64 `json:"auth_success_rate"`
 }
 
-// ── Error ──────────────────────────────────────────────────────────────
+// ── 错误 ──────────────────────────────────────────────────────────────
 
 // ErrorStats 错误分类统计。
 type ErrorStats struct {
@@ -89,7 +89,7 @@ type ErrorCount struct {
 	Count int64  `json:"count"`
 }
 
-// ── Runtime ────────────────────────────────────────────────────────────
+// ── 运行时 ────────────────────────────────────────────────────────────
 
 // RuntimeStats 运行时资源统计。
 type RuntimeStats struct {
@@ -110,7 +110,7 @@ type RuntimeStats struct {
 	AllocRateMB     float64       `json:"alloc_rate_mb_per_sec"`
 }
 
-// ── Scenario ───────────────────────────────────────────────────────────
+// ── 场景 ──────────────────────────────────────────────────────────────
 
 // ScenarioStats 场景专属指标。
 type ScenarioStats struct {
@@ -128,7 +128,7 @@ type RoomCycleStats struct {
 	LeaveCount        int64   `json:"leave_count"`
 }
 
-// ── Time Breakdown ─────────────────────────────────────────────────────
+// ── 时间分解 ──────────────────────────────────────────────────────────
 
 // TimeBreakdown 压测各阶段耗时及占比。
 type TimeBreakdown struct {
@@ -139,7 +139,7 @@ type TimeBreakdown struct {
 	Total     time.Duration `json:"total"`
 }
 
-// ── Result & Report ────────────────────────────────────────────────────
+// ── 结果与报告 ────────────────────────────────────────────────────────
 
 // BenchResult 单场景压测的完整结果。
 type BenchResult struct {

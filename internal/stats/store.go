@@ -72,8 +72,8 @@ func (s *Store) RecordMatch(ctx context.Context, roomID string, chartID int, cha
 	return s.RecordMatchEvent(ctx, "", roomID, chartID, chartName, userIDs, results, userNames, durationSec)
 }
 
-// RecordMatchEvent records an Agent event idempotently. The event ID claim and
-// all match/stat updates share one SQLite transaction.
+// RecordMatchEvent 以幂等方式记录 Agent 事件。
+// 事件 ID 占用和全部比赛/统计更新共用一个 SQLite 事务。
 func (s *Store) RecordMatchEvent(ctx context.Context, eventID, roomID string, chartID int, chartName string,
 	userIDs []int, results map[int]config.RecordData, userNames map[int]string,
 	durationSec float64) ([]RecordMatchResult, error) {
@@ -452,7 +452,7 @@ func (s *Store) GetRecentMatches(userID, limit int) ([]RecentMatch, error) {
 	return out, rows.Err()
 }
 
-// ---------- helpers ----------
+// ---------- 辅助函数 ----------
 
 type rankedResult struct {
 	record config.RecordData

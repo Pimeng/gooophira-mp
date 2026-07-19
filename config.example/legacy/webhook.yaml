@@ -1,4 +1,4 @@
-# Webhook 事件通知配置
+# Webhook 事件通知配置（旧主程序迁移参考）
 #
 # 此文件仅作为旧配置迁移参考。主程序不再投递 Webhook。
 # 请将目标和密钥移至 config/agent.yaml，并由可选 Agent 进程负责投递。

@@ -1,5 +1,4 @@
-// Package agentoutbox implements a bounded durable event log without pulling
-// a database dependency into the real-time server binary.
+// agentoutbox 包实现有界持久事件日志，避免给实时服务端二进制引入数据库依赖。
 package agentoutbox
 
 import (

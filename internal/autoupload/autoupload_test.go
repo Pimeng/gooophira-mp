@@ -31,7 +31,7 @@ func setup(t *testing.T, autoUpload bool) (*Uploader, *server.ServerState, strin
 		switch r.URL.Path {
 		case "/upload_direct":
 			_ = json.NewEncoder(w).Encode(map[string]any{"replay_id": "100_42_555.phirarec"})
-		default: // /show/ or /hide/
+		default: // 路径应包含 /show/ 或 /hide/。
 			atomic.AddInt32(&visCalls, 1)
 			w.WriteHeader(200)
 		}
@@ -87,7 +87,7 @@ func TestAutoUpload_VisibilityFollowsUserConfig(t *testing.T) {
 }
 
 func TestAutoUpload_SkipsWhenDisabled(t *testing.T) {
-	u, _, dir, ts, _, ss := setup(t, false) // REPLAY_AUTO_UPLOAD off
+	u, _, dir, ts, _, ss := setup(t, false) // 关闭 REPLAY_AUTO_UPLOAD。
 	defer ss.Close()
 
 	u.Handle(100, 42, ts, 777) // 应直接跳过（不调度）

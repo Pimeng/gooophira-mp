@@ -28,7 +28,7 @@ type AdminUserView struct {
 	Name      string `json:"name"`
 	Connected bool   `json:"connected"`
 	IsHost    bool   `json:"is_host"`
-	GameTime  any    `json:"game_time"` // -Inf → null
+	GameTime  any    `json:"game_time"` // 负无穷转换为 null。
 	Language  string `json:"language"`
 	Finished  *bool  `json:"finished,omitempty"`
 	Aborted   *bool  `json:"aborted,omitempty"`

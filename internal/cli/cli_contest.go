@@ -1,5 +1,5 @@
 // cli_contest.go 把「比赛模式」管理命令从 cli.go 拆出：
-// contest <roomid> <enable|disable|whitelist|start> [args...]。
+// 对应命令：contest <roomid> <enable|disable|whitelist|start> [args...]。
 package cli
 
 import (

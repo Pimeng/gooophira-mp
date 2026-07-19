@@ -5,7 +5,7 @@ import "time"
 // EventType 是服务器对外事件的类型（与 Webhook 订阅过滤、载荷里的 type 字段一致）。
 type EventType string
 
-// 事件类型枚举。新增类型时同步更新 server_config.example.yml 的 EVENTS 说明。
+// 事件类型枚举。新增类型时同步更新 config.example/agent.yaml 和 Webhook 迁移参考。
 const (
 	EventGameStart      EventType = "game_start"      // 房间进入游戏
 	EventGameEnd        EventType = "game_end"        // 一局结束

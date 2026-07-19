@@ -504,7 +504,7 @@ func BenchmarkDecodeServerCommand(b *testing.B) {
 	}
 }
 
-// Encoding rounds (encode → decode → verify) for client commands.
+// 对客户端命令执行编码、解码、验证的完整往返测试。
 func BenchmarkClientCommandRoundtrip(b *testing.B) {
 	cmd := CmdJoinRoom{ID: "room-bench-123", Monitor: false}
 	b.ReportAllocs()
@@ -517,7 +517,7 @@ func BenchmarkClientCommandRoundtrip(b *testing.B) {
 	}
 }
 
-// TouchFrame encoding benchmark — simulates heavy in-game traffic.
+// TouchFrame 编码基准测试，模拟游戏中的高流量场景。
 func BenchmarkEncodeTouchFrames(b *testing.B) {
 	frames := make([]TouchFrame, 10)
 	for i := range frames {

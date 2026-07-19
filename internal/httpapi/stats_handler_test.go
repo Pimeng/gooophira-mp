@@ -36,7 +36,7 @@ func newStatsService(t *testing.T) (*Service, *stats.Store) {
 	}
 	t.Cleanup(func() { store.Close() })
 
-	// Seed: 3 players, 3 games with sequential timestamps
+	// 写入 3 名玩家和 3 场时间连续的比赛作为种子数据。
 	r1 := map[int]config.RecordData{
 		1001: {ID: 1, Player: 1001, Score: 900000, Accuracy: 0.98, Perfect: 800, Good: 50, MaxCombo: 850, FullCombo: true},
 		1002: {ID: 2, Player: 1002, Score: 800000, Accuracy: 0.92, Perfect: 700, Good: 100, Bad: 30, Miss: 20, MaxCombo: 400},

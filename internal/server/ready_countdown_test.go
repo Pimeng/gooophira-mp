@@ -99,7 +99,7 @@ func TestReadyCountdown_ContestManualStart_NoCountdown(t *testing.T) {
 	hub.mustDispatch(t, host, protocol.CmdCreateRoom{ID: "room1"})
 	hub.mustDispatch(t, host, protocol.CmdSelectChart{ID: 1})
 	room := h.room("room1")
-	hub.EnableContest(room, nil) // ManualStart=true
+	hub.EnableContest(room, nil) // 启用手动开始。
 
 	hub.mustDispatch(t, host, protocol.CmdRequestStart{})
 

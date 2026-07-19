@@ -115,11 +115,11 @@ func lastChat(h *testHarness) (protocol.MsgChat, bool) {
 	return last, found
 }
 
-// ---------- AddUser ----------
+// ---------- 添加用户 ----------
 
 func TestAddUser_MaxUsersAndMonitors(t *testing.T) {
 	h := newHarness(200)
-	r := NewRoom("room1", 1, 2, false) // host=1，max=2
+	r := NewRoom("room1", 1, 2, false) // 房主为 1，人数上限为 2。
 	u2 := h.addUser(2, "bob")
 	u3 := h.addUser(3, "carol")
 
@@ -495,7 +495,7 @@ func TestHandleJoin_DuringPlayingMarksAborted(t *testing.T) {
 	}
 }
 
-// ---------- GameRanking ----------
+// ---------- 游戏排名 ----------
 
 // TestBroadcastGameRanking_SinglePlayerSkipped 验证单人游玩（仅一份成绩）不输出排名。
 func TestBroadcastGameRanking_SinglePlayerSkipped(t *testing.T) {
@@ -574,7 +574,7 @@ func TestBroadcastGameRanking_NoStdOmitsErrorSegment(t *testing.T) {
 	}
 }
 
-// ---------- ClientState ----------
+// ---------- 客户端状态 ----------
 
 func TestClientState(t *testing.T) {
 	h := newHarness()
@@ -608,7 +608,7 @@ func TestClientState(t *testing.T) {
 // benchDispatch 是 mustDispatch 的 testing.B 版本。
 func benchDispatch(b *testing.B, h *Hub, user *User, cmd protocol.ClientCommand) protocol.ServerCommand {
 	b.Helper()
-	// 与生产代码对齐：room-only 命令（Touches/Judges/Played）持 room.Mu，
+	// 与生产代码对齐：仅房间命令（Touches/Judges/Played）持 room.Mu，
 	// 其余命令持 state.Mu（全局串行，保护 state.Rooms 等全局 map）。
 	switch cmd.(type) {
 	case protocol.CmdTouches, protocol.CmdJudges, protocol.CmdPlayed:
@@ -740,7 +740,7 @@ func BenchmarkRoomGameplay(b *testing.B) {
 
 	room := alice.Room
 	for b.Loop() {
-		// Touches/Judges 是 room-only 命令，生产代码持 room.Mu 派发。
+		// Touches/Judges 是仅房间命令，生产代码持 room.Mu 派发。
 		room.Mu.Lock()
 		hub.ProcessClientCommand(alice, touches)
 		room.Mu.Unlock()

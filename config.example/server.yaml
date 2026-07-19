@@ -2,8 +2,8 @@
 #
 # 本文件必须存在。首次启动时，程序会自动生成一份最小的 config/server.yaml。
 # 未写出的配置项使用程序内置默认值；通常只需要保留并修改自己关心的项目。
-# replay.yaml、redis.yaml、webhook.yaml、stats.yaml、network.yaml 均为可选扩展，
-# 不要把 config.example 整个目录直接复制到 config，否则会启用全部扩展功能。
+# replay.yaml、redis.yaml、network.yaml 是 server 的可选扩展；agent.yaml 由 Agent 加载。
+# legacy/ 仅保存旧格式迁移参考。不要把 config.example 整体复制为活动配置。
 #
 # 配置优先级：命令行参数 > 环境变量 > 本文件 > 内置默认值。
 # 修改大部分运行参数会自动热重载；标注“需要重启”的项目不会立即生效。

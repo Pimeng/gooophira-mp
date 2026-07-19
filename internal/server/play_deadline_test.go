@@ -191,7 +191,7 @@ func TestPlayDeadline_ContestRoomNoDeadline(t *testing.T) {
 	hub.mustDispatch(t, alice, protocol.CmdCreateRoom{ID: "room1"})
 	hub.mustDispatch(t, alice, protocol.CmdSelectChart{ID: 1})
 	room := h.room("room1")
-	hub.EnableContest(room, nil) // ManualStart=true, AutoDisband=true
+	hub.EnableContest(room, nil) // 启用手动开始与自动解散。
 
 	hub.mustDispatch(t, alice, protocol.CmdRequestStart{})
 	if err := hub.StartContest(room, true); err != nil {

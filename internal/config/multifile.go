@@ -54,9 +54,8 @@ var configFileKeys = map[string][]string{
 	},
 }
 
-// ConfigSet is one atomically loaded multi-file configuration snapshot.
-// Config remains the runtime model used by the rest of the server. Files records
-// which optional capabilities were explicitly installed by the administrator.
+// ConfigSet 是一次原子加载得到的多文件配置快照。
+// Config 仍是服务端其它部分使用的运行时模型，Files 记录管理员显式安装了哪些可选能力。
 type ConfigSet struct {
 	Config *ServerConfig
 	Dir    string
@@ -79,8 +78,8 @@ func ConfigDirExists(dir string) bool {
 	return err == nil && !info.IsDir()
 }
 
-// LoadDir loads server.yaml and every known optional file that exists. Files are
-// never discovered by glob, so editor backups cannot accidentally enable a feature.
+// LoadDir 加载 server.yaml 以及所有存在的已知可选文件。
+// 文件不会通过 glob 发现，因此编辑器备份不会意外启用功能。
 func LoadDir(dir string) (*ConfigSet, error) {
 	corePath := filepath.Join(dir, CoreConfigFile)
 	coreRaw, err := loadVersionedMap(corePath, configFileKeys[CoreConfigFile], true)
@@ -115,8 +114,8 @@ func LoadDir(dir string) (*ConfigSet, error) {
 		combined = Merge(combined, moduleCfg)
 	}
 
-	// Environment variables may override a module, but do not install it. This
-	// preserves the central rule: an absent optional file means an absent feature.
+	// 环境变量可以覆盖模块，但不能安装模块。这样可保持核心规则：
+	// 可选文件不存在，就表示对应功能不存在。
 	env, err := loadDirEnv(files)
 	if err != nil {
 		return nil, err
@@ -388,8 +387,8 @@ func configFileForKey(key string) string {
 
 const MinimalServerYAML = `# Phira MP 核心配置文件（首次启动自动生成）
 # 未写出的项目使用内置默认值；完整中文说明见 config.example/server.yaml。
-# 将 replay.yaml、redis.yaml、webhook.yaml、stats.yaml 或 network.yaml
-# 放到本文件旁边，才会启用对应扩展；不要一次复制全部扩展示例。
+# 将 replay.yaml、redis.yaml 或 network.yaml 放到本文件旁边，才会启用
+# 对应的 server 扩展；Agent 扩展统一配置在 agent.yaml。
 # 配置优先级：命令行参数 > 环境变量 > 本文件 > 内置默认值。
 
 # 配置格式版本。必须保留，当前只支持 1。
@@ -409,8 +408,8 @@ LANG: "zh-CN"
 #   ENDPOINT: auto
 `
 
-// EnsureConfigDir creates only the required minimal server.yaml. Optional files
-// are deliberately not copied because their presence enables capabilities.
+// EnsureConfigDir 只创建必需的最小 server.yaml。
+// 可选文件的存在会启用功能，因此这里刻意不复制它们。
 func EnsureConfigDir(dir string) (bool, error) {
 	path := filepath.Join(dir, CoreConfigFile)
 	if _, err := os.Stat(path); err == nil {

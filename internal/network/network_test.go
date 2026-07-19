@@ -268,12 +268,12 @@ func TestNetwork_DangleReconnectKeepsRoom(t *testing.T) {
 	c1.expectResultOK("CreateRoom")
 	c1.close() // 断线（非顶号）
 
-	// 等服务端处理断线并进入 dangling（房间应被保留，未回收）。
+	// 等服务端处理断线并进入挂起状态（dangling），房间应被保留且不被回收。
 	waitFor(t, func() bool {
 		state.Mu.Lock()
 		defer state.Mu.Unlock()
 		u := state.Users[100]
-		return u != nil && u.Session() == nil // dangling
+		return u != nil && u.Session() == nil // 已进入挂起状态。
 	})
 	state.Mu.Lock()
 	_, roomKept := state.Rooms["room1"]
@@ -318,7 +318,7 @@ func TestNetwork_StaleDangleTimerCancelled(t *testing.T) {
 	c1.expectResultOK("CreateRoom")
 	c1.close() // 断线 → dangle，200ms 后 timer 会触发
 
-	// 等服务端进入 dangling。
+	// 等服务端进入挂起状态（dangling）。
 	waitFor(t, func() bool {
 		state.Mu.Lock()
 		defer state.Mu.Unlock()
@@ -370,7 +370,7 @@ func TestNetwork_RapidReconnectCycle(t *testing.T) {
 		c.expectAuthOK()
 		c.close() // 断线 → dangle
 
-		// 等 dangling。
+		// 等待进入挂起状态（dangling）。
 		waitFor(t, func() bool {
 			state.Mu.Lock()
 			defer state.Mu.Unlock()

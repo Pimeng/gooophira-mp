@@ -55,7 +55,7 @@ type UserInfo struct {
 	Monitor bool
 }
 
-// ---------- RoomState（tagged union） ----------
+// ---------- RoomState（带标签联合类型） ----------
 
 // RoomState 是房间状态机的一个状态。
 type RoomState interface{ isRoomState() }
@@ -449,7 +449,7 @@ func decodeJoinRoomResponse(r *BinaryReader) JoinRoomResponse {
 	return JoinRoomResponse{State: state, Users: users, Live: live}
 }
 
-// ---------- Message codec ----------
+// ---------- Message 编解码 ----------
 
 func encodeMessage(w *BinaryWriter, v Message) {
 	switch m := v.(type) {
@@ -553,7 +553,7 @@ func decodeMessage(r *BinaryReader) Message {
 	}
 }
 
-// ---------- ClientCommand codec ----------
+// ---------- ClientCommand 编解码 ----------
 
 // EncodeClientCommand 编码一个客户端命令。
 func EncodeClientCommand(w *BinaryWriter, cmd ClientCommand) {
@@ -648,7 +648,7 @@ func DecodeClientCommand(r *BinaryReader) ClientCommand {
 	}
 }
 
-// ---------- ServerCommand codec ----------
+// ---------- ServerCommand 编解码 ----------
 
 func encodeUnitResult(w *BinaryWriter, res StringResult[Unit]) {
 	EncodeStringResult(w, res, func(*BinaryWriter, Unit) {})

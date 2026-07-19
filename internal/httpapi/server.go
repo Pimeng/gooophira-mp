@@ -55,9 +55,8 @@ type Service struct {
 	startedAt time.Time // 启动时间（用于 /admin/metrics uptime）
 }
 
-// SetAgentService exposes the optional Agent connection state through existing
-// authenticated management metrics. A nil service means Agent IPC is disabled
-// or failed to start.
+// SetAgentService 通过现有的鉴权管理指标公开可选 Agent 的连接状态。
+// service 为 nil 表示 Agent IPC 已禁用或启动失败。
 func (s *Service) SetAgentService(agent *agentipc.Service) { s.agent = agent }
 
 // cleanupInterval 是 replay/otp 过期项独立清理的间隔（短于 replaySessionTTL=30min 与 OTP 封禁时长）。

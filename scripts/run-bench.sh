@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # scripts/run-bench.sh — 一键执行全部基准/压测套件
 #
-# 镜像 .github/workflows/bench.yml 的三个阶段（micro / load / tcp），
-# 但默认参数 tuned for local runs（比 CI 更小更快）。
+# 对应 .github/workflows/bench.yml 的三个阶段（微基准 / 负载 / TCP），
+# 但默认参数针对本地运行调优，比 CI 更小更快。
 #
 # 用法:
 #   ./scripts/run-bench.sh                       # 跑全部三阶段，使用本地默认值

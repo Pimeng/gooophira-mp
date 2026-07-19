@@ -9,13 +9,12 @@ import (
 	"time"
 )
 
-// ── Exporter ─────────────────────────────────────────────────────────
+// ── 导出器 ───────────────────────────────────────────────────────────
 //
-// Exporter converts benchmark results to different output formats.
-// Currently supports: JSON, CSV
-// Future: Prometheus, Grafana (via json tags ready)
+// Exporter 把基准测试结果转换为不同输出格式。
+// 当前支持 JSON、CSV；未来可支持 Prometheus、Grafana（JSON 标签已就绪）。
 
-// ExportFormat defines the output format.
+// ExportFormat 定义输出格式。
 type ExportFormat string
 
 const (
@@ -23,29 +22,28 @@ const (
 	FormatCSV  ExportFormat = "csv"
 )
 
-// --- JSON ---
+// --- JSON 输出 ---
 
-// ExportJSON serializes a BenchReport as indented JSON.
+// ExportJSON 把 BenchReport 序列化为带缩进的 JSON。
 func ExportJSON(report *BenchReport) ([]byte, error) {
 	return json.MarshalIndent(report, "", "  ")
 }
 
-// ExportJSONTo writes JSON to a writer.
+// ExportJSONTo 把 JSON 写入 writer。
 func ExportJSONTo(w io.Writer, report *BenchReport) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(report)
 }
 
-// --- CSV ---
+// --- CSV 输出 ---
 
-// ExportCSV converts benchmark results to CSV format.
-// Returns CSV content as a byte slice.
+// ExportCSV 把基准测试结果转换为 CSV 格式，并以字节切片返回内容。
 func ExportCSV(report *BenchReport) ([]byte, error) {
 	var buf bytes.Buffer
 	w := csv.NewWriter(&buf)
 
-	// Header row
+	// 表头行
 	headers := []string{
 		"timestamp", "scenario", "duration_s",
 		"clients", "rooms", "concurrency",
@@ -68,7 +66,7 @@ func ExportCSV(report *BenchReport) ([]byte, error) {
 		return nil, err
 	}
 
-	// Data rows
+	// 数据行
 	ts := time.Unix(report.Timestamp, 0).Format(time.RFC3339)
 	for _, r := range report.Results {
 		row := []string{
@@ -78,7 +76,7 @@ func ExportCSV(report *BenchReport) ([]byte, error) {
 			fmt.Sprintf("%.2f", r.Throughput.AvgCmdsPerSec), fmt.Sprintf("%.2f", r.Throughput.PeakCmdsPerSec),
 			fmt.Sprintf("%d", r.Throughput.BytesIn), fmt.Sprintf("%d", r.Throughput.BytesOut),
 		}
-		// Use the primary latency (CmdLatency or ConnectLatency)
+		// 使用主要延迟指标（CmdLatency 或 ConnectLatency）。
 		lat := r.CmdLatency
 		if lat.Count == 0 {
 			lat = r.ConnectLatency

@@ -25,7 +25,8 @@ version: 1
 #   - "https://admin.example.com"
 #   - "http://localhost:5173"
 
-# 服务端访问 Phira API、一言 API、分享站和 Webhook 等出站 HTTP 请求的代理。
+# server 访问 Phira API、一言 API 等出站 HTTP 请求的代理。
+# Agent 当前不读取本文件，其 Webhook 和分享站请求沿用 Agent 进程环境的默认代理。
 # 省略：沿用操作系统/运行环境的默认代理行为。
 # false：强制直连，不使用代理。
 # 字符串：强制使用指定代理，支持 http(s):// 和 socks:// 等 Go 可识别地址。

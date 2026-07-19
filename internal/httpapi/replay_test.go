@@ -167,7 +167,7 @@ func TestReplay_AutoUploadConfig(t *testing.T) {
 		t.Fatalf("get config status = %d body=%s", w.Code, w.Body.String())
 	}
 
-	// POST show=true。
+	// 使用 POST 请求并设置 show=true。
 	if w := doReq(svc, http.MethodPost, "/replay/auto-upload/config", `{"token":"valid","show":true}`); w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("post config status = %d body=%s", w.Code, w.Body.String())
 	}

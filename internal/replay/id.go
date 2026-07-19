@@ -7,8 +7,7 @@ import (
 	"strings"
 )
 
-// ID is a structured reference resolved relative to the configured replay
-// root. It never contains a filesystem path.
+// ID 是相对于已配置回放根目录解析的结构化引用，绝不包含文件系统路径。
 type ID struct {
 	UserID    int
 	ChartID   int

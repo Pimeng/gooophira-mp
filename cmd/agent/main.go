@@ -1,6 +1,5 @@
-// Command agent runs optional asynchronous extensions beside the game server.
-// Stage A establishes the authenticated local IPC lifecycle; business event
-// consumers are added in subsequent migration stages.
+// agent 命令在游戏服务端旁运行可选的异步扩展。
+// 第一阶段建立带鉴权的本地 IPC 生命周期；业务事件消费者在后续迁移阶段接入。
 package main
 
 import (

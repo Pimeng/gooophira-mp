@@ -100,7 +100,7 @@ func TestAddUser_DuplicatePlayerNotReAdded(t *testing.T) {
 	if !r.AddUser(bob, false) {
 		t.Fatal("duplicate add should still return true (idempotent)")
 	}
-	if r.UserCount() != 2 { // host(1) + bob(2)
+	if r.UserCount() != 2 { // 房主 1 加上玩家 2。
 		t.Errorf("duplicate add should not increase count, got %d", r.UserCount())
 	}
 	// users 列表不应有重复
@@ -183,7 +183,7 @@ func TestRefreshLive_Combinations(t *testing.T) {
 
 func TestAllParticipantIDs_Order(t *testing.T) {
 	h := newHarness(200)
-	r := NewRoom("room1", 1, 8, false) // users=[1]
+	r := NewRoom("room1", 1, 8, false) // 用户列表仅包含 1。
 	bob := h.addUser(2, "bob")
 	carol := h.addUser(3, "carol")
 	mon := h.addUser(200, "mon")
@@ -239,14 +239,14 @@ func TestClientRoomState_States(t *testing.T) {
 		t.Errorf("SelectChart with chart: want RoomStateSelectChart{ID=42}, got %+v", st)
 	}
 
-	// WaitForReady
+	// 等待准备状态。
 	r.State = StateWaitForReady{Started: map[int]struct{}{}}
 	st = r.ClientRoomState()
 	if _, ok := st.(protocol.RoomStateWaitingForReady); !ok {
 		t.Errorf("WaitForReady: want RoomStateWaitingForReady, got %T", st)
 	}
 
-	// Playing
+	// 游戏进行状态。
 	r.State = StatePlaying{Results: map[int]config.RecordData{}, Aborted: map[int]struct{}{}}
 	st = r.ClientRoomState()
 	if _, ok := st.(protocol.RoomStatePlaying); !ok {
@@ -254,7 +254,7 @@ func TestClientRoomState_States(t *testing.T) {
 	}
 }
 
-// ---------- IsEmpty / IsLocked / IsCycle / IsLive ----------
+// ---------- 房间状态标志读取 ----------
 
 func TestRoom_FlagGetters(t *testing.T) {
 	r := NewRoom("room1", 1, 8, false)
@@ -279,7 +279,7 @@ func TestRoom_FlagGetters(t *testing.T) {
 	}
 }
 
-// ---------- CheckHost / IsHost ----------
+// ---------- 房主检查 ----------
 
 func TestCheckHost(t *testing.T) {
 	h := newHarness()

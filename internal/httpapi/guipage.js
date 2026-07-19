@@ -258,7 +258,7 @@ attachChartHover('memWrap','memChart','memCross','memDot','memTip',
 attachChartHover('cpuWrap','cpuChart','cpuCross','cpuDot','cpuTip',
   function(s){return s.cpuPercent;},function(v){return v.toFixed(1)+'%';},'--chart-cpu','88,196,220');
 
-/* ===== WebSocket ===== */
+/* ===== WebSocket 连接 ===== */
 function setConn(ok,text){
   $('connDot').classList.toggle('off',!ok);
   $('connText').textContent=text;
@@ -484,7 +484,7 @@ function renderPlayers(){
   el.innerHTML=html;
 }
 
-/* ===== Tabs ===== */
+/* ===== 标签页 ===== */
 $('tabRooms').addEventListener('click',function(){switchTab(true);});
 $('tabPlayers').addEventListener('click',function(){switchTab(false);});
 function switchTab(showRooms){

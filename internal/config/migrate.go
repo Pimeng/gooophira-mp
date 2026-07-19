@@ -10,8 +10,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// MigrationPlan contains the exact multi-file output of a legacy migration.
-// Files are relative to the destination configuration directory.
+// MigrationPlan 包含旧配置迁移后生成的完整多文件结果。
+// Files 中的路径相对于目标配置目录。
 type MigrationPlan struct {
 	Files map[string][]byte
 }
@@ -44,6 +44,7 @@ func BuildMigrationPlan(legacyPath string) (*MigrationPlan, error) {
 
 	files := make(map[string]map[string]any)
 	files[CoreConfigFile] = pickMap(raw, configFileKeys[CoreConfigFile])
+	files[CoreConfigFile]["AGENT_IPC"] = migratedAgentIPC(raw["AGENT_IPC"])
 
 	if hasAny(raw, configFileKeys["network.yaml"]) {
 		files["network.yaml"] = pickMap(raw, configFileKeys["network.yaml"])
@@ -51,19 +52,18 @@ func BuildMigrationPlan(legacyPath string) (*MigrationPlan, error) {
 	if legacyReplayEnabled(raw) {
 		files["replay.yaml"] = pickMap(raw, configFileKeys["replay.yaml"])
 		delete(files["replay.yaml"], "REPLAY_ENABLED")
+		delete(files["replay.yaml"], "REPLAY_AUTO_UPLOAD")
+		delete(files["replay.yaml"], "SHARE_STATION")
 	}
 	if nestedEnabled(raw["REDIS"], parseRedisValue) {
 		files["redis.yaml"] = copyRecord(raw["REDIS"])
 		delete(files["redis.yaml"], "ENABLED")
 	}
-	if nestedEnabled(raw["WEBHOOK"], parseWebhookValue) {
-		files["webhook.yaml"] = copyRecord(raw["WEBHOOK"])
-		delete(files["webhook.yaml"], "ENABLED")
-	}
 
-	// Legacy mode always initializes statistics, so create stats.yaml even when
-	// no tuning keys were present. This preserves behavior across migration.
-	files["stats.yaml"] = pickMap(raw, configFileKeys["stats.yaml"])
+	// 统计、Webhook 投递和回放上传现由 Agent 管理。
+	// 旧模式总会初始化统计，因此每次迁移都会启用 Agent 边界并生成 agent.yaml，
+	// 以保留原有行为。
+	files["agent.yaml"] = migratedAgentConfig(raw)
 
 	plan := &MigrationPlan{Files: make(map[string][]byte, len(files))}
 	for name, values := range files {
@@ -75,6 +75,58 @@ func BuildMigrationPlan(legacyPath string) (*MigrationPlan, error) {
 		plan.Files[name] = encoded
 	}
 	return plan, nil
+}
+
+func migratedAgentIPC(raw any) map[string]any {
+	out := copyRecord(raw)
+	out["ENDPOINT"] = "auto"
+	out["WEBHOOK_OWNER"] = "agent"
+	return out
+}
+
+func migratedAgentConfig(raw map[string]any) map[string]any {
+	webhook := copyRecord(raw["WEBHOOK"])
+	enabled, _ := parseBoolValue(webhook["ENABLED"])
+	out := map[string]any{
+		"ENABLED":    enabled,
+		"TIMEOUT_MS": valueOr(webhook, "TIMEOUT_MS", DefaultWebhookTimeoutMS),
+		"RETRIES":    valueOr(webhook, "RETRIES", DefaultWebhookRetries),
+		"TARGETS":    valueOr(webhook, "TARGETS", []any{}),
+		"STATS": map[string]any{
+			"ENABLED":               true,
+			"DB_PATH":               valueOr(raw, "STATS_DB_PATH", "stats.db"),
+			"DETAIL_RETENTION_DAYS": valueOr(raw, "STATS_DETAIL_RETENTION_DAYS", DefaultStatsDetailRetentionDays),
+			"DB_MAX_MB":             valueOr(raw, "STATS_DB_MAX_MB", DefaultStatsDBMaxMB),
+		},
+	}
+
+	station := copyRecord(raw["SHARE_STATION"])
+	url, urlOK := parseStringValue(station["URL"])
+	token, tokenOK := parseStringValue(station["TOKEN"])
+	if urlOK || tokenOK {
+		autoUpload, _ := parseBoolValue(raw["REPLAY_AUTO_UPLOAD"])
+		baseDir, ok := parseStringValue(raw["REPLAY_BASE_DIR"])
+		if !ok {
+			baseDir = "./record"
+		}
+		out["REPLAY_UPLOAD"] = map[string]any{
+			"ENABLED":     urlOK && tokenOK && url != "" && token != "",
+			"AUTO_UPLOAD": autoUpload,
+			"BASE_DIR":    baseDir,
+			"URL":         url,
+			"TOKEN":       token,
+			"STATE_PATH":  "agent-inbox/upload-state.json",
+			"DELAY_MS":    30000,
+		}
+	}
+	return out
+}
+
+func valueOr(values map[string]any, key string, fallback any) any {
+	if value, present := values[key]; present {
+		return value
+	}
+	return fallback
 }
 
 func validateLegacyConfig(raw map[string]any) error {
@@ -174,8 +226,8 @@ func (p *MigrationPlan) Names() []string {
 	return names
 }
 
-// Write creates every planned file without overwriting existing configuration.
-// All conflicts are checked before the first write.
+// Write 创建计划中的所有文件，但不会覆盖现有配置。
+// 首次写入前会预先检查全部冲突。
 func (p *MigrationPlan) Write(dir string) error {
 	for _, name := range p.Names() {
 		path := filepath.Join(dir, name)

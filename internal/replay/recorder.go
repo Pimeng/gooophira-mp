@@ -72,9 +72,9 @@ type Recorder struct {
 	baseDir       string
 	logger        Logger
 	fakeMonitorID int32                      // 未配置 SYSTEM_USER_ID 时假观战者固定用户 ID
-	inflight      map[string]*inFlight       // key = "roomKey:userID"
-	keysByRoom    map[string]map[string]bool // roomKey -> set(key)
-	completed     map[string][]FileInfo      // roomKey -> 已完成文件
+	inflight      map[string]*inFlight       // 键格式为 "roomKey:userID"。
+	keysByRoom    map[string]map[string]bool // roomKey 映射到对应键集合。
+	completed     map[string][]FileInfo      // roomKey 映射到已完成文件。
 
 	// systemUserID 配置为真实 Phira 用户 ID（>0）时，假观战者改用该真实 ID，
 	// 并通过 userNameFetcher 异步拉取其公开昵称（/user/:id）填充 UserInfo.Name，

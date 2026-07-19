@@ -13,7 +13,7 @@ import (
 // 并发模型：TS 靠单线程事件循环串行化所有命令。Go 中由 network 层在调用
 // ProcessClientCommand 前后持有全局 ServerState.Mu，把命令处理整体串行化（等价于 TS 事件
 // 循环）。因此 Hub 方法内部**不再加锁**（调用方已持锁）；广播只向各会话的发送通道入队
-// （非阻塞），真正的 socket 写在各自的 writer goroutine 中、锁外完成，避免持锁阻塞 I/O。
+// （非阻塞），真正的 socket 写入在各自的写入协程中于锁外完成，避免持锁阻塞 I/O。
 // 认证涉及阻塞的 Phira HTTP 请求，必须在锁外完成，仅在注册用户的瞬间短暂持锁。
 type Hub struct {
 	State *ServerState

@@ -5,24 +5,24 @@ import (
 	"time"
 )
 
-// ── Timeline ─────────────────────────────────────────────────────────
+// ── 时间线 ───────────────────────────────────────────────────────────
 //
-// Timeline provides per-second tracking for any metric.
-// Call Register() for each metric, then Tick() once per second.
-// Deltas are computed automatically for cumulative counters.
+// Timeline 为任意指标提供逐秒跟踪。
+// 每个指标调用一次 Register()，之后每秒调用一次 Tick()。
+// 累计计数器的差值会自动计算。
 
-const timelineMaxSlots = 3600 // 1 hour max
+const timelineMaxSlots = 3600 // 最长 1 小时
 
-// TimelineSerie holds one time series of per-second values.
+// TimelineSerie 保存一组逐秒值时间序列。
 type TimelineSerie struct {
 	Name   string  `json:"name"`
 	Values []int64 `json:"values"`
 }
 
-// Timeline manages per-second snapshots of multiple metrics.
+// Timeline 管理多个指标的逐秒快照。
 type Timeline struct {
 	mu     sync.Mutex
-	base   int64 // unix timestamp of slot 0
+	base   int64 // 第 0 个槽位的 Unix 时间戳
 	series []*timelineSerieInternal
 }
 
@@ -31,10 +31,10 @@ type timelineSerieInternal struct {
 	getter  func() int64
 	prev    int64
 	slots   [timelineMaxSlots]int64
-	isGauge bool // if true, store raw value; if false, store delta
+	isGauge bool // true 保存原始值，false 保存差值
 }
 
-// NewTimeline creates a timeline with the given base timestamp.
+// NewTimeline 创建使用当前时间作为基准时间戳的时间线。
 func NewTimeline() *Timeline {
 	return &Timeline{
 		base:   time.Now().Unix(),
@@ -42,9 +42,9 @@ func NewTimeline() *Timeline {
 	}
 }
 
-// Register adds a metric to the timeline.
-// For cumulative counters (commands sent, bytes, etc.), isGauge=false.
-// For instantaneous values (goroutines, heap, etc.), isGauge=true.
+// Register 向时间线添加指标。
+// 累计计数器（已发送命令、字节数等）使用 isGauge=false；
+// 瞬时值（goroutine、堆等）使用 isGauge=true。
 func (t *Timeline) Register(name string, getter func() int64, isGauge bool) {
 	t.mu.Lock()
 	serie := &timelineSerieInternal{
@@ -57,8 +57,7 @@ func (t *Timeline) Register(name string, getter func() int64, isGauge bool) {
 	t.mu.Unlock()
 }
 
-// Tick records a snapshot for all registered metrics.
-// Call this once per second.
+// Tick 记录全部已注册指标的快照，应每秒调用一次。
 func (t *Timeline) Tick() {
 	idx := int(time.Now().Unix() - t.base)
 	if idx < 0 || idx >= timelineMaxSlots {
@@ -82,13 +81,13 @@ func (t *Timeline) Tick() {
 	t.mu.Unlock()
 }
 
-// Snap returns all time series with their values.
+// Snap 返回全部时间序列及其值。
 func (t *Timeline) Snap() []TimelineSerie {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	result := make([]TimelineSerie, 0, len(t.series))
 	for _, s := range t.series {
-		// Find the actual data range
+		// 查找实际数据范围。
 		first := -1
 		last := -1
 		for i := range s.slots {
@@ -111,7 +110,7 @@ func (t *Timeline) Snap() []TimelineSerie {
 	return result
 }
 
-// SetBase sets the base timestamp (for testing or initialization).
+// SetBase 设置基准时间戳，供测试或初始化使用。
 func (t *Timeline) SetBase(base int64) {
 	t.mu.Lock()
 	t.base = base

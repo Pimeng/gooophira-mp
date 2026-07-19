@@ -108,7 +108,7 @@ func TestProxy_V2TCP4(t *testing.T) {
 	addr[4], addr[5], addr[6], addr[7] = 192, 168, 0, 11
 	binary.BigEndian.PutUint16(addr[8:10], 56324)
 	binary.BigEndian.PutUint16(addr[10:12], 443)
-	header := buildV2(0x21, 0x11, addr) // ver=2 cmd=PROXY, TCP over IPv4
+	header := buildV2(0x21, 0x11, addr) // 版本 2、PROXY 命令、IPv4 上的 TCP。
 
 	info, rest := parseFrom(t, append(header, []byte("TAIL")...))
 	if info == nil {
@@ -132,10 +132,10 @@ func TestProxy_V2TCP6(t *testing.T) {
 	addr := make([]byte, 36)
 	// ::1 作为源地址（最后一个字节为 1）。
 	addr[15] = 1
-	addr[31] = 1 // dest ::1
+	addr[31] = 1 // 目标地址为 ::1。
 	binary.BigEndian.PutUint16(addr[32:34], 1234)
 	binary.BigEndian.PutUint16(addr[34:36], 5678)
-	header := buildV2(0x21, 0x21, addr) // ver=2 cmd=PROXY, TCP over IPv6
+	header := buildV2(0x21, 0x21, addr) // 版本 2、PROXY 命令、IPv6 上的 TCP。
 
 	info, _ := parseFrom(t, header)
 	if info == nil {

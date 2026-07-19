@@ -73,7 +73,7 @@ func TestAdminConfig_RuntimePostAppliesAndRollback(t *testing.T) {
 
 func TestAdminConfig_RuntimePostInvalid(t *testing.T) {
 	svc, _ := newTestService(t, adminCfg())
-	// PORT 是 startup-only；应 400 且归类到 startupOnlyKeys。
+	// PORT 仅启动期生效；应返回 400，并归类到 startupOnlyKeys。
 	w := doAuth(svc, http.MethodPost, "/admin/runtime-config", "secret", `{"PORT": 12346}`)
 	if w.Code != 400 {
 		t.Fatalf("startup-only key should be 400, got %d body=%s", w.Code, w.Body.String())

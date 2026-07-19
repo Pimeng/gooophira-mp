@@ -15,7 +15,7 @@ func runConfigCommand(args []string, stdout, stderr io.Writer) (handled bool, ex
 		return false, 0
 	}
 	if len(args) < 2 || args[1] != "migrate" {
-		fmt.Fprintln(stderr, "usage: phira-mp config migrate [-from server_config.yml] [-to config] [--dry-run]")
+		fmt.Fprintln(stderr, "usage: phira-mp-server config migrate [-from server_config.yml] [-to config] [--dry-run]")
 		return true, 2
 	}
 

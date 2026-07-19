@@ -62,9 +62,8 @@ func OpenLedger(path string) (*Ledger, error) {
 	return ledger, nil
 }
 
-// CompleteEvent drops per-target state after the event processing cursor has
-// advanced. Crash before cleanup leaves harmless stale entries; crash after
-// cleanup is safe because the cursor already skips the event.
+// CompleteEvent 在事件处理游标推进后删除各目标状态。清理前崩溃只会留下
+// 无害的陈旧条目；清理后崩溃也安全，因为游标已经跳过该事件。
 func (l *Ledger) CompleteEvent(eventID string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()

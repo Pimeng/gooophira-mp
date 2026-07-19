@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Phira MP 服务端（Go 实现）容器镜像。
+# Phira MP server + Agent 容器镜像。
 #
 # 多阶段构建：golang 编译出纯静态二进制（CGO_ENABLED=0，无动态链接），
 # 运行阶段用带 CA 证书的最小 alpine 镜像（访问上游 Phira API 走 HTTPS，必须有证书）。
@@ -28,7 +28,10 @@ ARG VERSION=""
 # 纯 Go、静态、无 CGO；保留符号和 DWARF 调试信息。
 RUN CGO_ENABLED=0 go build -trimpath \
       -ldflags "-X github.com/Pimeng/gooophira-mp/internal/version.injected=${VERSION}" \
-      -o /out/phira-mp ./cmd/server
+      -o /out/phira-mp-server ./cmd/server \
+    && CGO_ENABLED=0 go build -trimpath \
+      -ldflags "-X github.com/Pimeng/gooophira-mp/internal/version.injected=${VERSION}" \
+      -o /out/phira-mp-agent ./cmd/agent
 
 # ---------- 运行阶段 ----------
 FROM alpine:3.21
@@ -40,7 +43,7 @@ RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -S phira \
     && adduser -S -G phira -h /data phira
 
-COPY --from=build /out/phira-mp /usr/local/bin/phira-mp
+COPY --from=build /out/phira-mp-server /out/phira-mp-agent /usr/local/bin/
 
 # 工作目录即数据目录：config / logs / record / cache / admin_data.json 均相对于此。
 WORKDIR /data
@@ -61,4 +64,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget -qO- "http://127.0.0.1:${HTTP_PORT}/room-creation/config" >/dev/null 2>&1 || exit 1
 
 # 首次运行自动生成 config/server.yaml；已有 server_config.yml 的数据卷继续兼容旧格式。
-ENTRYPOINT ["phira-mp"]
+ENTRYPOINT ["phira-mp-server"]

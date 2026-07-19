@@ -1,8 +1,11 @@
-# Phira MP 服务端一键栈：server + Redis（多实例共享缓存）。
+# Phira MP 一键栈：server + Redis，可选 Agent profile。
 #
 #   cp .env.example .env      # 按需填 ADMIN_TOKEN 等
 #   docker compose up -d --build
 #   docker compose logs -f phira-mp
+#   # 启用 Agent 前，将 AGENT_IPC_ENDPOINT 改为 unix:///data/agent.sock，
+#   # 并将 AGENT_CONFIG_FILE 指向实际配置，再执行：
+#   docker compose --profile agent up -d --build
 #
 # 数据（配置/日志/回放/缓存/封禁数据）持久化在具名卷 phira-data。
 
@@ -31,6 +34,10 @@ services:
       PHIRA_MP_LANG: "${PHIRA_MP_LANG:-zh-CN}"
       ROOM_MAX_USERS: "${ROOM_MAX_USERS:-512}"
       TZ: "${TZ:-Asia/Shanghai}"
+      # —— 可选 Agent IPC ——
+      AGENT_IPC_ENDPOINT: "${AGENT_IPC_ENDPOINT:-disabled}"
+      AGENT_IPC_DISCOVERY_FILE: "/data/agent-ipc.json"
+      AGENT_OUTBOX_DIR: "/data/agent-outbox"
       # —— Redis 多实例共享缓存 ——
       REDIS_ENABLED: "true"
       REDIS_HOST: "redis"
@@ -42,6 +49,22 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+
+  phira-mp-agent:
+    profiles: [agent]
+    image: phira-mp:local
+    restart: unless-stopped
+    entrypoint: ["phira-mp-agent"]
+    environment:
+      TZ: "${TZ:-Asia/Shanghai}"
+    volumes:
+      - phira-data:/data
+      - "${AGENT_CONFIG_FILE:-./config.example/agent.yaml}:/data/config/agent.yaml:ro"
+    depends_on:
+      phira-mp:
+        condition: service_healthy
+    healthcheck:
+      disable: true
 
   redis:
     image: redis:7-alpine

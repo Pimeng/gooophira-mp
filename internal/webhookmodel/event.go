@@ -1,6 +1,5 @@
-// Package webhookmodel defines the presentation event consumed by webhook
-// adapters. It is independent from the real-time server domain and Agent wire
-// protocol.
+// webhookmodel 包定义 Webhook 适配器消费的展示事件，
+// 独立于实时服务端领域模型和 Agent 线路协议。
 package webhookmodel
 
 import "time"

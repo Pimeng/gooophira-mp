@@ -113,7 +113,7 @@ func (h *Hub) handlePlayed(user *User, c protocol.CmdPlayed) error {
 	}
 	room.NotifyWebSocket(lc)
 	if room.CheckAllReady(lc) {
-		// CmdPlayed 是 room-only 命令（持 room.Mu），不能同步调 DisbandRoom：
+		// CmdPlayed 是仅房间命令（持 room.Mu），不能同步调用 DisbandRoom：
 		// DisbandRoom 内部 room.Mu.Lock() 会自死锁，且 delete(state.Rooms) 需 state.Mu
 		// （持 room.Mu 获取 state.Mu 会 lock ordering inversion）。
 		// 异步执行：网络层释放 room.Mu 后，goroutine 按 state.Mu → room.Mu 顺序获取锁。

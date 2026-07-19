@@ -16,9 +16,9 @@ func offlineUserInRoom(h *testHarness, id int, room *Room) *User {
 func TestMoveUser_Success(t *testing.T) {
 	h := newHarness()
 	hub := NewHub(h.state, &mockPhira{})
-	from := NewRoom("from", 1, 8, false) // host 1
+	from := NewRoom("from", 1, 8, false) // 房主为 1。
 	h.state.Rooms["from"] = from
-	to := NewRoom("to", 9, 8, false) // host 9
+	to := NewRoom("to", 9, 8, false) // 房主为 9。
 	h.state.Rooms["to"] = to
 	u := offlineUserInRoom(h, 2, from)
 

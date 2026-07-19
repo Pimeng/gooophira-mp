@@ -127,7 +127,7 @@ func TestStoreRecoversCheckpointBeforeCompaction(t *testing.T) {
 	store := openTestStore(t, dir, 2<<20)
 	first, _ := store.Append("test.v1", map[string]int{"n": 1}, PriorityCritical)
 	second, _ := store.Append("test.v1", map[string]int{"n": 2}, PriorityCritical)
-	// Simulate a crash after the atomic checkpoint but before log compaction.
+	// 模拟原子检查点完成后、日志压缩前发生崩溃。
 	if err := store.writeCheckpoint(first.Sequence); err != nil {
 		t.Fatal(err)
 	}

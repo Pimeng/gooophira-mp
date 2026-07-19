@@ -8,7 +8,7 @@ import (
 // DefaultConfigYAML 是自动生成默认配置时的兜底内容（仅当本地示例 server_config.example.yml
 // 缺失时使用，如精简打包场景）。对齐 TS core/server.ts 的 DEFAULT_CONFIG_YAML。
 const DefaultConfigYAML = `# Phira MP 服务端配置（首次启动自动生成）
-# 完整配置项说明见 server_config.example.yml 或 docs/configuration.md
+# 这是已弃用的单文件兼容配置；新部署使用 config/server.yaml。
 HOST: "::"
 PORT: 12346
 HTTP_SERVICE: false

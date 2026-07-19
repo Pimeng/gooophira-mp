@@ -98,8 +98,8 @@ func PersistConfigValues(configPath string, updates map[string]any) error {
 	return nil
 }
 
-// PersistConfigDirValues writes runtime updates to the file that owns each key.
-// An optional file is created only when an explicit runtime update targets it.
+// PersistConfigDirValues 把运行时更新写入各键所属的文件。
+// 只有显式运行时更新指向某个可选文件时，才会创建该文件。
 func PersistConfigDirValues(configDir string, updates map[string]any) error {
 	byFile := make(map[string]map[string]any)
 	for key, value := range updates {

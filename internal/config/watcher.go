@@ -39,8 +39,8 @@ func NewFileWatcher(path string, interval time.Duration, onChange func()) *FileW
 	return newFileWatcher([]string{path}, interval, onChange)
 }
 
-// NewConfigDirWatcher watches the fixed multi-file configuration set. It also
-// observes absent optional files so creating one triggers a reload.
+// NewConfigDirWatcher 监视固定的多文件配置集合。
+// 它也会监视尚不存在的可选文件，以便文件创建时触发重载。
 func NewConfigDirWatcher(dir string, interval time.Duration, onChange func()) *FileWatcher {
 	paths := make([]string, 0, len(ConfigFileNames()))
 	for _, name := range ConfigFileNames() {

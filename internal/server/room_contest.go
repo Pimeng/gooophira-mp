@@ -50,7 +50,7 @@ func (h *Hub) SetContestWhitelist(room *Room, userIDs []int) bool {
 
 // StartContest 强制开赛一个比赛房间：须处于 WaitForReady 且已选谱；force=false 时要求全员就绪。
 // 返回 nil 表示已开赛；否则返回对应错误（contest-room-not-found / room-not-waiting /
-// no-chart-selected / not-all-ready）。
+// 错误键 no-chart-selected / not-all-ready）。
 func (h *Hub) StartContest(room *Room, force bool) error {
 	room.Mu.Lock()
 	defer room.Mu.Unlock()

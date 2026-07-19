@@ -120,7 +120,7 @@ func (s *Service) verifyCLIApproval(w http.ResponseWriter, lang *l10n.Language, 
 	case server.CLIApprovalDenied:
 		delete(s.state.CLIApprovalSessions, ssid)
 		s.writeJSON(w, http.StatusForbidden, map[string]any{"ok": false, "error": "approval-denied", "status": "denied", "message": l10n.TL(lang, "approval-denied", nil)})
-	default: // approved
+	default: // 已批准。
 		if sess.Token == "" || sess.TokenExpiresAt == 0 {
 			delete(s.state.CLIApprovalSessions, ssid)
 			s.adminErr(w, lang, http.StatusInternalServerError, "token-not-issued", "token-not-issued")

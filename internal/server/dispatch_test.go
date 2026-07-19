@@ -597,21 +597,21 @@ func TestDispatch_ReplayWithFakeMonitor(t *testing.T) {
 	}
 	// buildContent 顺序: recordID(I32) + ts(I64) + chartID(I32) + chartName(str) + userID(I32) + userName(str) + touches(arr) + judges(arr)
 	br := protocol.NewBinaryReader(content)
-	_ = br.ReadI32()    // recordID
-	_ = br.ReadI64()    // timestamp
-	_ = br.ReadI32()    // chartID
-	_ = br.ReadString() // chartName
-	_ = br.ReadI32()    // userID
-	_ = br.ReadString() // userName
+	_ = br.ReadI32()    // 成绩记录 ID。
+	_ = br.ReadI64()    // 时间戳。
+	_ = br.ReadI32()    // 谱面 ID。
+	_ = br.ReadString() // 谱面名称。
+	_ = br.ReadI32()    // 用户 ID。
+	_ = br.ReadString() // 用户名。
 	touchCount := readUleb(br)
 	// 跳过触摸帧数据，以便读取 judges 计数
 	for i := uint64(0); i < touchCount; i++ {
-		_ = br.ReadF32()        // time
-		ptCount := readUleb(br) // points count
+		_ = br.ReadF32()        // 时间。
+		ptCount := readUleb(br) // 触点数量。
 		for j := uint64(0); j < ptCount; j++ {
-			_ = br.ReadI8()  // point id
-			_ = br.ReadU16() // x (F16 bits)
-			_ = br.ReadU16() // y (F16 bits)
+			_ = br.ReadI8()  // 触点 ID。
+			_ = br.ReadU16() // x 坐标（F16 位模式）。
+			_ = br.ReadU16() // y 坐标（F16 位模式）。
 		}
 	}
 	judgeCount := readUleb(br)
@@ -634,7 +634,7 @@ func decodePhiraRecPayload(raw []byte) ([]byte, error) {
 	switch compression {
 	case 0x00:
 		return payload, nil
-	case 0x02: // DEFLATE
+	case 0x02: // DEFLATE 压缩。
 		r := flate.NewReader(bytes.NewReader(payload))
 		defer r.Close()
 		return io.ReadAll(r)
@@ -678,7 +678,7 @@ func TestSendFakeMonitorJoin_LateJoiner_GetsRegularHint(t *testing.T) {
 	bob := NewUser(2, "Bob", "", st)
 	bob.SetSession(&mockSession{id: "bob"})
 	st.Users[2] = bob
-	room := NewRoom("room_late", 1, 8, true) // ReplayEligible=true
+	room := NewRoom("room_late", 1, 8, true) // 允许录制回放。
 	room.State = StatePlaying{
 		Results: map[int]config.RecordData{},
 		Aborted: map[int]struct{}{2: {}}, // bob 已被 HandleJoin 标记
@@ -750,7 +750,7 @@ func TestSendFakeMonitorJoin_RegularJoiner_GetsRegularHint(t *testing.T) {
 	alice := NewUser(1, "Alice", "", st)
 	alice.SetSession(&mockSession{id: "alice"})
 	st.Users[1] = alice
-	room := NewRoom("room_reg", 1, 8, true) // ReplayEligible=true
+	room := NewRoom("room_reg", 1, 8, true) // 允许录制回放。
 	room.State = StateSelectChart{}         // 非 StatePlaying → 非迟到加入
 	alice.Room = room
 
@@ -783,7 +783,7 @@ func BenchmarkDispatch_AllCommands(b *testing.B) {
 	bob := h.addUser(2, "bob")
 
 	// 设置一个进行中的房间用于需要房间上下文的命令。
-	// 与生产代码一致：非 room-only 命令须在 state.Mu 保护下派发，
+	// 与生产代码一致：非仅房间命令须在 state.Mu 保护下派发，
 	// 否则 CmdRequestStart 调度的异步 timer 读取 state.Rooms 会与后续 CmdCreateRoom 写入竞争。
 	h.state.Mu.Lock()
 	hub.ProcessClientCommand(alice, protocol.CmdCreateRoom{ID: "bench"})

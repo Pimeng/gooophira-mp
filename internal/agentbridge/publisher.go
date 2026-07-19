@@ -1,4 +1,4 @@
-// Package agentbridge maps mutable server-domain events to stable Agent DTOs.
+// agentbridge 包把可变的服务端领域事件映射为稳定的 Agent DTO。
 package agentbridge
 
 import (
@@ -24,7 +24,7 @@ type queuedEvent struct {
 	done     chan error
 }
 
-// Publisher implements server.EventSink without doing disk I/O in Emit.
+// Publisher 实现 server.EventSink，且 Emit 不执行磁盘 I/O。
 type Publisher struct {
 	store  *agentoutbox.Store
 	logger Logger
@@ -63,7 +63,7 @@ func (p *Publisher) Emit(event server.Event) {
 	p.mu.Unlock()
 }
 
-// PublishCritical runs outside the real-time lock path and synchronously fsyncs.
+// PublishCritical 在实时锁路径之外运行，并同步执行 fsync。
 func (p *Publisher) PublishCritical(typeName string, payload any) error {
 	done := make(chan error, 1)
 	p.mu.Lock()
@@ -157,8 +157,8 @@ func mapServerEvent(event server.Event) (string, any, bool) {
 	}
 }
 
-// CaptureMatchFinished copies all mutable room state while the caller holds the
-// room lock. Replay IDs are attached after recorder.EndRoom completes.
+// CaptureMatchFinished 在调用方持有房间锁时复制全部可变房间状态。
+// 回放 ID 会在 recorder.EndRoom 完成后附加。
 func CaptureMatchFinished(serverName string, room *server.Room) (agentproto.MatchFinishedV1, bool) {
 	state, ok := room.PlayingState()
 	if !ok || len(state.Results) == 0 {

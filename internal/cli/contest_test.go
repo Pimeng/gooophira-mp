@@ -71,7 +71,7 @@ func TestCLI_ContestStartForce(t *testing.T) {
 	if out := c.run(buf, "contest room1 start"); !strings.Contains(out, "Cannot start") {
 		t.Errorf("non-force start should report cannot-start, got %q", out)
 	}
-	// force → started。
+	// force 模式：强制开赛。
 	if out := c.run(buf, "contest room1 start force"); !strings.Contains(out, "room1") {
 		t.Fatalf("force start output = %q", out)
 	}

@@ -45,8 +45,8 @@ func loadStartupConfig(configPath, configDir string) (*startupConfig, error) {
 		return nil, fmt.Errorf("-config and -config-dir cannot be used together")
 	}
 
-	// Existing installations keep using the legacy file until migrated. New
-	// installations and explicit -config-dir invocations use the directory layout.
+	// 现有部署在完成迁移前继续使用旧配置文件；新部署以及显式指定
+	// -config-dir 的启动方式使用目录布局。
 	useLegacy := legacyExplicit
 	if !legacyExplicit && !dirExplicit && !config.ConfigDirExists(configDir) {
 		if info, err := os.Stat(configPath); err == nil && !info.IsDir() {

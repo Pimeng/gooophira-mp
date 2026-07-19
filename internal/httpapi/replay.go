@@ -193,7 +193,7 @@ func (s *Service) handleReplayDelete(w http.ResponseWriter, r *http.Request, lan
 	s.writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// handleReplayUpload validates player ownership and delegates the upload to Agent.
+// handleReplayUpload 校验回放的玩家归属，并把上传委托给 Agent。
 func (s *Service) handleReplayUpload(w http.ResponseWriter, r *http.Request, lang *l10n.Language) {
 	body, _ := decodeJSONObject(r)
 	token := strings.TrimSpace(jsonString(body["token"]))

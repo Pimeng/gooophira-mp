@@ -2,9 +2,8 @@ package config
 
 import "fmt"
 
-// LoadWebhookFile loads a standalone versioned webhook module for the Agent.
-// It accepts the same schema as config/webhook.yaml without loading server
-// configuration or environment-owned core fields.
+// LoadWebhookFile 为 Agent 加载独立的版本化 Webhook 模块。
+// 它接受旧版独立 Webhook 结构，但不加载服务端配置或由环境变量管理的核心字段。
 func LoadWebhookFile(path string) (*WebhookConfig, error) {
 	raw, err := loadVersionedMap(path, configFileKeys["webhook.yaml"], true)
 	if err != nil {

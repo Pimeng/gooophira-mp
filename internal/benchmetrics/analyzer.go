@@ -5,15 +5,15 @@ import (
 	"strings"
 )
 
-// ── Analyzer ─────────────────────────────────────────────────────────
+// ── 分析器 ───────────────────────────────────────────────────────────
 //
-// Analyzer automatically evaluates benchmark results and produces:
-//   - Overall Performance Score (Excellent / Good / Fair / Poor)
-//   - Warnings for issues found
-//   - Suggestions for improvement
-//   - Human-readable summary
+// Analyzer 自动评估基准测试结果并生成：
+//   - 总体性能评分（Excellent / Good / Fair / Poor）
+//   - 发现问题的警告
+//   - 改进建议
+//   - 人类可读的摘要
 
-// PerformanceScore rates the overall benchmark quality.
+// PerformanceScore 评定基准测试的总体质量。
 type PerformanceScore int
 
 const (
@@ -38,13 +38,13 @@ func (s PerformanceScore) String() string {
 	}
 }
 
-// AnalysisWarning describes a detected issue.
+// AnalysisWarning 描述检测到的问题。
 type AnalysisWarning struct {
-	Severity string `json:"severity"` // "high", "medium", "low"
+	Severity string `json:"severity"` // 可取 "high"、"medium"、"low"。
 	Message  string `json:"message"`
 }
 
-// AnalysisResult contains the full analysis output.
+// AnalysisResult 包含完整分析输出。
 type AnalysisResult struct {
 	Score       PerformanceScore  `json:"score"`
 	Warnings    []AnalysisWarning `json:"warnings,omitempty"`
@@ -52,13 +52,13 @@ type AnalysisResult struct {
 	Summary     string            `json:"summary"`
 }
 
-// Analyze performs automatic analysis on a benchmark result.
+// AnalyzeResult 自动分析一份基准测试结果。
 func AnalyzeResult(r *BenchResult) *AnalysisResult {
 	var score int
 	var warnings []AnalysisWarning
 	var suggestions []string
 
-	// ── Tail Latency Analysis ──────────────────────────────────────
+	// ── 长尾延迟分析 ───────────────────────────────────────────────
 	if r.CmdLatency.Count > 0 {
 		avgMs := r.CmdLatency.Mean.Seconds() * 1000
 		p99Ms := r.CmdLatency.P99.Seconds() * 1000
@@ -90,7 +90,7 @@ func AnalyzeResult(r *BenchResult) *AnalysisResult {
 		}
 	}
 
-	// ── GC Health ─────────────────────────────────────────────────
+	// ── GC 健康状况 ───────────────────────────────────────────────
 	if r.Runtime.NumGC > 0 {
 		avgPauseMs := r.Runtime.AvgGCPause.Seconds() * 1000
 		maxPauseMs := r.Runtime.MaxGCPause.Seconds() * 1000
@@ -120,7 +120,7 @@ func AnalyzeResult(r *BenchResult) *AnalysisResult {
 		}
 	}
 
-	// ── Memory Growth ─────────────────────────────────────────────
+	// ── 内存增长 ──────────────────────────────────────────────────
 	if r.Runtime.FinalHeapMB > 0 && r.Runtime.PeakHeapMB > r.Runtime.FinalHeapMB*1.5 {
 		warnings = append(warnings, AnalysisWarning{
 			Severity: "low",
@@ -128,7 +128,7 @@ func AnalyzeResult(r *BenchResult) *AnalysisResult {
 		})
 	}
 
-	// ── Throughput Stability ──────────────────────────────────────
+	// ── 吞吐稳定性 ────────────────────────────────────────────────
 	if r.Throughput.PeakCmdsPerSec > 0 && r.Throughput.AvgCmdsPerSec > 0 {
 		stability := r.Throughput.PeakCmdsPerSec / r.Throughput.AvgCmdsPerSec
 		if stability > 3 {
@@ -139,7 +139,7 @@ func AnalyzeResult(r *BenchResult) *AnalysisResult {
 		}
 	}
 
-	// ── Connection Quality ───────────────────────────────────────
+	// ── 连接质量 ─────────────────────────────────────────────────
 	if r.Connection.Success+r.Connection.Failed > 0 {
 		if r.Connection.SuccessRate < 99 {
 			warnings = append(warnings, AnalysisWarning{
@@ -156,7 +156,7 @@ func AnalyzeResult(r *BenchResult) *AnalysisResult {
 		}
 	}
 
-	// ── Protocol Errors ──────────────────────────────────────────
+	// ── 协议错误 ─────────────────────────────────────────────────
 	if r.Errors.Total > 0 {
 		for _, ec := range r.Errors.ByType {
 			if ec.Count > 10 {
@@ -171,7 +171,7 @@ func AnalyzeResult(r *BenchResult) *AnalysisResult {
 		}
 	}
 
-	// ── Compute Score ───────────────────────────────────────────
+	// ── 计算评分 ─────────────────────────────────────────────────
 	score = 100
 	for _, w := range warnings {
 		switch w.Severity {
@@ -191,7 +191,7 @@ func AnalyzeResult(r *BenchResult) *AnalysisResult {
 		score = 75
 	}
 
-	// ── Summary ─────────────────────────────────────────────────
+	// ── 摘要 ─────────────────────────────────────────────────────
 	var summaryParts []string
 	summaryParts = append(summaryParts, fmt.Sprintf("%s performance score with %d warning(s).", PerformanceScore(score), len(warnings)))
 

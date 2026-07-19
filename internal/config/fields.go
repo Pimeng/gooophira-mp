@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// 配置字段元数据表：一处定义，驱动 env 加载、map 构建、合并、差异比对、startup-only 分类。
+// 配置字段元数据表：一处定义，驱动 env 加载、map 构建、合并、差异比对和仅启动期分类。
 //
 // get 返回解引用后的值（未设置为 nil）；set 从 parse 结果写回指针字段。用「指针字段的
 // 地址」闭包保持类型安全，避免反射。
@@ -238,7 +238,7 @@ var configFields = []fieldSpec{
 	strField("HITOKOTO_API_URL", false, parseStringValue, func(c *ServerConfig) **string { return &c.HitokotoAPIURL }),
 	boolField("ALLOW_TOKEN_IN_QUERY", false, func(c *ServerConfig) **bool { return &c.AllowTokenInQuery }),
 	{
-		// WEBHOOK：嵌套含目标列表，仅经 YAML 配置（无 env 合成）；非 startup-only，支持热重载。
+		// WEBHOOK：嵌套含目标列表，仅经 YAML 配置（无 env 合成）；并非仅启动期配置，支持热重载。
 		env:   "WEBHOOK",
 		parse: func(v any) (any, bool) { return parseWebhookValue(v) },
 		get: func(c *ServerConfig) any {
@@ -499,7 +499,7 @@ func ChangedKeys(prev, next *ServerConfig) []string {
 	return out
 }
 
-// KeepStartupOnly 把 next 中所有 startup-only 字段还原为 prev 的值，返回调整后的
+// KeepStartupOnly 把 next 中所有仅启动期字段还原为 prev 的值，返回调整后的
 // 配置与「需重启才能生效」的字段名列表。
 func KeepStartupOnly(prev, next *ServerConfig) (*ServerConfig, []string) {
 	out := *next // 浅拷贝

@@ -179,9 +179,8 @@ func (d *Dispatcher) handle(ev webhookmodel.Event) {
 	}
 }
 
-// DeliverEvent synchronously applies configured filtering, retries, and all
-// target deliveries. It is used by the Agent before advancing its durable
-// processing cursor.
+// DeliverEvent 同步执行配置的过滤、重试和全部目标投递。
+// Agent 在推进持久化处理游标前调用它。
 func (d *Dispatcher) DeliverEvent(ctx context.Context, ev webhookmodel.Event) error {
 	for _, delivery := range d.Plan(ev) {
 		if outcome, err := d.DeliverTarget(ctx, delivery.Target, ev); outcome == DeliveryRetryableFailure {

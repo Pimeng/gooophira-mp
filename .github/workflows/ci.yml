@@ -6,6 +6,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'cmd/**'
       - 'internal/**'
       - '!internal/l10n/locales/**'
       - go.mod
@@ -13,6 +14,7 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - 'cmd/**'
       - 'internal/**'
       - '!internal/l10n/locales/**'
       - go.mod
@@ -63,7 +65,7 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: 交叉编译全部目标平台（并行）
+      - name: 交叉编译 server 与 Agent（并行）
         env:
           CGO_ENABLED: '0'
         run: |
@@ -83,9 +85,11 @@ jobs:
           | xargs -P $(nproc) -L 1 sh -c '
             goos="$1"; goarch="$2"; name="$3"
             ext=""; [ "$goos" = "windows" ] && ext=".exe"
-            out="phira-mp-$name$ext"
-            echo "▶ 编译 $goos/$goarch → $out"
-            GOOS="$goos" GOARCH="$goarch" go build -trimpath -o "$out" ./cmd/server
-            ls -lh "$out"
-            rm -f "$out"
+            server="phira-mp-server-$name$ext"
+            agent="phira-mp-agent-$name$ext"
+            echo "▶ 编译 $goos/$goarch → $server, $agent"
+            GOOS="$goos" GOARCH="$goarch" go build -trimpath -o "$server" ./cmd/server
+            GOOS="$goos" GOARCH="$goarch" go build -trimpath -o "$agent" ./cmd/agent
+            ls -lh "$server" "$agent"
+            rm -f "$server" "$agent"
           ' _

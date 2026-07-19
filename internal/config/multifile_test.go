@@ -101,17 +101,24 @@ func TestConfigExamplesLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.example must remain loadable: %v", err)
 	}
-	for _, name := range ConfigFileNames() {
+	for _, name := range []string{CoreConfigFile, "network.yaml", "replay.yaml", "redis.yaml"} {
 		if !set.HasFile(name) {
 			t.Errorf("example is missing %s", name)
 		}
+	}
+	if _, err := LoadAgentFile(filepath.Join(exampleDir, "agent.yaml")); err != nil {
+		t.Fatalf("agent.yaml must remain loadable: %v", err)
 	}
 }
 
 func TestConfigExamplesMentionEverySupportedKey(t *testing.T) {
 	exampleDir := filepath.Join("..", "..", "config.example")
 	for name, keys := range configFileKeys {
-		raw, err := os.ReadFile(filepath.Join(exampleDir, name))
+		path := filepath.Join(exampleDir, name)
+		if name == "webhook.yaml" || name == "stats.yaml" {
+			path = filepath.Join(exampleDir, "legacy", name)
+		}
+		raw, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
 		}

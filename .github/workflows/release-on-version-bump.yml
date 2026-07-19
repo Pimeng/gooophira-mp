@@ -80,7 +80,7 @@ jobs:
 
       - name: 交叉编译各平台并打包
         env:
-          CGO_ENABLED: '0' # 纯 Go（仅依赖 yaml.v3），静态交叉编译
+          CGO_ENABLED: '0'
         run: |
           # 纯 Go 项目无需各系统单独起 runner，单机交叉编译全部目标即可。
           # 每行：GOOS GOARCH 产物名后缀。
@@ -97,16 +97,19 @@ jobs:
           echo "$targets" | while read -r goos goarch name; do
             [ -z "$goos" ] && continue
             ext=""; [ "$goos" = "windows" ] && ext=".exe"
-            BIN="phira-mp$ext"
+            package="phira-mp-$name"
+            staging="dist/$package"
+            mkdir -p "$staging"
             echo "▶ 编译 $goos/$goarch → $name"
             # 版本号经 go:embed 内嵌，无需 ldflags 注入；保留符号和 DWARF 调试信息。
-            GOOS="$goos" GOARCH="$goarch" go build -trimpath -o "$BIN" ./cmd/server
+            GOOS="$goos" GOARCH="$goarch" go build -trimpath -o "$staging/phira-mp-server$ext" ./cmd/server
+            GOOS="$goos" GOARCH="$goarch" go build -trimpath -o "$staging/phira-mp-agent$ext" ./cmd/agent
             if [ "$goos" = "windows" ]; then
-              mv "$BIN" "dist/phira-mp-$name.exe"
+              (cd dist && zip -qr "$package.zip" "$package")
             else
-              tar -czf "dist/phira-mp-$name.tar.gz" "$BIN"
-              rm -f "$BIN"
+              tar -C dist -czf "dist/$package.tar.gz" "$package"
             fi
+            rm -rf "$staging"
           done
           ls -lh dist
 
@@ -229,9 +232,9 @@ jobs:
           TAG: v${{ needs.check-version.outputs.version }}
           PRERELEASE: ${{ needs.check-version.outputs.prerelease }}
         run: |
-          # 随二进制一并附上新旧格式示例配置，便于部署与迁移。
+          # 随二进制一并附上当前配置，以及 legacy/ 下的迁移参考。
           tar -czf artifacts/config.example.tar.gz config.example
-          FILES=(artifacts/* server_config.example.yml)
+          FILES=(artifacts/*)
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $TAG 已存在，覆盖上传产物"
             gh release upload "$TAG" "${FILES[@]}" --clobber --repo "$GITHUB_REPOSITORY"

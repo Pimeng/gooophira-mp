@@ -266,7 +266,7 @@ func (r *Room) ClientRoomState() protocol.RoomState {
 		return protocol.RoomStateWaitingForReady{}
 	case StatePlaying:
 		return protocol.RoomStatePlaying{}
-	default: // StateSelectChart
+	default: // StateSelectChart 选谱状态。
 		var id *int32
 		if r.Chart != nil {
 			v := int32(r.Chart.ID)

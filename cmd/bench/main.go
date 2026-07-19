@@ -13,7 +13,7 @@ import (
 	"github.com/Pimeng/gooophira-mp/internal/benchmetrics"
 )
 
-// ---------- Command Line ----------
+// ---------- 命令行 ----------
 
 type benchConfig struct {
 	Clients    int           `json:"clients"`
@@ -48,7 +48,7 @@ func parseFlags() benchConfig {
 	}
 }
 
-// ---------- Profiler ----------
+// ---------- 性能分析器 ----------
 
 type profiler struct {
 	dir            string
@@ -130,7 +130,7 @@ func (p *profiler) writeProfiles(dir string) {
 	p.profiles = profiles
 }
 
-// ---------- Main ----------
+// ---------- 主程序 ----------
 
 func main() {
 	bc := parseFlags()

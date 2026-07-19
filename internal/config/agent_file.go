@@ -31,8 +31,8 @@ type AgentConfig struct {
 	ReplayUpload AgentReplayUploadConfig
 }
 
-// LoadAgentFile loads configuration owned exclusively by cmd/agent. Webhook
-// keys remain top-level for compatibility with the initial Agent slice.
+// LoadAgentFile 加载由 cmd/agent 独占的配置。
+// 为兼容最初的 Agent 版本，Webhook 键仍保留在顶层。
 func LoadAgentFile(path string) (*AgentConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -96,7 +96,7 @@ func LoadAgentFile(path string) (*AgentConfig, error) {
 		}
 	}
 	statsCfg.DBPath = strings.TrimSpace(statsCfg.DBPath)
-	replayCfg := AgentReplayUploadConfig{BaseDir: "replays", StatePath: "agent-inbox/upload-state.json", DelayMS: 30000}
+	replayCfg := AgentReplayUploadConfig{BaseDir: "./record", StatePath: "agent-inbox/upload-state.json", DelayMS: 30000}
 	if value, present := raw["REPLAY_UPLOAD"]; present {
 		record, ok := asRecord(value)
 		if !ok {

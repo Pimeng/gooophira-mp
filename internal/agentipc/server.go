@@ -1,5 +1,4 @@
-// Package agentipc implements the authenticated HTTP/JSON boundary exposed by
-// the main server to the optional Agent.
+// agentipc 包实现主服务端向可选 Agent 暴露的带鉴权 HTTP/JSON 边界。
 package agentipc
 
 import (
@@ -165,8 +164,8 @@ func (s *Service) handleQueryResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.queries.complete(response); err != nil {
-		// The originating HTTP request may have timed out after Agent claimed the
-		// query. A late result is harmless and must not tear down Agent polling.
+		// Agent 领取查询后，原始 HTTP 请求可能已经超时。迟到的结果无害，
+		// 不应中断 Agent 轮询。
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true, "accepted": false})
 		return
 	}

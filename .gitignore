@@ -1,21 +1,31 @@
-# 运行时生成目录/文件（任意层级）
-logs/
-record/
-tmp/
-cache/
-admin_data.json
-server_config.yml
+# 运行时生成目录/文件（仅项目根目录）
+/logs/
+/record/
+/tmp/
+/cache/
+/agent-inbox/
+/agent-outbox/
+/agent-ipc.json
+/admin_data.json
+/server_config.yml
 /config/
-stats.db
+/stats.db
 
 # 编译产物
 /server
 /server.exe
+/phira-mp-server
+/phira-mp-server.exe
+/phira-mp-agent
+/phira-mp-agent.exe
 *.exe
+/dist/
 
-# 隐藏文件
-/.*/
-!.github/
+# 本地环境与 IDE
+/.env
+/.agents/
+/.idea/
+/.vscode/
 
 # 一些文件
 *.phirarec

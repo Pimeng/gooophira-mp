@@ -69,7 +69,7 @@ cp config.example/agent.yaml config/agent.yaml
 cp config.example/replay.yaml config/replay.yaml
 ```
 
-不要把整个 `config.example` 复制为活动配置；旧 `stats.yaml` 和 `webhook.yaml` 仅用于迁移参考，server 不再执行其中的扩展逻辑。
+不要把整个 `config.example` 复制为活动配置；`config.example/legacy/` 中的旧 `stats.yaml`、`webhook.yaml` 和单文件 server 配置仅用于迁移参考，server 不再执行其中的扩展逻辑。
 
 ## 3. Server 配置
 
@@ -123,7 +123,7 @@ TARGETS:
     EVENTS: [room_create, game_start, game_end]
 ```
 
-支持 `generic`、`discord`、`onebot_v11` 和 `feishu`。各目标的完整字段及事件列表见 [`config.example/webhook.yaml`](../config.example/webhook.yaml)，将其中的 `ENABLED`、`TIMEOUT_MS`、`RETRIES` 和 `TARGETS` 合并到 `agent.yaml` 顶层即可。
+支持 `generic`、`discord`、`onebot_v11` 和 `feishu`。各目标的完整字段及事件列表见旧格式迁移参考 [`config.example/legacy/webhook.yaml`](../config.example/legacy/webhook.yaml)，将其中的 `ENABLED`、`TIMEOUT_MS`、`RETRIES` 和 `TARGETS` 合并到 `agent.yaml` 顶层即可。
 
 每个目标建议设置稳定且唯一的 `ID`。Agent 会按事件 ID 和目标 ID 持久化投递结果，重启或重复事件不会重复投递已完成目标。
 
@@ -179,7 +179,7 @@ REPLAY_UPLOAD:
 
 开发或临时部署可在同一终端用以下脚本启动。server 先启动，Agent 自己等待 discovery 文件并重试；Agent 退出不会主动终止 server。
 
-### Linux / macOS
+### 5.1 Linux / macOS
 
 保存为 `start-all.sh`：
 
@@ -212,7 +212,7 @@ chmod +x start-all.sh
 ./start-all.sh
 ```
 
-### Windows PowerShell
+### 5.2 Windows PowerShell
 
 保存为 `start-all.ps1`：
 
@@ -233,6 +233,32 @@ try {
 ```
 
 生产环境不建议依赖前台脚本管理重启和日志；Linux 请使用 systemd。
+
+### 5.3 Docker Compose
+
+仓库镜像同时包含 server 和 Agent，默认入口仍是 server。Compose 的 `agent` profile 通过 `/data` 共享 discovery 文件、Unix socket、outbox 和回放目录：
+
+```bash
+cp .env.example .env
+mkdir -p config
+cp config.example/agent.yaml config/agent.yaml
+```
+
+编辑 `.env`：
+
+```dotenv
+AGENT_IPC_ENDPOINT=unix:///data/agent.sock
+AGENT_CONFIG_FILE=./config/agent.yaml
+```
+
+按需编辑 `config/agent.yaml`，然后启动：
+
+```bash
+docker compose --profile agent up -d --build
+docker compose logs -f phira-mp phira-mp-agent
+```
+
+只运行核心服务时保持 `AGENT_IPC_ENDPOINT=disabled`，并使用普通的 `docker compose up -d --build`。不要在两个容器之间使用 `auto` endpoint，因为默认 Unix socket 位于各自不共享的 `/tmp`。
 
 ## 6. systemd 正式部署
 
@@ -404,8 +430,8 @@ sudo systemctl enable --now phira-mp-server.service
 - Agent 新默认配置是 `config/agent.yaml`。
 - 根目录 `agent_config.yml` 仍会在新默认文件不存在时被兼容读取，并输出弃用警告。
 - `-webhook-config` 仍是 `-config` 的兼容别名，但已弃用。
-- 将旧 `config/webhook.yaml` 的四个顶层字段合并进 `agent.yaml`。
-- 将旧 `config/stats.yaml` 转成 `agent.yaml` 的 `STATS` 块，并保留原 SQLite 文件。
+- 将旧 `config/webhook.yaml` 的四个顶层字段合并进 `agent.yaml`；字段参考见 `config.example/legacy/webhook.yaml`。
+- 将旧 `config/stats.yaml` 转成 `agent.yaml` 的 `STATS` 块，并保留原 SQLite 文件；字段参考见 `config.example/legacy/stats.yaml`。
 - 将旧 `config/replay.yaml` 的分享站凭据迁入 `agent.yaml` 的 `REPLAY_UPLOAD`，server 的 replay 文件仅保留录制目录和保留策略。
 
 迁移后先单独启动 server，确认核心服务正常，再启动 Agent 观察积压事件被消费。

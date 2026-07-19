@@ -175,7 +175,7 @@ func BenchmarkFrameWriter(b *testing.B) {
 	}
 }
 
-// BenchmarkFrameMultiple simulates processing many small frames in sequence.
+// BenchmarkFrameMultiple 模拟连续处理大量小帧。
 func BenchmarkFrameMultiple(b *testing.B) {
 	// 预构建 100 个小帧（每个 ~50 字节 payload）
 	var frames [][]byte

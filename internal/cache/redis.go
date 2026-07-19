@@ -61,7 +61,7 @@ func reportRedisErr(ctx string, err error) {
 }
 
 // InitRedis 按配置建立 Redis 连接：enabled=false（或 cfg 为 nil）则断开既有连接、转回本地缓存。
-// 连接成功后把所有已注册缓存的内存数据迁移进 Redis。REDIS 为 startup-only，仅启动时调用一次。
+// 连接成功后把所有已注册缓存的内存数据迁移进 Redis。REDIS 仅启动期生效，只调用一次。
 func InitRedis(cfg *config.RedisConfig) error {
 	if cfg == nil || !cfg.Enabled {
 		CloseRedis()

@@ -64,11 +64,11 @@ func TestBuildWelcomeText(t *testing.T) {
 	text := h.state.BuildWelcomeText(user, &Hitokoto{Quote: "be water", From: "Bruce Lee"})
 
 	checks := []string{
-		`Hello "alice"! Welcome to test!`, // chat-welcome
-		"Server is running version dev",   // chat-welcome-version
-		"Available rooms:",                // chat-roomlist-title
-		"lobby (1/8)",                     // room list item
-		"be water — Bruce Lee",            // chat-hitokoto
+		`Hello "alice"! Welcome to test!`, // 欢迎语。
+		"Server is running version dev",   // 版本欢迎语。
+		"Available rooms:",                // 房间列表标题。
+		"lobby (1/8)",                     // 房间列表项。
+		"be water — Bruce Lee",            // 一言消息。
 	}
 	for _, want := range checks {
 		if !strings.Contains(text, want) {

@@ -10,11 +10,11 @@ import (
 	"fmt"
 )
 
-// runRoomCycleScenario - room lifecycle test (benchmetrics version).
+// runRoomCycleScenario 执行房间生命周期测试（benchmetrics 版本）。
 func runRoomCycleScenario(bc benchConfig, mc *benchmetrics.Collector, addr string, vipPool *vipPool) benchmetrics.BenchResult {
 	startTime := time.Now()
 
-	// Phase 1: connect + auth all clients
+	// 阶段 1：连接并认证全部客户端。
 	clients := make([]*tcpClient, 0, bc.Clients)
 	{
 		var wg sync.WaitGroup
@@ -53,7 +53,7 @@ func runRoomCycleScenario(bc benchConfig, mc *benchmetrics.Collector, addr strin
 		wg.Wait()
 	}
 
-	// Assign clients to rooms
+	// 把客户端分配到各房间。
 	for r := 0; r < bc.Rooms; r++ {
 		roomID := protocol.RoomID(fmt.Sprintf("bench-r%d", r))
 		roomClients := assignTCPClients(clients, r, bc.Rooms, len(clients))
@@ -83,7 +83,7 @@ func runRoomCycleScenario(bc benchConfig, mc *benchmetrics.Collector, addr strin
 		mc.SetPeakRooms(int64(r + 1))
 	}
 
-	// Phase 2: concurrent Touches -> Played loop
+	// 阶段 2：并发执行 Touches 到 Played 的循环。
 	var wg sync.WaitGroup
 	stopCh := make(chan struct{})
 
@@ -154,7 +154,7 @@ func runRoomCycleScenario(bc benchConfig, mc *benchmetrics.Collector, addr strin
 	sampleTicker.Stop()
 	wg.Wait()
 
-	// Cleanup
+	// 清理资源。
 	for _, cli := range clients {
 		cli.close()
 		mc.ConnClose()
@@ -181,7 +181,7 @@ func runRoomCycleScenario(bc benchConfig, mc *benchmetrics.Collector, addr strin
 	return result
 }
 
-// runConnectionStormScenario - concurrent connect + auth throughput test.
+// runConnectionStormScenario 执行并发连接与认证吞吐测试。
 func runConnectionStormScenario(bc benchConfig, mc *benchmetrics.Collector, addr string, vipPool *vipPool) benchmetrics.BenchResult {
 	startTime := time.Now()
 
@@ -260,7 +260,7 @@ func runConnectionStormScenario(bc benchConfig, mc *benchmetrics.Collector, addr
 	return result
 }
 
-// runSteadyStateScenario - steady ping stream with fixed connections.
+// runSteadyStateScenario 使用固定连接执行稳定 Ping 流测试。
 func runSteadyStateScenario(bc benchConfig, mc *benchmetrics.Collector, addr string, vipPool *vipPool) benchmetrics.BenchResult {
 	startTime := time.Now()
 
@@ -361,11 +361,11 @@ func runSteadyStateScenario(bc benchConfig, mc *benchmetrics.Collector, addr str
 	return result
 }
 
-// runGameplayScenario - high-frequency Touches/Judges frame test.
+// runGameplayScenario 执行高频 Touches/Judges 帧测试。
 func runGameplayScenario(bc benchConfig, mc *benchmetrics.Collector, addr string, vipPool *vipPool) benchmetrics.BenchResult {
 	startTime := time.Now()
 
-	// Pre-generate frame data
+	// 预先生成帧数据。
 	type frameBundle struct {
 		touches protocol.CmdTouches
 		judges  protocol.CmdJudges
@@ -392,7 +392,7 @@ func runGameplayScenario(bc benchConfig, mc *benchmetrics.Collector, addr string
 		}
 	}
 
-	// Phase 1: connect + auth all clients
+	// 阶段 1：连接并认证全部客户端。
 	clients := make([]*tcpClient, 0, bc.Clients)
 	{
 		var wg sync.WaitGroup
@@ -425,7 +425,7 @@ func runGameplayScenario(bc benchConfig, mc *benchmetrics.Collector, addr string
 		wg.Wait()
 	}
 
-	// Phase 2: all rooms enter Playing state
+	// 阶段 2：让全部房间进入 Playing 状态。
 	for r := 0; r < bc.Rooms; r++ {
 		roomID := protocol.RoomID(fmt.Sprintf("gm-r%d", r))
 		roomClients := assignTCPClients(clients, r, bc.Rooms, len(clients))
@@ -451,7 +451,7 @@ func runGameplayScenario(bc benchConfig, mc *benchmetrics.Collector, addr string
 		mc.AddCommands(int64(len(roomClients)*2 + 3))
 	}
 
-	// Phase 3: concurrent Touches/Judges
+	// 阶段 3：并发发送 Touches/Judges。
 	var wg sync.WaitGroup
 	stopCh := make(chan struct{})
 	var frameIdx atomic.Int32
@@ -503,7 +503,7 @@ func runGameplayScenario(bc benchConfig, mc *benchmetrics.Collector, addr string
 	sampleTicker.Stop()
 	wg.Wait()
 
-	// Phase 4: submit results
+	// 阶段 4：提交结果。
 	for _, cli := range clients {
 		_ = cli.sendCommand(protocol.CmdPlayed{ID: int32(cli.id)})
 		_, _ = cli.readFrame()

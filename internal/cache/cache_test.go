@@ -37,7 +37,7 @@ func TestCache_GetSetTTL(t *testing.T) {
 }
 
 func TestCache_NoTTLNeverExpires(t *testing.T) {
-	c := NewString[string](Options{Name: "t.json"}) // TTL 0
+	c := NewString[string](Options{Name: "t.json"}) // TTL 为 0。
 	c.Set("k", "v")
 	c.mu.Lock()
 	e := c.mem["k"]
@@ -285,7 +285,7 @@ func TestCache_ConcurrentClearAndSet(t *testing.T) {
 			}
 		}
 	})
-	// reader：不停 Get
+	// 读取协程：不停调用 Get。
 	wg.Go(func() {
 		for {
 			select {

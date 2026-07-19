@@ -4,13 +4,17 @@ on:
   push:
     branches: [main]
     paths:
-      - internal/**
+      - 'cmd/bench/**'
+      - 'cmd/tcpconnectbench/**'
+      - 'internal/**'
       - go.mod
       - go.sum
   pull_request:
     branches: [main]
     paths:
-      - internal/**
+      - 'cmd/bench/**'
+      - 'cmd/tcpconnectbench/**'
+      - 'internal/**'
       - go.mod
       - go.sum
   workflow_dispatch:
@@ -65,7 +69,7 @@ jobs:
         with: { go-version-file: go.mod }
       - run: go mod download
 
-      # ----- micro benchmarks -----
+      # ----- 微基准测试 -----
 
       - name: run micro benchmarks
         run: |
@@ -100,7 +104,7 @@ jobs:
             }' tmp/profiles/micro/bench.txt | sort -u
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # ----- load test -----
+      # ----- 负载测试 -----
 
       - name: run load test
         run: |
@@ -154,7 +158,7 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # ----- TCP connect load test -----
+      # ----- TCP 连接负载测试 -----
 
       - name: run TCP connect load test
         run: |
@@ -211,7 +215,7 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # ----- upload -----
+      # ----- 上传结果 -----
 
       - uses: actions/upload-artifact@v4
         if: always()

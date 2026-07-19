@@ -75,12 +75,10 @@ config/
 ├── agent.yaml        # 可选：Agent 拥有的统计、通知和上传配置
 ├── network.yaml      # 可选：代理、DNS、CORS、真实 IP、HAProxy
 ├── replay.yaml       # 可选：存在即启用回放录制
-├── redis.yaml        # 可选：存在即启用 Redis
-├── webhook.yaml      # 旧 Webhook 配置迁移参考
-└── stats.yaml        # 旧统计配置迁移参考
+└── redis.yaml        # 可选：存在即启用 Redis
 ```
 
-每个文件必须包含 `version: 1`。服务端只加载其固定文件名，Agent 独立加载 `agent.yaml`，不会把备份文件或其它 YAML 意外当成配置。服务端可选文件不存在时，对应功能不会初始化；文件存在但为空、含未知键或非法值时，启动失败，热重载时则保留上一份有效配置。Agent 配置修改后当前需要重启 Agent。
+每个文件必须包含 `version: 1`。当前 server 配置使用 `server.yaml`、`network.yaml`、`replay.yaml` 和 `redis.yaml`，Agent 独立加载 `agent.yaml`，不会把备份文件或其它 YAML 意外当成配置。server 仍识别旧 `webhook.yaml` 和 `stats.yaml` 以输出迁移警告，但不会执行其中的扩展逻辑。服务端可选文件不存在时，对应功能不会初始化；文件存在但为空、含未知键或非法值时，启动失败，热重载时则保留上一份有效配置。Agent 配置修改后当前需要重启 Agent。
 
 不要把 [`config.example`](config.example) 整个目录复制为活动配置；只复制需要启用的扩展。例如启用回放：
 
@@ -88,7 +86,7 @@ config/
 cp config.example/replay.yaml config/replay.yaml
 ```
 
-核心配置常用项见 [`config.example/server.yaml`](config.example/server.yaml)，其它字段按功能查看对应示例文件。多文件模式下，环境变量只能覆盖已存在的扩展，不能单独安装扩展。
+核心配置常用项见 [`config.example/server.yaml`](config.example/server.yaml)，其它字段按功能查看对应示例文件。`config.example/legacy/` 仅用于旧部署迁移，不能直接作为当前活动配置。多文件模式下，环境变量只能覆盖已存在的 server 扩展，不能单独安装扩展。
 
 启用可选 Agent 扩展时，将 [`config.example/agent.yaml`](config.example/agent.yaml) 复制为 `config/agent.yaml`，再启动 `phira-mp-agent`。进程关系、配置所有权、联合启动、systemd、Windows 和迁移教程统一见 [Agent 分离部署与配置](docs/agent.md)。旧的根目录 `agent_config.yml` 会被兼容读取，但已弃用。
 
@@ -101,9 +99,9 @@ cp config.example/replay.yaml config/replay.yaml
 ./phira-mp-server config migrate --from server_config.yml --to config
 ```
 
-迁移不会删除旧文件，也不会覆盖 `config/` 中已经存在的目标文件。新旧配置同时存在时默认优先 `config/server.yaml`；可用 `-config` 显式启动旧格式，或用 `-config-dir` 指定新目录。
+迁移不会删除旧文件，也不会覆盖 `config/` 中已经存在的目标文件。迁移器会把核心配置拆入 server 文件，并把旧统计、Webhook 和分享站配置写入 `config/agent.yaml`，同时启用本地 Agent IPC；迁移后需要同时启动 `phira-mp-agent` 才能继续使用这些扩展。新旧配置同时存在时默认优先 `config/server.yaml`；可用 `-config` 显式启动旧格式，或用 `-config-dir` 指定新目录。
 
-> **热重载**：任一已知配置文件新增、修改或删除都会重新加载完整配置快照。端口、GUI、Redis、统计数据库路径等启动项修改后提示重启；其它支持项即时生效。
+> **热重载**：任一已知 server 配置文件新增、修改或删除都会重新加载完整配置快照。端口、GUI、Redis 和 Agent IPC 等启动项修改后提示重启；其它支持项即时生效。`agent.yaml` 修改后需要重启 Agent。
 
 ---
 
@@ -215,8 +213,8 @@ DB: 0
 
 Agent 把服务器持久事件异步推送到群机器人或自建服务，投递带幂等账本、超时与失败重试，目标不可达也不阻塞对局逻辑。配置位于 `config/agent.yaml`，修改后重启 Agent。
 
-- 事件类型：`room_create`、`room_disband`、`user_join`、`maintenance`
-- 载荷格式（`TYPE`）：`generic`（结构化 JSON，自定义机器人自行渲染）、`discord`、`feishu`
+- 事件类型：`room_create`、`room_disband`、`user_join`、`game_start`、`game_end`、`maintenance`
+- 载荷格式（`TYPE`）：`generic`（结构化 JSON，自定义机器人自行渲染）、`discord`、`onebot_v11`、`feishu`
 - 可选 `SECRET`：请求带 `X-Phira-Signature: sha256=<HMAC(body)>` 头供接收端验签
 
 完整配置示例见 [`config.example/agent.yaml`](config.example/agent.yaml) 和 [Agent 配置教程](docs/agent.md#41-webhook)。
@@ -265,7 +263,7 @@ GOOS=darwin GOARCH=amd64 go build -o phira-mp-server-darwin-amd64 ./cmd/server
 
 ### Docker 部署
 
-镜像多阶段构建（`CGO_ENABLED=0` 静态编译，运行层为带 CA 证书的最小 Alpine），非 root 运行，工作目录 `/data` 即数据目录（配置/日志/回放/缓存均持久化于此）。
+镜像多阶段构建（`CGO_ENABLED=0` 静态编译，运行层为带 CA 证书的最小 Alpine），同时包含 `phira-mp-server` 和 `phira-mp-agent`。默认入口是 server，容器以非 root 用户运行，工作目录 `/data` 即数据目录（配置/日志/回放/缓存均持久化于此）。
 
 ```bash
 # 单容器
@@ -276,9 +274,12 @@ docker run -d --name phira-mp -p 12346:12346 -p 12347:12347 \
 # 一键栈（server + Redis）
 cp .env.example .env      # 按需填 ADMIN_TOKEN 等
 docker compose up -d --build
+
+# 可选：在 .env 中配置 AGENT_IPC_ENDPOINT 与 AGENT_CONFIG_FILE 后启动 Agent
+docker compose --profile agent up -d --build
 ```
 
-容器内默认 `HTTP_SERVICE=true` 并内置 `HEALTHCHECK`；首次运行自动生成 `/data/config/server.yaml`，已有 `/data/server_config.yml` 的数据卷继续兼容旧格式。Compose 会挂载 `redis.yaml` 以启用 Redis。`internal/version/VERSION` 升高或手动触发 [`docker-image.yml`](.github/workflows/docker-image.yml) 会构建 `amd64`+`arm64` 多架构镜像推送 GHCR。
+容器内默认 `HTTP_SERVICE=true` 并内置 `HEALTHCHECK`；首次运行自动生成 `/data/config/server.yaml`，已有 `/data/server_config.yml` 的数据卷继续兼容旧格式。Compose 会挂载 `redis.yaml` 以启用 Redis。需要 Agent 时，在 `.env` 中把 `AGENT_IPC_ENDPOINT` 设为 `unix:///data/agent.sock`，将 `AGENT_CONFIG_FILE` 指向实际的 `agent.yaml`，再启用 `agent` profile；完整要求见 [Agent 部署文档](docs/agent.md)。`internal/version/VERSION` 升高或手动触发 [`docker-image.yml`](.github/workflows/docker-image.yml) 会构建 `amd64`+`arm64` 多架构镜像推送 GHCR。
 
 ### 测试
 

@@ -77,7 +77,7 @@ func parseProxyV2(r *bufio.Reader) *ProxyInfo {
 	family := famProto >> 4
 	proto := famProto & 0x0f
 	switch {
-	case family == 0x01 && proto == 0x01: // TCP over IPv4
+	case family == 0x01 && proto == 0x01: // IPv4 上的 TCP。
 		if addrLen < 12 {
 			return nil
 		}
@@ -88,7 +88,7 @@ func parseProxyV2(r *bufio.Reader) *ProxyInfo {
 			DestPort:   int(binary.BigEndian.Uint16(full[26:28])),
 			Family:     "TCP4",
 		}
-	case family == 0x02 && proto == 0x01: // TCP over IPv6
+	case family == 0x02 && proto == 0x01: // IPv6 上的 TCP。
 		if addrLen < 36 {
 			return nil
 		}

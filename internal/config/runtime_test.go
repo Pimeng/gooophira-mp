@@ -93,7 +93,7 @@ func TestRuntimePatch_RoomListTipTrimAndClear(t *testing.T) {
 
 func TestRuntimePatch_Classification(t *testing.T) {
 	res := ParseRuntimeConfigPatch(map[string]any{
-		"PORT":           12346,   // startup-only
+		"PORT":           12346,   // 仅启动期生效。
 		"REPLAY_ENABLED": "maybe", // 值非法
 		"NOT_A_KEY":      1,       // 未知
 		"REAL_IP_HEADER": "X-Foo", // 已知但非运行时项 → unsupported

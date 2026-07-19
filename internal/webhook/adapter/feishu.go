@@ -425,8 +425,8 @@ func (f *Feishu) patchMessage(ctx context.Context, client *lark.Client, messageI
 	return true, false
 }
 
-// compressWebP explicitly decodes a static WebP, composites transparency onto
-// white, and encodes progressively smaller JPEGs until the upload limit fits.
+// compressWebP 显式解码静态 WebP，把透明区域合成到白色背景，
+// 再逐步编码为更小的 JPEG，直到满足上传大小限制。
 func compressWebP(src []byte, maxBytes int) ([]byte, error) {
 	if !isWebP(src) {
 		return nil, fmt.Errorf("unsupported image format: expected WebP")

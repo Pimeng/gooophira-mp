@@ -51,7 +51,7 @@ func TestStatsProcessorTransactionalIdempotency(t *testing.T) {
 	if err != nil || profile.Games != 1 {
 		t.Fatalf("profile after first process = %+v err=%v", profile, err)
 	}
-	// Simulate losing the processing cursor while retaining the committed DB.
+	// 模拟保留已提交数据库但丢失处理游标的情况。
 	if err := writeCursor(cursor, 0); err != nil {
 		t.Fatal(err)
 	}

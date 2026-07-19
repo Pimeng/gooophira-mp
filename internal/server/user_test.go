@@ -232,7 +232,7 @@ func TestSetGameTime_Roundtrip(t *testing.T) {
 	for _, v := range values {
 		u.SetGameTime(v)
 		got := u.GameTime()
-		if v != v { // NaN
+		if v != v { // 非数值 NaN。
 			if got == got {
 				t.Errorf("SetGameTime(NaN) not preserved: got %v", got)
 			}
@@ -244,7 +244,7 @@ func TestSetGameTime_Roundtrip(t *testing.T) {
 	}
 }
 
-// ---------- CanMonitor ----------
+// ---------- 观战权限 ----------
 
 func TestCanMonitor(t *testing.T) {
 	h := newHarness(100, 200) // 100 和 200 在 monitors 白名单
@@ -270,14 +270,14 @@ func TestUser_ConcurrentSetSessionAndTrySend(t *testing.T) {
 
 	var wg sync.WaitGroup
 	stop := atomic.Bool{}
-	// writer：不停切换 session
+	// 写入协程：不停切换 session。
 	wg.Go(func() {
 		for !stop.Load() {
 			u.SetSession(&mockSession{id: "switching"})
 			u.SetSession(nil)
 		}
 	})
-	// reader：不停 TrySend
+	// 读取协程：不停调用 TrySend。
 	wg.Go(func() {
 		for !stop.Load() {
 			u.TrySend(cmd)
@@ -297,7 +297,7 @@ func TestUser_ConcurrentSetGameTimeAndRead(t *testing.T) {
 	var wg sync.WaitGroup
 	stop := atomic.Bool{}
 	values := []float64{0.0, 1.1, 2.2, 3.3, -7.7}
-	// writer
+	// 写入协程。
 	wg.Go(func() {
 		for !stop.Load() {
 			for _, v := range values {
@@ -305,7 +305,7 @@ func TestUser_ConcurrentSetGameTimeAndRead(t *testing.T) {
 			}
 		}
 	})
-	// reader
+	// 读取协程。
 	wg.Go(func() {
 		for !stop.Load() {
 			_ = u.GameTime()
@@ -345,14 +345,14 @@ func TestUser_ConcurrentMarkDangleAndIsStillDangling(t *testing.T) {
 	stop := atomic.Bool{}
 	var lastToken atomic.Pointer[DangleToken]
 	deadline := int64(time.Now().Add(10 * time.Second).UnixMilli())
-	// writer：不停 MarkDangle
+	// 写入协程：不停调用 MarkDangle。
 	wg.Go(func() {
 		for !stop.Load() {
 			tok := u.MarkDangle(&deadline)
 			lastToken.Store(tok)
 		}
 	})
-	// reader：不停 IsStillDangling
+	// 读取协程：不停调用 IsStillDangling。
 	wg.Go(func() {
 		for !stop.Load() {
 			if tok := lastToken.Load(); tok != nil {

@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// ── Collector ──────────────────────────────────────────────────────────
+// ── 采集器 ────────────────────────────────────────────────────────────
 //
 // Collector 是零分配、锁友好的压测指标采集器。
 // 所有热路径计数器使用 atomic 操作；直方图使用 per-shard Mutex（~1ns 持锁）。
@@ -233,7 +233,7 @@ func (c *Collector) Sample() {
 
 // TimelineTick 记录当前秒的累计命令数（每秒调用 1 次）。
 func (c *Collector) TimelineTick() {
-	// Legacy per-second command snapshot
+	// 旧版逐秒命令快照。
 	now := time.Now().Unix()
 	idx := int(now - c.timelineBase)
 	if idx >= 0 && idx < len(c.timeline) {
@@ -241,7 +241,7 @@ func (c *Collector) TimelineTick() {
 		c.timeline[idx] = c.commandsSent.Load()
 		c.timelineMu.Unlock()
 	}
-	// New generic timeline
+	// 新版通用时间线。
 	if c.tl != nil {
 		c.tl.Tick()
 	}
@@ -577,7 +577,7 @@ func init() {
 	debug.SetGCPercent(initGCPercent) // 恢复
 }
 
-// min/max intrinsics for Go 1.21+, but we provide explicit for compatibility
+// Go 1.21+ 已内置 min/max，这里为兼容性保留显式实现。
 func min(a, b int) int {
 	if a < b {
 		return a

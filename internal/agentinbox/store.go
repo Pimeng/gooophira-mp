@@ -1,4 +1,4 @@
-// Package agentinbox durably stages events in the Agent before the server ACK.
+// agentinbox 包在服务端确认前，将事件可靠暂存到 Agent。
 package agentinbox
 
 import (
@@ -72,8 +72,8 @@ func Open(path string, maxBytes int64) (*Store, error) {
 	return s, nil
 }
 
-// SetBaseline initializes a completely empty inbox to the server's durable
-// ACK. It never advances an inbox that already contains events.
+// SetBaseline 用服务端的持久化确认序号初始化完全为空的 inbox，
+// 绝不会推进已经包含事件的 inbox。
 func (s *Store) SetBaseline(sequence uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -98,8 +98,7 @@ func (s *Store) LastSequence() uint64 {
 	return s.last
 }
 
-// ReadAfter returns durable events after sequence without loading the entire
-// bounded inbox into memory.
+// ReadAfter 返回指定序号之后的持久化事件，无需把整个有界 inbox 加载到内存。
 func (s *Store) ReadAfter(sequence uint64, limit int) ([]agentproto.Envelope, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -146,8 +145,8 @@ func (s *Store) ReadAfter(sequence uint64, limit int) ([]agentproto.Envelope, er
 	return out, nil
 }
 
-// Accept fsyncs every new envelope and returns the highest durable sequence.
-// Replayed envelopes are accepted only when sequence and event ID both match.
+// Accept 对每个新信封执行 fsync，并返回最高持久化序号。
+// 重放信封只有在序号与事件 ID 都匹配时才会被接受。
 func (s *Store) Accept(events []agentproto.Envelope) (uint64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

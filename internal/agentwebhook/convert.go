@@ -1,5 +1,5 @@
-// Package agentwebhook derives webhook presentation events from Agent domain
-// envelopes and advances a durable processing cursor only after delivery.
+// agentwebhook 包从 Agent 领域信封派生 Webhook 展示事件，
+// 并且只在投递完成后推进持久化处理游标。
 package agentwebhook
 
 import (

@@ -1,5 +1,5 @@
 // session_read.go 把「读循环、命令派发、新连接日志」从 session.go 拆出。
-// 读循环负责 PROXY 解析、握手版本号、帧切分与心跳超时；命令派发按 room-only / 全局分段锁策略
+// 读循环负责 PROXY 解析、握手版本号、帧切分与心跳超时；命令派发按仅房间命令 / 全局分段锁策略
 // 调度 hub.ProcessClientCommand，高频 hot path（Touches/Judges/Played）仅持 room.Mu。
 package network
 

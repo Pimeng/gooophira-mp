@@ -155,7 +155,7 @@ func (p *profiler) writeProfiles(dir string) {
 	p.profiles = profiles
 }
 
-// ---------- Mock Phira API ----------
+// ---------- 模拟 Phira API ----------
 
 var clientFrameWriterPool = &sync.Pool{
 	New: func() any { return protocol.NewFrameWriter(5) },
@@ -427,7 +427,7 @@ func startEmbeddedServer(port int) (*network.Server, string, error) {
 	return srv, srv.Addr().String(), nil
 }
 
-// ---------- main ----------
+// ---------- 主程序 ----------
 
 func main() {
 	bc := parseFlags()
@@ -458,7 +458,7 @@ func main() {
 
 	vipPool := newVIPPool(bc.VirtualIPs)
 
-	// Time tracking
+	// 记录各阶段耗时。
 	timeStart := time.Now()
 
 	fmt.Fprint(out, "  [1/4] 启动内嵌服务器... ")
@@ -471,7 +471,7 @@ func main() {
 	fmt.Fprintf(out, "OK (监听 %s)\n", addr)
 	timeStartup := time.Since(timeStart)
 
-	// Warmup
+	// 预热。
 	warmupStart := time.Now()
 	fmt.Fprint(out, "  [2/4] 预热... ")
 	{
@@ -486,7 +486,7 @@ func main() {
 	fmt.Fprintln(out, "OK")
 	timeWarmup := time.Since(warmupStart)
 
-	// Run benchmark
+	// 运行基准测试。
 	benchStart := time.Now()
 	fmt.Fprintf(out, "  [3/4] 运行 %s 场景...\n", bc.Scenario)
 	mc := benchmetrics.NewCollector()
@@ -506,13 +506,13 @@ func main() {
 	}
 	timeBenchmark := time.Since(benchStart)
 
-	// Write profiles
+	// 写入性能分析文件。
 	fmt.Fprint(out, "  [4/4] 生成 pprof 文件... ")
 	prof.writeProfiles(bc.ProfileDir)
 	fmt.Fprintln(out, "OK")
 	timeShutdown := time.Now().Sub(benchStart) - timeBenchmark
 
-	// Time breakdown
+	// 汇总阶段耗时。
 	result.TimeBreakdown = benchmetrics.TimeBreakdown{
 		Startup:   timeStartup,
 		Warmup:    timeWarmup,

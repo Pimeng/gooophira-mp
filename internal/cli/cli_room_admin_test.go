@@ -25,7 +25,7 @@ func addRoomWithUsers(state *server.ServerState, id string, hostID int, extraIDs
 	room.Mu.Unlock()
 }
 
-// ---- lock ----
+// ---- 房间锁定 ----
 
 func TestCLI_Lock_OnOffTogglesField(t *testing.T) {
 	c, state, buf := newTestConsole(t)
@@ -80,7 +80,7 @@ func TestCLI_Lock_Usage(t *testing.T) {
 	}
 }
 
-// ---- cycle ----
+// ---- 循环模式 ----
 
 func TestCLI_Cycle_OnOffTogglesField(t *testing.T) {
 	c, state, buf := newTestConsole(t)
@@ -135,7 +135,7 @@ func TestCLI_Cycle_Usage(t *testing.T) {
 	}
 }
 
-// ---- sethost ----
+// ---- 设置房主 ----
 
 func TestCLI_SetHost_Success(t *testing.T) {
 	c, state, buf := newTestConsole(t)
@@ -194,7 +194,7 @@ func TestCLI_SetHost_Usage(t *testing.T) {
 	}
 }
 
-// ---- roominfo ----
+// ---- 房间信息 ----
 
 func TestCLI_RoomInfo_FullOutput(t *testing.T) {
 	c, state, buf := newTestConsole(t)

@@ -1,6 +1,5 @@
-// Package agentproto defines the versioned wire contract shared by the server
-// and the optional Agent. It intentionally has no dependencies on server or
-// extension implementation packages.
+// agentproto 包定义服务端与可选 Agent 共享的版本化线路协议，
+// 并刻意不依赖服务端或扩展实现包。
 package agentproto
 
 import (
@@ -36,7 +35,7 @@ const (
 	EventReplayCompletedV1    = "replay.completed.v1"
 )
 
-// Envelope is the stable event container used across the process boundary.
+// Envelope 是跨进程边界使用的稳定事件容器。
 type Envelope struct {
 	Version   int             `json:"version"`
 	ID        string          `json:"id"`
@@ -149,8 +148,8 @@ type ErrorResponse struct {
 	Message string `json:"message,omitempty"`
 }
 
-// Discovery is written by the server with user-only permissions so an Agent
-// can find an auto-selected endpoint and its bearer token.
+// Discovery 由服务端以仅当前用户可访问的权限写入，
+// 供 Agent 查找自动选择的端点及其 Bearer Token。
 type Discovery struct {
 	ProtocolVersion int       `json:"protocol_version"`
 	Endpoint        string    `json:"endpoint"`

@@ -34,9 +34,9 @@ func F16BitsToF32(bits uint16) float32 {
 		return math.Float32frombits(sign | (e << 23) | (frac << 13))
 	case 0x1F:
 		if frac == 0 {
-			return math.Float32frombits(sign | 0x7F800000) // ±Inf
+			return math.Float32frombits(sign | 0x7F800000) // 正负无穷。
 		}
-		return math.Float32frombits(sign | 0x7F800000 | (frac << 13)) // NaN
+		return math.Float32frombits(sign | 0x7F800000 | (frac << 13)) // 非数值 NaN。
 	default:
 		e := exp + (127 - 15) // 重新偏置指数
 		return math.Float32frombits(sign | (e << 23) | (frac << 13))
@@ -55,7 +55,7 @@ func F32ToF16Bits(value float32) uint16 {
 		if mant != 0 {
 			return 0x7E00 // 规范化 NaN
 		}
-		return sign | 0x7C00 // ±Inf
+		return sign | 0x7C00 // 正负无穷。
 	}
 
 	e := exp - 127 + 15 // 去偏置后重新按 float16 偏置

@@ -14,7 +14,7 @@ import (
 	"github.com/Pimeng/gooophira-mp/internal/server"
 )
 
-// ---------- Mock Phira ----------
+// ---------- 模拟 Phira ----------
 
 type benchMockPhira struct{}
 
@@ -28,7 +28,7 @@ func (b *benchMockPhira) FetchRecord(ctx context.Context, id int) (config.Record
 	return config.RecordData{ID: id, Player: id, Score: 900000, Accuracy: 0.95, Std: ptr64(0.02)}, nil
 }
 
-// ---------- Bench Session ----------
+// ---------- 压测会话 ----------
 
 type benchSession struct {
 	id       string
@@ -41,7 +41,7 @@ func (s *benchSession) TrySendFrame(frame []byte)          {}
 func (s *benchSession) TrySendFrameOwned(frame []byte)     {}
 func (s *benchSession) Close()                             {}
 
-// ---------- Bench Client ----------
+// ---------- 压测客户端 ----------
 
 type benchClient struct {
 	user   *server.User
@@ -76,7 +76,7 @@ func (c *benchClient) dispatch(cmd protocol.ClientCommand) error {
 	return nil
 }
 
-// ---------- Helpers ----------
+// ---------- 辅助函数 ----------
 
 func assignRoomClients(clients []*benchClient, r, totalRooms, totalClients int) []*benchClient {
 	perRoom := totalClients / totalRooms
@@ -91,7 +91,7 @@ func assignRoomClients(clients []*benchClient, r, totalRooms, totalClients int) 
 	return clients[start:end]
 }
 
-// ---------- Scenario: Room Cycle ----------
+// ---------- 场景：房间循环 ----------
 
 func runRoomCycleScenario(bc benchConfig, mc *benchmetrics.Collector) benchmetrics.BenchResult {
 	startTime := time.Now()
@@ -109,7 +109,7 @@ func runRoomCycleScenario(bc benchConfig, mc *benchmetrics.Collector) benchmetri
 		clients = append(clients, c)
 	}
 
-	// Phase 1: Room setup (serial)
+	// 阶段 1：串行设置房间。
 	for r := 0; r < bc.Rooms; r++ {
 		roomClients := assignRoomClients(clients, r, bc.Rooms, bc.Clients)
 		if len(roomClients) == 0 {
@@ -132,7 +132,7 @@ func runRoomCycleScenario(bc benchConfig, mc *benchmetrics.Collector) benchmetri
 		mc.AddCommands(int64(2 + 2*(len(roomClients)-1) + 2))
 	}
 
-	// Phase 2: Game loop (concurrent)
+	// 阶段 2：并发游戏循环。
 	var wg sync.WaitGroup
 	stopCh := make(chan struct{})
 
@@ -197,7 +197,7 @@ func runRoomCycleScenario(bc benchConfig, mc *benchmetrics.Collector) benchmetri
 	return result
 }
 
-// ---------- Scenario: Connection Storm ----------
+// ---------- 场景：连接风暴 ----------
 
 func runConnectionStormScenario(bc benchConfig, mc *benchmetrics.Collector) benchmetrics.BenchResult {
 	startTime := time.Now()
@@ -231,7 +231,7 @@ func runConnectionStormScenario(bc benchConfig, mc *benchmetrics.Collector) benc
 	return result
 }
 
-// ---------- Scenario: Steady State ----------
+// ---------- 场景：稳定状态 ----------
 
 func runSteadyStateScenario(bc benchConfig, mc *benchmetrics.Collector) benchmetrics.BenchResult {
 	startTime := time.Now()
@@ -244,7 +244,7 @@ func runSteadyStateScenario(bc benchConfig, mc *benchmetrics.Collector) benchmet
 		clients = append(clients, c)
 		roomSuffix := i % bc.Rooms
 		rid := protocol.RoomID(fmt.Sprintf("ss-r%d", roomSuffix))
-		// Quick room cycle
+		// 快速执行一轮房间流程。
 		sess := c.user.Session().(*benchSession)
 		_ = sess
 		state.Mu.Lock()
@@ -315,7 +315,7 @@ func runSteadyStateScenario(bc benchConfig, mc *benchmetrics.Collector) benchmet
 	return result
 }
 
-// ---------- Scenario: Gameplay ----------
+// ---------- 场景：游戏过程 ----------
 
 func runGameplayScenario(bc benchConfig, mc *benchmetrics.Collector) benchmetrics.BenchResult {
 	startTime := time.Now()
@@ -354,7 +354,7 @@ func runGameplayScenario(bc benchConfig, mc *benchmetrics.Collector) benchmetric
 		clients = append(clients, c)
 	}
 
-	// Enter Playing state
+	// 进入 Playing 状态。
 	for r := 0; r < bc.Rooms; r++ {
 		roomID := protocol.RoomID(fmt.Sprintf("gm-r%d", r))
 		roomClients := assignRoomClients(clients, r, bc.Rooms, bc.Clients)
@@ -376,7 +376,7 @@ func runGameplayScenario(bc benchConfig, mc *benchmetrics.Collector) benchmetric
 		mc.AddCommands(int64(len(roomClients)*2 + 3))
 	}
 
-	// Send Touches/Judges concurrently
+	// 并发发送 Touches/Judges。
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, bc.Clients)
 	stopCh := make(chan struct{})
@@ -425,7 +425,7 @@ func runGameplayScenario(bc benchConfig, mc *benchmetrics.Collector) benchmetric
 	sampleTicker.Stop()
 	wg.Wait()
 
-	// Submit results
+	// 提交结果。
 	for _, cli := range clients {
 		cli.dispatch(protocol.CmdPlayed{ID: int32(cli.userID)})
 		mc.AddCommands(1)
@@ -439,7 +439,7 @@ func runGameplayScenario(bc benchConfig, mc *benchmetrics.Collector) benchmetric
 	return result
 }
 
-// ---------- Scenario: Mixed ----------
+// ---------- 场景：混合负载 ----------
 
 func runMixedScenario(bc benchConfig, mc *benchmetrics.Collector) []benchmetrics.BenchResult {
 	type step struct {

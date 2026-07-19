@@ -46,7 +46,7 @@ func TestRecorder_WriteAndDecode(t *testing.T) {
 	}
 	r := protocol.NewBinaryReader(content)
 	recordID := r.ReadI32()
-	_ = r.ReadI64() // timestamp
+	_ = r.ReadI64() // 时间戳。
 	chartID := r.ReadI32()
 	chartName := r.ReadString()
 	userID := r.ReadI32()

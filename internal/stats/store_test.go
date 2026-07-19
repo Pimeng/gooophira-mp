@@ -50,7 +50,7 @@ func TestRecordMatch(t *testing.T) {
 		t.Fatalf("expected 3 results, got %d", len(mr))
 	}
 
-	// Verify match row
+	// 验证比赛记录。
 	var n int
 	var dur float64
 	if err := s.db.QueryRow("SELECT n, duration_sec FROM matches WHERE room_id='room-abc'").Scan(&n, &dur); err != nil {
@@ -60,14 +60,14 @@ func TestRecordMatch(t *testing.T) {
 		t.Errorf("n=%d dur=%f", n, dur)
 	}
 
-	// Verify rank
+	// 验证排名。
 	var rank int
 	s.db.QueryRow("SELECT rank FROM match_results WHERE user_id=1001").Scan(&rank)
 	if rank != 1 {
 		t.Errorf("rank for 1001 = %d, want 1", rank)
 	}
 
-	// Verify names in users table
+	// 验证 users 表中的用户名。
 	for uid, want := range names {
 		var name string
 		s.db.QueryRow("SELECT name FROM users WHERE id=?", uid).Scan(&name)
@@ -76,14 +76,14 @@ func TestRecordMatch(t *testing.T) {
 		}
 	}
 
-	// Verify player_stats rollup
+	// 验证 player_stats 汇总。
 	var games, playTime int
 	s.db.QueryRow("SELECT games, play_time_sec FROM player_stats WHERE user_id=1001").Scan(&games, &playTime)
 	if games != 1 || playTime != 120 {
 		t.Errorf("1001: games=%d playTime=%d", games, playTime)
 	}
 
-	// Verify chart_stats
+	// 验证 chart_stats。
 	var plays int
 	s.db.QueryRow("SELECT plays FROM chart_stats WHERE chart_id=42").Scan(&plays)
 	if plays != 3 {
@@ -132,7 +132,7 @@ func TestELORating(t *testing.T) {
 	}
 	defer s.Close()
 
-	// Game 1: 1001 beats 1002
+	// 第 1 场：1001 战胜 1002。
 	r := map[int]config.RecordData{
 		1001: {Player: 1001, Score: 100, Accuracy: 0.9},
 		1002: {Player: 1002, Score: 90, Accuracy: 0.8},
@@ -141,7 +141,7 @@ func TestELORating(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecordMatch: %v", err)
 	}
-	// Winner gains rating, loser loses
+	// 胜者增加评分，败者减少评分。
 	if mr[0].Rating <= 1500 {
 		t.Errorf("winner rating should be > 1500, got %f", mr[0].Rating)
 	}
@@ -220,7 +220,7 @@ func TestRecentMatches(t *testing.T) {
 	if len(recent) != 2 {
 		t.Fatalf("expected 2 recent matches for 1001, got %d", len(recent))
 	}
-	// Most recent first
+	// 最近的比赛排在最前。
 	if recent[0].ChartName != "Beta" {
 		t.Errorf("most recent should be Beta, got %s", recent[0].ChartName)
 	}
@@ -264,7 +264,7 @@ func TestCleanupDetail(t *testing.T) {
 
 	s.RecordMatch(context.Background(), "r1", 0, "", []int{1001}, map[int]config.RecordData{1001: {Player: 1001, Score: 100, Accuracy: 0.95}}, nil, 30)
 
-	// 0 = keep forever
+	// 0 表示永久保留。
 	s.CleanupDetail(0)
 	var count int
 	s.db.QueryRow("SELECT COUNT(*) FROM match_results").Scan(&count)
@@ -272,7 +272,7 @@ func TestCleanupDetail(t *testing.T) {
 		t.Errorf("cleanup(0) should keep all, got %d", count)
 	}
 
-	// Age and clean
+	// 把记录调旧后执行清理。
 	s.db.Exec("UPDATE matches SET started_at = datetime('now', '-100 days')")
 	s.CleanupDetail(1)
 	s.db.QueryRow("SELECT COUNT(*) FROM match_results").Scan(&count)

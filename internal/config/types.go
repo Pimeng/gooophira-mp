@@ -59,9 +59,8 @@ type ServerConfig struct {
 	AgentIPC                 *AgentIPCConfig
 }
 
-// AgentIPCConfig owns the server side of the optional local Agent boundary.
-// An empty token is generated at startup and only exposed through the
-// user-readable discovery file.
+// AgentIPCConfig 管理可选本地 Agent 边界的服务端部分。
+// 空 Token 会在启动时生成，并且只通过当前用户可读的发现文件公开。
 type AgentIPCConfig struct {
 	Endpoint      string
 	Token         string

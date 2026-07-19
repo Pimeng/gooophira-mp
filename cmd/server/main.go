@@ -111,12 +111,12 @@ func main() {
 		logger.Info(l10n.TL(lang, "log-config-created", map[string]string{"path": loadedConfig.path}))
 	} else if loadedConfig.legacy && loadedConfig.fromLegacy {
 		logger.Info(l10n.TL(lang, "log-config-loaded", map[string]string{"path": loadedConfig.path}))
-		logger.Warn("legacy single-file configuration is deprecated; run `phira-mp config migrate`")
+		logger.Warn("legacy single-file configuration is deprecated; run `phira-mp-server config migrate`")
 	} else {
 		logger.Info(l10n.TL(lang, "log-config-loaded", map[string]string{"path": loadedConfig.path}))
 	}
 
-	// Redis 缓存（启用时谱面/记录/token 缓存转为多实例共享）。startup-only：仅启动时初始化。
+	// Redis 缓存（启用时谱面/记录/token 缓存转为多实例共享）。仅启动期生效，只在启动时初始化。
 	cache.SetLogger(logger)
 	if err := cache.InitRedis(cfg.Redis); err != nil {
 		logger.Warn(l10n.TL(lang, "log-redis-fallback", map[string]string{"error": err.Error()}))
@@ -140,8 +140,7 @@ func main() {
 	// 日志旁路到 GUI 控制台缓冲（供 /admin/console/logs 回填与 WS 推送）。
 	logger.SetOnLog(state.ConsoleHub.Push)
 
-	// Optional Agent IPC. Failure is a degraded extension state and must never
-	// prevent the real-time game server from starting.
+	// 可选 Agent IPC。启动失败仅表示扩展降级，绝不能阻止实时游戏服务启动。
 	agentCfg := cfg.EffectiveAgentIPC()
 	var outbox *agentoutbox.Store
 	if agentCfg.Endpoint != "disabled" {
@@ -179,8 +178,8 @@ func main() {
 			}
 		}()
 	}
-	// Webhook delivery is Agent-owned. The main process only emits durable
-	// domain events and never imports platform SDKs or extension credentials.
+	// Webhook 投递由 Agent 负责。主进程只发送持久化领域事件，
+	// 不引入平台 SDK，也不持有扩展凭据。
 	eventSinks := server.EventSinks{}
 	if cfg.EffectiveWebhook() != nil {
 		logger.Warn("server webhook.yaml is deprecated and not delivered; move targets to config/agent.yaml")
@@ -307,8 +306,7 @@ func main() {
 		go func() {
 			recorder.EndRoom(room.ID) // 落盘放到 goroutine，避免阻塞命令处理（持有 state.Mu）
 			replayIDs := make(map[int]string)
-			// Replay completion is published after the file is durably closed. The
-			// optional Agent owns upload scheduling and share-station credentials.
+			// 回放文件可靠关闭后再发布完成事件；上传调度和分享站凭据由可选 Agent 管理。
 			for _, f := range recorder.ListRoomFiles(room.ID) {
 				replayID := replay.IDFromFile(f).String()
 				replayIDs[f.UserID] = replayID
@@ -389,7 +387,7 @@ func main() {
 		}
 	}
 
-	// 配置文件热重载：轮询配置文件变更，重新加载并热生效（startup-only 项仅提示需重启）。
+	// 配置文件热重载：轮询配置文件变更，重新加载并热生效（仅启动期配置只提示需重启）。
 	watcher := loadedConfig.watcher(func() {
 		next, lerr := loadedConfig.reload()
 		if lerr != nil {

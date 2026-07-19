@@ -1,5 +1,5 @@
 // cli_approval.go 把「CLI 提权审批」类命令从 cli.go 拆出：
-// pending / approve <ssid> / deny <ssid> / reject <ssid>。
+// 对应命令：pending / approve <ssid> / deny <ssid> / reject <ssid>。
 // 在 GUI 浏览器无法直接拿到 ADMIN_TOKEN 的场景下，可由终端审批签发临时 token（4h TTL）。
 package cli
 

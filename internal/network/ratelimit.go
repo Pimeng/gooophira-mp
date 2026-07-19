@@ -37,7 +37,7 @@ func categorize(cmd protocol.ClientCommand) rateCategory {
 		protocol.CmdReady, protocol.CmdCancelReady, protocol.CmdAbort:
 		return catRoom
 	default:
-		return catNone // Ping / Touches / Judges / Authenticate
+		return catNone // 对应 Ping、Touches、Judges、Authenticate。
 	}
 }
 

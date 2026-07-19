@@ -154,7 +154,7 @@ func TestForceSyncInfo_NonHost_ReceivesChangeHostFalse(t *testing.T) {
 
 	u := h.addUser(2, "bob") // bob 不是房主
 	u.SetSession(&mockSession{id: "bob"})
-	r := NewRoom("room1", 1, 8, false) // host=1, 不是 bob
+	r := NewRoom("room1", 1, 8, false) // 房主为 1，不是 bob。
 	r.State = StateSelectChart{}
 	r.Chart = nil
 
@@ -183,7 +183,7 @@ func TestForceSyncInfo_Host_DoesNotReceiveChangeHostFalse(t *testing.T) {
 
 	host := h.addUser(1, "alice")
 	host.SetSession(&mockSession{id: "alice"})
-	r := NewRoom("room1", 1, 8, false) // host=1
+	r := NewRoom("room1", 1, 8, false) // 房主为 1。
 	r.State = StateSelectChart{}
 	r.Chart = nil
 
@@ -316,7 +316,7 @@ func TestSetProtocolHackDelay_ZeroDispatchesImmediately(t *testing.T) {
 	ph.schedule(func() { close(done) })
 	select {
 	case <-done:
-		// ok
+		// 结果符合预期。
 	case <-time.After(200 * time.Millisecond):
 		t.Error("delay=0 should dispatch fn within 200ms")
 	}
@@ -356,7 +356,7 @@ func TestForceSyncHost_NonHostSendsChangeHostFalse(t *testing.T) {
 
 	bob := h.addUser(2, "bob")
 	bob.SetSession(&mockSession{id: "bob"})
-	r := NewRoom("room1", 1, 8, false) // host=1, bob 非房主
+	r := NewRoom("room1", 1, 8, false) // 房主为 1，bob 不是房主。
 
 	before := len(sentTo(bob))
 	ph.forceSyncHost(r, bob)

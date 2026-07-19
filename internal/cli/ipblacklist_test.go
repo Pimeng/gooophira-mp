@@ -26,7 +26,7 @@ func TestCLI_IPBlacklist(t *testing.T) {
 		t.Errorf("remove output should mention the IP, got %q", out)
 	}
 	if out := c.run(buf, "ipblacklist list"); !strings.Contains(out, "No blacklisted") && !strings.Contains(out, "empty") {
-		// en-US: cli-blacklist-empty
+		// 验证 en-US 下的 cli-blacklist-empty 文案。
 		if !strings.Contains(strings.ToLower(out), "no ") {
 			t.Errorf("after remove, list should be empty, got %q", out)
 		}

@@ -25,7 +25,7 @@ OUTBOUND_PROXY: false
 	}
 	want := map[string]bool{
 		CoreConfigFile: true, "network.yaml": true, "replay.yaml": true,
-		"webhook.yaml": true, "stats.yaml": true,
+		"agent.yaml": true,
 	}
 	for name := range want {
 		if _, present := plan.Files[name]; !present {
@@ -34,6 +34,11 @@ OUTBOUND_PROXY: false
 	}
 	if _, present := plan.Files["redis.yaml"]; present {
 		t.Error("disabled Redis should not be migrated")
+	}
+	for _, legacyName := range []string{"webhook.yaml", "stats.yaml"} {
+		if _, present := plan.Files[legacyName]; present {
+			t.Errorf("deprecated %s should be folded into agent.yaml", legacyName)
+		}
 	}
 
 	dir := filepath.Join(t.TempDir(), "config")
@@ -47,18 +52,51 @@ OUTBOUND_PROXY: false
 	if !set.Config.EffectiveReplayEnabled() || set.Config.EffectiveReplayTTLDays() != 9 {
 		t.Errorf("replay was not preserved: %+v", set.Config)
 	}
-	if set.Config.Webhook == nil || !set.Config.Webhook.Enabled {
-		t.Errorf("webhook was not preserved: %+v", set.Config.Webhook)
+	if set.Config.EffectiveAgentIPC().Endpoint != "auto" {
+		t.Errorf("Agent IPC was not enabled: %+v", set.Config.EffectiveAgentIPC())
+	}
+	agent, err := LoadAgentFile(filepath.Join(dir, "agent.yaml"))
+	if err != nil {
+		t.Fatalf("migrated Agent config does not load: %v", err)
+	}
+	if agent.Webhook == nil || !agent.Webhook.Enabled || !agent.Stats.Enabled {
+		t.Errorf("Agent extensions were not preserved: %+v", agent)
+	}
+}
+
+func TestBuildMigrationPlanMovesReplayUploadToAgent(t *testing.T) {
+	legacy := writeTempYAML(t, `
+REPLAY_ENABLED: true
+REPLAY_BASE_DIR: ./record
+REPLAY_AUTO_UPLOAD: true
+SHARE_STATION:
+  URL: https://replay.example.com
+  TOKEN: secret
+`)
+	plan, err := BuildMigrationPlan(legacy)
+	if err != nil {
+		t.Fatalf("BuildMigrationPlan: %v", err)
+	}
+	dir := filepath.Join(t.TempDir(), "config")
+	if err := plan.Write(dir); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	agent, err := LoadAgentFile(filepath.Join(dir, "agent.yaml"))
+	if err != nil {
+		t.Fatalf("LoadAgentFile: %v", err)
+	}
+	if !agent.ReplayUpload.Enabled || !agent.ReplayUpload.AutoUpload || agent.ReplayUpload.BaseDir != "./record" || agent.ReplayUpload.Token != "secret" {
+		t.Fatalf("replay upload was not migrated: %+v", agent.ReplayUpload)
 	}
 }
 
 func TestMigrationPlanRefusesOverwriteBeforeWriting(t *testing.T) {
 	plan := &MigrationPlan{Files: map[string][]byte{
 		CoreConfigFile: []byte("version: 1\n"),
-		"stats.yaml":   []byte("version: 1\n"),
+		"agent.yaml":   []byte("version: 1\n"),
 	}}
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "stats.yaml"), []byte("existing"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "agent.yaml"), []byte("existing"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := plan.Write(dir); err == nil {

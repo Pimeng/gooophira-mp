@@ -8,7 +8,7 @@ import (
 // 运行时可热更新配置子系统。对应 TS core/runtimeConfig.ts。
 //
 // 只有一组精选的「顶层标量」配置项允许在运行时（CLI / HTTP admin）改动并热生效；
-// 其余键要么仅启动期生效（startup-only），要么不支持运行时改动。本模块提供：
+// 其余键要么仅启动期生效，要么不支持运行时改动。本模块提供：
 //   - 当前生效值快照（GET /admin/runtime-config 展示、回滚取值）；
 //   - 补丁解析与分类（合法 / 非法值 / 仅启动期 / 不支持）；
 //   - 把补丁应用到 *ServerConfig（含 normalize，如 0 → 视为未设置）。

@@ -1,5 +1,4 @@
-// Package agenttransport provides platform-local listeners and dialers for
-// the Agent HTTP protocol.
+// agenttransport 包为 Agent HTTP 协议提供平台本地监听器和拨号器。
 package agenttransport
 
 import (
@@ -98,7 +97,7 @@ func (l *Listener) Close() error {
 	return err
 }
 
-// Listen uses the requested transport. Only auto may fall back to TCP.
+// Listen 使用请求的传输方式；只有 auto 模式可以回退到 TCP。
 func Listen(endpoint Endpoint, instance string) (*Listener, error) {
 	if endpoint.Scheme == SchemeDisabled {
 		return nil, errors.New("agent transport: endpoint is disabled")
