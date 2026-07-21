@@ -88,17 +88,17 @@ func main() {
 	defer logger.Close()
 	pprofSvc, err := diagnostics.Start()
 	if err != nil {
-		logger.Warn("pprof diagnostics failed to start: " + err.Error())
+		logger.Warn(l10n.TL(lang, "log-pprof-start-failed", map[string]string{"error": err.Error()}))
 	}
 	pprofURL := ""
 	if pprofSvc != nil {
 		pprofURL = pprofSvc.URL()
-		logger.Info("pprof diagnostics listening at " + pprofURL)
+		logger.Info(l10n.TL(lang, "log-pprof-listen", map[string]string{"addr": pprofURL}))
 		defer func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 			if err := pprofSvc.Close(ctx); err != nil {
-				logger.Warn("pprof diagnostics shutdown failed: " + err.Error())
+				logger.Warn(l10n.TL(lang, "log-pprof-shutdown-failed", map[string]string{"error": err.Error()}))
 			}
 		}()
 	}
@@ -148,7 +148,7 @@ func main() {
 			Dir: agentCfg.OutboxDir, MaxBytes: int64(agentCfg.OutboxMaxMB) * 1024 * 1024,
 		})
 		if err != nil {
-			logger.Warn("Agent outbox unavailable: " + err.Error())
+			logger.Warn(l10n.TL(lang, "log-agent-outbox-unavailable", map[string]string{"error": err.Error()}))
 		}
 	}
 	var agentPublisher *agentbridge.Publisher
@@ -157,7 +157,7 @@ func main() {
 		defer func() {
 			agentPublisher.Close()
 			if err := outbox.Close(); err != nil {
-				logger.Warn("Agent outbox shutdown failed: " + err.Error())
+				logger.Warn(l10n.TL(lang, "log-agent-outbox-shutdown-failed", map[string]string{"error": err.Error()}))
 			}
 		}()
 	}
@@ -167,14 +167,14 @@ func main() {
 		ServerVersion: version.Get(), Outbox: outbox,
 	})
 	if agentErr != nil {
-		logger.Warn("Agent IPC unavailable: " + agentErr.Error())
+		logger.Warn(l10n.TL(lang, "log-agent-ipc-unavailable", map[string]string{"error": agentErr.Error()}))
 	} else if agentSvc != nil {
-		logger.Info("Agent IPC listening at " + agentSvc.Endpoint())
+		logger.Info(l10n.TL(lang, "log-agent-ipc-listen", map[string]string{"addr": agentSvc.Endpoint()}))
 		defer func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 			if err := agentSvc.Close(ctx); err != nil {
-				logger.Warn("Agent IPC shutdown failed: " + err.Error())
+				logger.Warn(l10n.TL(lang, "log-agent-ipc-shutdown-failed", map[string]string{"error": err.Error()}))
 			}
 		}()
 	}

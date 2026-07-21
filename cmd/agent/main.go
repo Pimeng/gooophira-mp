@@ -6,7 +6,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -21,19 +20,46 @@ import (
 	"github.com/Pimeng/gooophira-mp/internal/agentwebhook"
 	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/l10n"
+	"github.com/Pimeng/gooophira-mp/internal/logging"
 	"github.com/Pimeng/gooophira-mp/internal/stats"
 	"github.com/Pimeng/gooophira-mp/internal/version"
 	"github.com/Pimeng/gooophira-mp/internal/webhook"
 )
 
-type agentLogger struct{}
+var processLogger *logging.Logger
 
-func (agentLogger) Debug(message string) { log.Printf("DEBUG %s", message) }
-func (agentLogger) Warn(message string)  { log.Printf("WARN %s", message) }
+type agentLogger struct {
+	logger *logging.Logger
+}
 
+func (l agentLogger) Debug(message string) { l.logger.Debug(message) }
+func (l agentLogger) Warn(message string)  { l.logger.Warn(message) }
+
+func agentMessage(lang *l10n.Language, key string, args map[string]string) string {
+	return l10n.TL(lang, key, args)
+}
+
+func agentInfo(message string) {
+	if processLogger != nil {
+		processLogger.Info(message)
+	}
+}
+
+func agentWarn(message string) {
+	if processLogger != nil {
+		processLogger.Warn(message)
+	}
+}
+
+// eventProcessor consumes durable Agent events and reports its cursor.
 type eventProcessor interface {
 	Process(context.Context, int) (int, error)
 	Cursor() uint64
+}
+
+func agentFatal(logger *logging.Logger, lang *l10n.Language, key string, args map[string]string) {
+	logger.Error(agentMessage(lang, key, args))
+	os.Exit(1)
 }
 
 func main() {
@@ -49,33 +75,38 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	lang := l10n.NewLanguage("")
+	logger := logging.New("INFO", "logs")
+	defer logger.Close()
+	processLogger = logger
 
 	inbox, err := agentinbox.Open(*inboxPath, int64(*inboxMaxMB)*1024*1024)
 	if err != nil {
-		log.Fatalf("open Agent inbox: %v", err)
+		agentFatal(logger, lang, "agent-open-inbox-failed", map[string]string{"error": err.Error()})
 	}
 	defer inbox.Close()
 
 	agentConfig, err := config.LoadAgentFile(agentConfigPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			log.Fatalf("load Agent configuration: %v", err)
+			agentFatal(logger, lang, "agent-load-config-failed", map[string]string{"error": err.Error()})
 		}
+		agentInfo(agentMessage(lang, "agent-config-not-found", map[string]string{"path": agentConfigPath}))
 		agentConfig = &config.AgentConfig{Webhook: &config.WebhookConfig{}}
 	}
 	var processors []eventProcessor
-	webhookDispatcher := webhook.New(agentLogger{}, l10n.NewLanguage(""))
+	webhookDispatcher := webhook.New(agentLogger{logger: logger}, lang)
 	webhookDispatcher.SetConfig(agentConfig.Webhook)
 	defer webhookDispatcher.Close()
 	if agentConfig.Webhook != nil && agentConfig.Webhook.Enabled && len(agentConfig.Webhook.Targets) > 0 {
 		webhookLedger, err := agentwebhook.OpenLedger(*inboxPath + ".webhook-ledger")
 		if err != nil {
-			log.Fatalf("open Agent webhook ledger: %v", err)
+			agentFatal(logger, lang, "agent-open-webhook-ledger-failed", map[string]string{"error": err.Error()})
 		}
 		defer webhookLedger.Close()
 		webhookProcessor, err := agentwebhook.OpenProcessor(inbox, webhookDispatcher, webhookDispatcher, webhookLedger, *inboxPath+".webhook-cursor")
 		if err != nil {
-			log.Fatalf("open Agent webhook processor: %v", err)
+			agentFatal(logger, lang, "agent-open-webhook-processor-failed", map[string]string{"error": err.Error()})
 		}
 		processors = append(processors, webhookProcessor)
 	}
@@ -83,20 +114,20 @@ func main() {
 	if agentConfig.Stats.Enabled {
 		statsStore, err = stats.Open(agentConfig.Stats.DBPath)
 		if err != nil {
-			log.Fatalf("open Agent stats database: %v", err)
+			agentFatal(logger, lang, "agent-open-stats-failed", map[string]string{"error": err.Error()})
 		}
 		defer statsStore.Close()
 		statsProcessor, err := agentstats.OpenProcessor(inbox, statsStore, *inboxPath+".stats-cursor")
 		if err != nil {
-			log.Fatalf("open Agent stats processor: %v", err)
+			agentFatal(logger, lang, "agent-open-stats-processor-failed", map[string]string{"error": err.Error()})
 		}
 		processors = append(processors, statsProcessor)
 		if err := statsStore.CleanupDetail(agentConfig.Stats.DetailRetentionDays); err != nil {
-			log.Printf("WARN stats cleanup failed: %v", err)
+			agentWarn(agentMessage(lang, "agent-stats-cleanup-failed", map[string]string{"error": err.Error()}))
 		}
 		maintenanceCtx, maintenanceCancel := context.WithCancel(ctx)
 		maintenanceDone := make(chan struct{})
-		go maintainStats(maintenanceCtx, statsStore, agentConfig.Stats, maintenanceDone)
+		go maintainStats(maintenanceCtx, statsStore, agentConfig.Stats, lang, maintenanceDone)
 		defer func() {
 			maintenanceCancel()
 			<-maintenanceDone
@@ -106,19 +137,19 @@ func main() {
 	if agentConfig.ReplayUpload.Enabled {
 		uploadStore, err = agentupload.Open(agentConfig.ReplayUpload)
 		if err != nil {
-			log.Fatalf("open Agent replay upload store: %v", err)
+			agentFatal(logger, lang, "agent-open-upload-failed", map[string]string{"error": err.Error()})
 		}
 		uploadProcessor, err := agentupload.OpenProcessor(inbox, uploadStore, *inboxPath+".upload-cursor")
 		if err != nil {
-			log.Fatalf("open Agent replay upload processor: %v", err)
+			agentFatal(logger, lang, "agent-open-upload-processor-failed", map[string]string{"error": err.Error()})
 		}
 		processors = append(processors, uploadProcessor)
 		go uploadStore.Run(ctx)
 	}
 
 	queryHandler := queryHandlers{stats: agentstats.QueryHandler{Store: statsStore}, upload: agentupload.QueryHandler{Store: uploadStore}, feishu: agentfeishu.NewManager(agentConfigPath, webhookDispatcher)}
-	if err := run(ctx, *discoveryPath, *consumerID, *retryDelay, inbox, processors, queryHandler); err != nil {
-		log.Printf("agent stopped: %v", err)
+	if err := run(ctx, *discoveryPath, *consumerID, *retryDelay, inbox, processors, queryHandler, lang); err != nil {
+		logger.Error(agentMessage(lang, "agent-stopped", map[string]string{"error": err.Error()}))
 	}
 }
 
@@ -131,7 +162,7 @@ func resolveAgentConfigPath(configPath, legacyFlagPath string) string {
 
 func resolveAgentConfigPathWithStat(configPath, legacyFlagPath string, exists func(string) bool) string {
 	if legacyFlagPath != "" {
-		log.Printf("WARN -webhook-config is deprecated; use -config")
+		agentWarn(agentMessage(l10n.NewLanguage(""), "agent-legacy-config-flag", nil))
 		return legacyFlagPath
 	}
 	if configPath != "config/agent.yaml" {
@@ -142,13 +173,13 @@ func resolveAgentConfigPathWithStat(configPath, legacyFlagPath string, exists fu
 	}
 	const legacyDefault = "agent_config.yml"
 	if exists(legacyDefault) {
-		log.Printf("WARN %s is deprecated; move it to %s", legacyDefault, configPath)
+		agentWarn(agentMessage(l10n.NewLanguage(""), "agent-legacy-config-file", map[string]string{"path": legacyDefault, "target": configPath}))
 		return legacyDefault
 	}
 	return configPath
 }
 
-func maintainStats(ctx context.Context, store *stats.Store, cfg config.AgentStatsConfig, done chan<- struct{}) {
+func maintainStats(ctx context.Context, store *stats.Store, cfg config.AgentStatsConfig, lang *l10n.Language, done chan<- struct{}) {
 	defer close(done)
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
@@ -158,10 +189,10 @@ func maintainStats(ctx context.Context, store *stats.Store, cfg config.AgentStat
 			return
 		case <-ticker.C:
 			if err := store.CleanupDetail(cfg.DetailRetentionDays); err != nil {
-				log.Printf("WARN stats cleanup failed: %v", err)
+				agentWarn(agentMessage(lang, "agent-stats-cleanup-failed", map[string]string{"error": err.Error()}))
 			}
 			if err := store.VacuumIfNeeded(cfg.DBPath, cfg.DBMaxMB); err != nil {
-				log.Printf("WARN stats vacuum failed: %v", err)
+				agentWarn(agentMessage(lang, "agent-stats-vacuum-failed", map[string]string{"error": err.Error()}))
 			}
 		}
 	}
@@ -183,7 +214,7 @@ func (h queryHandlers) Handle(ctx context.Context, request agentproto.QueryReque
 	return h.stats.Handle(request)
 }
 
-func run(ctx context.Context, discoveryPath, consumerID string, retryDelay time.Duration, inbox *agentinbox.Store, processors []eventProcessor, queryHandler queryHandlers) error {
+func run(ctx context.Context, discoveryPath, consumerID string, retryDelay time.Duration, inbox *agentinbox.Store, processors []eventProcessor, queryHandler queryHandlers, lang *l10n.Language) error {
 	if consumerID == "" {
 		return fmt.Errorf("consumer identity must not be empty")
 	}
@@ -200,7 +231,7 @@ func run(ctx context.Context, discoveryPath, consumerID string, retryDelay time.
 		discovery, err := agentipc.ReadDiscovery(discoveryPath)
 		if err != nil {
 			if connected {
-				log.Printf("server discovery unavailable: %v", err)
+				agentWarn(agentMessage(lang, "agent-discovery-unavailable", map[string]string{"error": err.Error()}))
 				connected = false
 			}
 			if !wait(ctx, retryDelay) {
@@ -216,7 +247,7 @@ func run(ctx context.Context, discoveryPath, consumerID string, retryDelay time.
 		if err != nil {
 			client.Close()
 			if connected {
-				log.Printf("server connection lost: %v", err)
+				agentWarn(agentMessage(lang, "agent-server-connection-lost", map[string]string{"error": err.Error()}))
 				connected = false
 			}
 			if !wait(ctx, retryDelay) {
@@ -225,13 +256,13 @@ func run(ctx context.Context, discoveryPath, consumerID string, retryDelay time.
 			continue
 		}
 		if !connected {
-			log.Printf("connected to server %s using Agent protocol v%d", response.ServerVersion, response.ProtocolVersion)
+			agentInfo(agentMessage(lang, "agent-connected", map[string]string{"server": response.ServerVersion, "version": fmt.Sprint(response.ProtocolVersion)}))
 			connected = true
 		}
 		if inbox.LastSequence() < response.AckedSequence {
 			if err := inbox.SetBaseline(response.AckedSequence); err != nil {
 				client.Close()
-				return fmt.Errorf("Agent inbox ends at %d but server already ACKed %d: %w", inbox.LastSequence(), response.AckedSequence, err)
+				return fmt.Errorf("agent inbox ends at %d but server already acknowledged %d: %w", inbox.LastSequence(), response.AckedSequence, err)
 			}
 		}
 		connectionCtx, connectionCancel := context.WithCancel(ctx)
@@ -245,7 +276,7 @@ func run(ctx context.Context, discoveryPath, consumerID string, retryDelay time.
 		}
 		client.Close()
 		if err != nil && ctx.Err() == nil {
-			log.Printf("server connection lost: %v", err)
+			agentWarn(agentMessage(lang, "agent-server-connection-lost", map[string]string{"error": err.Error()}))
 			connected = false
 		}
 		if !wait(ctx, retryDelay) {
