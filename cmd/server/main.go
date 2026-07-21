@@ -27,7 +27,6 @@ import (
 	"github.com/Pimeng/gooophira-mp/internal/common/platform/logging"
 	"github.com/Pimeng/gooophira-mp/internal/common/platform/netutil"
 	"github.com/Pimeng/gooophira-mp/internal/common/platform/version"
-	"github.com/Pimeng/gooophira-mp/internal/common/protocol"
 	"github.com/Pimeng/gooophira-mp/internal/config"
 	"github.com/Pimeng/gooophira-mp/internal/core/replay"
 	"github.com/Pimeng/gooophira-mp/internal/core/server"
@@ -35,7 +34,6 @@ import (
 	"github.com/Pimeng/gooophira-mp/internal/server/control/cli"
 	"github.com/Pimeng/gooophira-mp/internal/server/integration/phira"
 	"github.com/Pimeng/gooophira-mp/internal/server/network"
-	"github.com/Pimeng/gooophira-mp/internal/server/ui/guiwindow"
 )
 
 // 默认监听端口（标准 Phira MP 端口）。
@@ -362,14 +360,9 @@ func main() {
 	logger.Info(l10n.TL(lang, "log-server-version", map[string]string{"version": state.Version}))
 	logger.Info(l10n.TL(lang, "log-server-listen", map[string]string{"addr": srv.Addr().String()}))
 
-	// 可选启动 HTTP 查询/管理服务（HTTP_SERVICE 开启时）。GUI 窗口依赖 HTTP 服务：
-	// 启用 GUI 时自动开启 HTTP 服务（对齐 TS：gui===true 时隐含 http_service）。
-	httpForcedByGUI := cfg.EffectiveGUI() && !cfg.EffectiveHTTPService()
+	// 可选启动 HTTP 查询/管理服务。
 	var httpSvc *httpapi.Service
-	if cfg.EffectiveHTTPService() || cfg.EffectiveGUI() {
-		if httpForcedByGUI {
-			logger.Mark(l10n.TL(lang, "log-gui-http-forced", nil))
-		}
+	if cfg.EffectiveHTTPService() {
 		httpPort := defaultHTTPPort
 		if cfg.HTTPPort != nil {
 			httpPort = *cfg.HTTPPort
@@ -381,9 +374,6 @@ func main() {
 			logger.Error(l10n.TL(lang, "log-http-start-failed", map[string]string{"error": herr.Error()}))
 		} else {
 			logger.Info(l10n.TL(lang, "log-http-listen", map[string]string{"addr": httpAddr.String()}))
-			if cfg.EffectiveGUI() {
-				launchGUIWindow(state, logger, lang, httpAddr) // GUI 窗口模式：弹出独立控制台窗口
-			}
 		}
 	}
 
@@ -515,29 +505,4 @@ func strOr(p *string, def string) string {
 		return *p
 	}
 	return def
-}
-
-// launchGUIWindow 生成本机回环专用 token 并在独立浏览器窗口中打开 GUI 控制台。
-// token 仅经 URL 片段（#）传入页面——片段不进入请求与日志，且仅回环地址被接受。
-func launchGUIWindow(state *server.ServerState, logger *logging.Logger, lang *l10n.Language, httpAddr net.Addr) {
-	token := protocol.NewUUID()
-	state.Mu.Lock()
-	state.GUILocalToken = &token
-	state.Mu.Unlock()
-
-	_, portStr, err := net.SplitHostPort(httpAddr.String())
-	if err != nil {
-		return
-	}
-	baseURL := "http://127.0.0.1:" + portStr + "/gui"
-	windowURL := baseURL + "#token=" + token
-	// 异步拉起，避免阻塞启动主流程。
-	go func() {
-		if guiwindow.Launch(windowURL) {
-			logger.Mark(l10n.TL(lang, "log-gui-window-launched", map[string]string{"url": baseURL}))
-		} else {
-			// 打开失败时输出带 token 的完整地址，便于本机手动访问（日志仅本机可读）。
-			logger.Warn(l10n.TL(lang, "log-gui-window-failed", map[string]string{"url": windowURL}))
-		}
-	}()
 }

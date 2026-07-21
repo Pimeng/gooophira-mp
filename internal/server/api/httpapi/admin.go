@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"encoding/json"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -49,22 +48,6 @@ func (s *Service) extractAdminToken(r *http.Request) string {
 	return ""
 }
 
-// isLoopbackIP 判断客户端 IP 是否为回环地址（GUI 本机 token 仅回环可用）。
-func isLoopbackIP(ip string) bool {
-	parsed := net.ParseIP(strings.TrimSpace(ip))
-	return parsed != nil && parsed.IsLoopback()
-}
-
-// guiLocalToken 读取本机 GUI 窗口专用 token（可能为空）。
-func (s *Service) guiLocalToken() string {
-	s.state.Mu.Lock()
-	defer s.state.Mu.Unlock()
-	if s.state.GUILocalToken == nil {
-		return ""
-	}
-	return *s.state.GUILocalToken
-}
-
 // checkAdmin 校验管理员鉴权；未通过时已写出错误响应并返回 false。
 func (s *Service) checkAdmin(w http.ResponseWriter, r *http.Request, ip string, lang *l10n.Language) bool {
 	reqToken := s.extractAdminToken(r)
@@ -94,11 +77,6 @@ func (s *Service) checkAdmin(w http.ResponseWriter, r *http.Request, ip string, 
 			}
 			return true
 		}
-	}
-
-	// 本机 GUI 窗口专用 token（仅回环地址可用，GUI 窗口模式启动时生成）。
-	if gt := s.guiLocalToken(); gt != "" && reqToken == gt && isLoopbackIP(ip) {
-		return true
 	}
 
 	// 永久 admin token。
@@ -226,10 +204,6 @@ func (s *Service) verifyAdminToken(token, ip string) bool {
 	tok := s.state.TempAdminTokens[token]
 	s.state.Mu.Unlock()
 	if tok != nil && !tok.Banned && time.Now().UnixMilli() <= tok.ExpiresAt && tok.IP == ip {
-		return true
-	}
-	// 本机 GUI 窗口专用 token（仅回环地址可用）。
-	if gt := s.guiLocalToken(); gt != "" && token == gt && isLoopbackIP(ip) {
 		return true
 	}
 	adminToken := strings.TrimSpace(strOrEmpty(s.state.Config.AdminToken))

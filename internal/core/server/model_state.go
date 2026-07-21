@@ -98,8 +98,6 @@ type ServerState struct {
 
 	// TempAdminTokens 临时管理员 token 表。
 	TempAdminTokens map[string]*TempAdminToken
-	// GUILocalToken 本机 GUI 窗口专用 token（仅回环地址接受）。
-	GUILocalToken *string
 	// CLIApprovalSessions CLI 提权批准会话表。
 	CLIApprovalSessions map[string]*CLIApprovalSession
 

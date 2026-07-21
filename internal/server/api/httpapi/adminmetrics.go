@@ -38,6 +38,11 @@ func (s *Service) handleAdminMetrics(w http.ResponseWriter, r *http.Request, _ *
 	serverName := s.state.ServerName
 	version := s.state.Version
 	s.state.Mu.Unlock()
+	messagesPerSecond, totalMessages, totalErrors := s.ws.metrics()
+	errorRate := 0.0
+	if totalMessages > 0 {
+		errorRate = float64(totalErrors) / float64(totalMessages) * 100
+	}
 
 	resp := map[string]any{
 		"ok":        true,
@@ -86,6 +91,18 @@ func (s *Service) handleAdminMetrics(w http.ResponseWriter, r *http.Request, _ *
 			"replayEnabled":       replayEnabled,
 			"roomCreationEnabled": roomCreationEnabled,
 		},
+		// Dashboard-friendly aggregate fields. Keep the detailed legacy fields above
+		// so existing API consumers can migrate independently.
+		"rooms": map[string]any{
+			"count":        activeRooms,
+			"totalPlayers": onlineUsers,
+		},
+		"network": map[string]any{
+			"messagesPerSecond": messagesPerSecond,
+			"totalMessages":     totalMessages,
+			"totalErrors":       totalErrors,
+			"errorRate":         errorRate,
+		},
 	}
 	agentStatus := map[string]any{"enabled": false, "online": false}
 	if s.agent != nil {
@@ -100,6 +117,7 @@ func (s *Service) handleAdminMetrics(w http.ResponseWriter, r *http.Request, _ *
 		}
 	}
 	resp["agent"] = agentStatus
+	resp["agent"].(map[string]any)["workers"] = []any{}
 	// ?history=1 附带 CPU/内存历史采样（GUI 图表回填）。
 	if r.URL.Query().Get("history") == "1" {
 		resp["history"] = s.statsProc.History()

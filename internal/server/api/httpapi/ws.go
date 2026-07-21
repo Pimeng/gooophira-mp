@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Pimeng/gooophira-mp/internal/common/protocol"
@@ -24,6 +25,10 @@ type wsHub struct {
 
 	adminTimer   *time.Timer
 	adminPending bool
+
+	totalMessages atomic.Uint64
+	totalErrors   atomic.Uint64
+	startedAt     time.Time
 }
 
 const (
@@ -33,10 +38,11 @@ const (
 
 func newWSHub(svc *Service) *wsHub {
 	return &wsHub{
-		svc:      svc,
-		clients:  make(map[*wsClient]struct{}),
-		roomSubs: make(map[protocol.RoomID]map[*wsClient]struct{}),
-		admins:   make(map[*wsClient]struct{}),
+		svc:       svc,
+		clients:   make(map[*wsClient]struct{}),
+		roomSubs:  make(map[protocol.RoomID]map[*wsClient]struct{}),
+		admins:    make(map[*wsClient]struct{}),
+		startedAt: time.Now(),
 	}
 }
 
@@ -119,6 +125,7 @@ func (c *wsClient) enqueue(b []byte) {
 	select {
 	case c.send <- b:
 	default:
+		c.hub.totalErrors.Add(1)
 		c.close() // 慢客户端
 	}
 }
@@ -133,9 +140,11 @@ func (c *wsClient) writeLoop(ctx context.Context) {
 			err := c.conn.Write(wctx, websocket.MessageText, b)
 			cancel()
 			if err != nil {
+				c.hub.totalErrors.Add(1)
 				c.close()
 				return
 			}
+			c.hub.totalMessages.Add(1)
 		}
 	}
 }
@@ -299,7 +308,19 @@ func (c *wsClient) unsubscribeRoom() {
 func (c *wsClient) sendJSON(v any) {
 	if b, err := json.Marshal(v); err == nil {
 		c.enqueue(b)
+	} else {
+		c.hub.totalErrors.Add(1)
 	}
+}
+
+func (h *wsHub) metrics() (messagesPerSecond float64, totalMessages, totalErrors uint64) {
+	totalMessages = h.totalMessages.Load()
+	totalErrors = h.totalErrors.Load()
+	seconds := time.Since(h.startedAt).Seconds()
+	if seconds > 0 {
+		messagesPerSecond = float64(totalMessages) / seconds
+	}
+	return
 }
 
 func (c *wsClient) svcSendAdminSnapshot() {
@@ -334,6 +355,7 @@ func (h *wsHub) BroadcastRoomUpdate(roomID protocol.RoomID) {
 	}
 	b, err := json.Marshal(map[string]any{"type": "room_update", "data": data})
 	if err != nil {
+		h.totalErrors.Add(1)
 		return
 	}
 	for _, c := range targets {
@@ -378,6 +400,7 @@ func (h *wsHub) flushAdminUpdate() {
 		"data": map[string]any{"timestamp": time.Now().UnixMilli(), "changes": map[string]any{"rooms": rooms, "total_rooms": len(rooms)}},
 	})
 	if err != nil {
+		h.totalErrors.Add(1)
 		return
 	}
 	for _, c := range targets {

@@ -407,10 +407,16 @@ CLI 模式：
 
 CLI 审批等待时返回 `202 pending-approval`；拒绝返回 `403 approval-denied`；成功返回临时管理员 token 及过期时间。
 
-## 6. WebSocket
+## 6. API 路径迁移
+
+所有 HTTP API 的规范路径均增加 `/api` 前缀，例如 `/room` 迁移为 `/api/room`，`/admin/metrics` 迁移为 `/api/admin/metrics`，`/ws` 迁移为 `/api/ws`。旧 HTTP 路径在一个兼容周期内返回 `308 Permanent Redirect`；旧 `/ws` 地址继续直接接受 WebSocket 升级以兼容旧客户端。客户端和部署代理应优先使用新路径。
+
+`/gui`、`/gui/guipage.css` 和 `/gui/guipage.js` 已移除（deprecated/removed）。控制台页面由独立 Next.js 站点提供，Go 服务不再提供 GUI 静态资源。
+
+## 7. WebSocket
 
 ```text
-WS /ws
+WS /api/ws
 ```
 
 连接本身不要求 token。单条入站消息最大 64 KiB，慢客户端或发送队列满时连接会被关闭。
@@ -463,7 +469,7 @@ WS /ws
 {"type": "console_unsubscribe"}
 ```
 
-## 7. 飞书机器人快捷创建
+## 8. 飞书机器人快捷创建
 
 该接口复用现有 HTTP 服务和 Agent IPC。管理员访问接口后，Agent 调用飞书 SDK 创建应用并返回二维码链接；服主扫码确认后，凭据会自动写入 Agent 配置文件，并立即更新运行中的 Webhook 配置。
 

@@ -155,8 +155,20 @@ func (s *Service) Close() error {
 
 func (s *Service) handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", s.route)
+	mux.HandleFunc("/", s.routeHTTP)
 	return mux
+}
+
+func (s *Service) routeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/ws" && r.URL.Path != "/api/ws" && isLegacyAPIPath(r.URL.Path) {
+		newPath := "/api" + r.URL.Path
+		if r.URL.RawQuery != "" {
+			newPath += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, newPath, http.StatusPermanentRedirect)
+		return
+	}
+	s.route(w, r)
 }
 
 // route 是统一入口：CORS → 限流 → 分发。
@@ -171,10 +183,17 @@ func (s *Service) route(w http.ResponseWriter, r *http.Request) {
 
 	ip := clientIP(r, s.state.Config.EffectiveRealIPHeader())
 
-	// WebSocket 升级走独立路径（连接长存，不计入普通限流）。
-	if r.URL.Path == "/ws" {
+	// WebSocket 升级走独立路径（连接长存，不计入普通限流）。/api/ws 是规范地址，
+	// /ws 仅作兼容直连，绝不进入 HTTP 308 redirect 分支；浏览器不会跟随
+	// WebSocket 握手的 HTTP 308 重定向完成协议升级。
+	if r.URL.Path == "/ws" || r.URL.Path == "/api/ws" {
 		s.ws.handle(w, r, ip)
 		return
+	}
+
+	// 新 API 统一使用 /api 前缀，内部 handler 继续使用原有路径匹配。
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/api")
 	}
 
 	if !s.rl.allow(ip) {
@@ -186,9 +205,6 @@ func (s *Service) route(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
-	case r.Method == http.MethodGet && (r.URL.Path == "/gui" || r.URL.Path == "/gui/"):
-		s.handleGUIPage(w)
-	case r.Method == http.MethodGet && s.handleGUIAsset(w, r.URL.Path):
 	case r.Method == http.MethodGet && r.URL.Path == "/room":
 		s.handleRoomList(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/room-creation/config":
@@ -226,6 +242,18 @@ func (s *Service) route(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(l10n.TL(lang, "http-not-found", nil)))
 	}
+}
+
+func isLegacyAPIPath(path string) bool {
+	if path == "/room" || path == "/leaderboard" || path == "/ws" || path == "/room-creation/config" || path == "/replay/config" || path == "/charts/hot" {
+		return true
+	}
+	for _, prefix := range []string{"/admin/", "/replay/", "/player/", "/chart/", "/charts/"} {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) langFor(r *http.Request) *l10n.Language {
