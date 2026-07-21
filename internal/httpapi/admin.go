@@ -139,6 +139,9 @@ func (s *Service) adminErr(w http.ResponseWriter, lang *l10n.Language, status in
 
 // routeAdmin 分发管理路由；返回 false 表示未匹配。
 func (s *Service) routeAdmin(w http.ResponseWriter, r *http.Request, lang *l10n.Language) bool {
+	if s.routeAdminFeishu(w, r, lang) {
+		return true
+	}
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/admin/rooms":
 		s.state.Mu.Lock()

@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Pimeng/gooophira-mp/internal/agentfeishu"
 	"github.com/Pimeng/gooophira-mp/internal/agentinbox"
 	"github.com/Pimeng/gooophira-mp/internal/agentipc"
 	"github.com/Pimeng/gooophira-mp/internal/agentproto"
@@ -115,7 +116,7 @@ func main() {
 		go uploadStore.Run(ctx)
 	}
 
-	queryHandler := queryHandlers{stats: agentstats.QueryHandler{Store: statsStore}, upload: agentupload.QueryHandler{Store: uploadStore}}
+	queryHandler := queryHandlers{stats: agentstats.QueryHandler{Store: statsStore}, upload: agentupload.QueryHandler{Store: uploadStore}, feishu: agentfeishu.NewManager(agentConfigPath, webhookDispatcher)}
 	if err := run(ctx, *discoveryPath, *consumerID, *retryDelay, inbox, processors, queryHandler); err != nil {
 		log.Printf("agent stopped: %v", err)
 	}
@@ -169,9 +170,13 @@ func maintainStats(ctx context.Context, store *stats.Store, cfg config.AgentStat
 type queryHandlers struct {
 	stats  agentstats.QueryHandler
 	upload agentupload.QueryHandler
+	feishu *agentfeishu.Manager
 }
 
 func (h queryHandlers) Handle(ctx context.Context, request agentproto.QueryRequest) agentproto.QueryResponse {
+	if request.Method == agentproto.QueryFeishuAppRegistration {
+		return h.feishu.Handle(ctx, request)
+	}
 	if response, handled := h.upload.Handle(ctx, request); handled {
 		return response
 	}

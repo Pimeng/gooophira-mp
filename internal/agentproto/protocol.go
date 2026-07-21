@@ -100,14 +100,36 @@ type QueryResponse struct {
 }
 
 const (
-	QueryStatsPlayer      = "stats.player"
-	QueryStatsRecent      = "stats.recent"
-	QueryStatsLeaderboard = "stats.leaderboard"
-	QueryStatsChart       = "stats.chart"
-	QueryStatsChartsHot   = "stats.charts_hot"
-	QueryReplayUpload     = "replay.upload"
-	QueryReplayAutoConfig = "replay.auto_config"
+	QueryStatsPlayer           = "stats.player"
+	QueryStatsRecent           = "stats.recent"
+	QueryStatsLeaderboard      = "stats.leaderboard"
+	QueryStatsChart            = "stats.chart"
+	QueryStatsChartsHot        = "stats.charts_hot"
+	QueryReplayUpload          = "replay.upload"
+	QueryReplayAutoConfig      = "replay.auto_config"
+	QueryFeishuAppRegistration = "feishu.app_registration"
 )
+
+type FeishuAppRegistrationParams struct {
+	Action        string   `json:"action"`
+	TaskID        string   `json:"task_id,omitempty"`
+	TargetID      string   `json:"target_id,omitempty"`
+	ReceiveOpenID string   `json:"receive_open_id,omitempty"`
+	Events        []string `json:"events,omitempty"`
+	LiveUpdate    bool     `json:"live_update"`
+}
+
+type FeishuAppRegistrationResponse struct {
+	OK          bool      `json:"ok"`
+	TaskID      string    `json:"task_id,omitempty"`
+	Status      string    `json:"status,omitempty"`
+	QRURL       string    `json:"qr_url,omitempty"`
+	QRExpiresAt time.Time `json:"qr_expires_at,omitempty"`
+	Interval    int       `json:"interval,omitempty"`
+	ClientID    string    `json:"client_id,omitempty"`
+	UserOpenID  string    `json:"user_open_id,omitempty"`
+	Error       string    `json:"error,omitempty"`
+}
 
 type ReplayUploadParams struct {
 	ReplayID string `json:"replay_id"`
