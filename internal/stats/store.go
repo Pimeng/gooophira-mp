@@ -196,25 +196,23 @@ func (s *Store) RecordMatchEvent(ctx context.Context, eventID, roomID string, ch
 		if n > 0 {
 			initialPassRate = float64(passCount) / float64(n)
 		}
-		decayExpr := `CASE
-			WHEN last_played_at != '' THEN popularity * EXP((julianday(?) - julianday(last_played_at)) * ?) + ?
-			ELSE ?
-		END`
 		decayLambda := -math.Ln2 / float64(popularityHalfLifeDays)
 		if _, err := tx.ExecContext(ctx,
-			fmt.Sprintf(
-				`INSERT INTO chart_stats(chart_id,chart_name,plays,sum_acc,pass_rate,last_played_at,popularity,updated_at)
-				 VALUES(?,?,?,?,?,?,?,?)
-				 ON CONFLICT(chart_id) DO UPDATE SET
-				   chart_name     = excluded.chart_name,
-				   plays          = plays + excluded.plays,
-				   sum_acc        = sum_acc + excluded.sum_acc,
-				   pass_rate      = CASE WHEN plays + excluded.plays > 0
-					                     THEN CAST((pass_rate * plays + ?) AS REAL) / (plays + excluded.plays)
-					                     ELSE 0 END,
-				   last_played_at = excluded.last_played_at,
-				   popularity     = %s,
-				   updated_at     = excluded.updated_at`, decayExpr),
+			`INSERT INTO chart_stats(chart_id,chart_name,plays,sum_acc,pass_rate,last_played_at,popularity,updated_at)
+			 VALUES(?,?,?,?,?,?,?,?)
+			 ON CONFLICT(chart_id) DO UPDATE SET
+			   chart_name     = excluded.chart_name,
+			   plays          = plays + excluded.plays,
+			   sum_acc        = sum_acc + excluded.sum_acc,
+			   pass_rate      = CASE WHEN plays + excluded.plays > 0
+			                         THEN CAST((pass_rate * plays + ?) AS REAL) / (plays + excluded.plays)
+			                         ELSE 0 END,
+			   last_played_at = excluded.last_played_at,
+			   popularity     = CASE
+				WHEN last_played_at != '' THEN popularity * EXP((julianday(?) - julianday(last_played_at)) * ?) + ?
+				ELSE ?
+			END,
+			   updated_at     = excluded.updated_at`,
 			chartID, chartName, n, sumAcc(results), initialPassRate, now, float64(n), now,
 			float64(passCount),
 			now, decayLambda, float64(n), float64(n),
@@ -243,17 +241,13 @@ func (s *Store) loadRatings(ctx context.Context, tx *sql.Tx, userIDs []int) map[
 	for _, uid := range userIDs {
 		ratings[uid] = eloBaseRating
 	}
-	// 批量读取已有记录
-	rows, err := tx.QueryContext(ctx, `SELECT user_id, rating FROM player_stats WHERE user_id IN (`+placeholders(len(userIDs))+`)`, intsToAny(userIDs)...)
-	if err != nil {
-		return ratings
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var uid int
-		var r float64
-		if rows.Scan(&uid, &r) == nil {
-			ratings[uid] = r
+	// 逐个读取已有记录，用户 ID 作为查询参数绑定。
+	for _, uid := range userIDs {
+		var rating float64
+		if err := tx.QueryRowContext(ctx,
+			`SELECT rating FROM player_stats WHERE user_id = ?`, uid,
+		).Scan(&rating); err == nil {
+			ratings[uid] = rating
 		}
 	}
 	return ratings
@@ -480,28 +474,6 @@ func rankByScore(userIDs []int, results map[int]config.RecordData) []rankedResul
 		ranked = append(ranked, rankedResult{record: results[e.userID], rank: rank})
 	}
 	return ranked
-}
-
-func placeholders(n int) string {
-	if n <= 0 {
-		return ""
-	}
-	b := make([]byte, 0, n*2-1)
-	for i := 0; i < n; i++ {
-		if i > 0 {
-			b = append(b, ',')
-		}
-		b = append(b, '?')
-	}
-	return string(b)
-}
-
-func intsToAny(v []int) []any {
-	out := make([]any, len(v))
-	for i, x := range v {
-		out[i] = x
-	}
-	return out
 }
 
 func sumAcc(results map[int]config.RecordData) float64 {

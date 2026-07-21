@@ -12,7 +12,7 @@ require (
 	github.com/klauspost/compress v1.19.0
 	github.com/larksuite/oapi-sdk-go/v3 v3.9.9
 	github.com/redis/go-redis/v9 v9.21.0
-	golang.org/x/image v0.0.0-20191009234506-e7c1f5e7dbb8
+	golang.org/x/image v0.41.0
 	golang.org/x/sys v0.44.0
 	modernc.org/sqlite v1.53.0
 )
