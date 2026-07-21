@@ -8,10 +8,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Pimeng/gooophira-mp/internal/benchmetrics"
+	"github.com/Pimeng/gooophira-mp/internal/common/benchmark/benchmetrics"
+	"github.com/Pimeng/gooophira-mp/internal/common/protocol"
 	"github.com/Pimeng/gooophira-mp/internal/config"
-	"github.com/Pimeng/gooophira-mp/internal/protocol"
-	"github.com/Pimeng/gooophira-mp/internal/server"
+	"github.com/Pimeng/gooophira-mp/internal/core/server"
 )
 
 // ---------- 模拟 Phira ----------

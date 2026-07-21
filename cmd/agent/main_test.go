@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Pimeng/gooophira-mp/internal/agentinbox"
-	"github.com/Pimeng/gooophira-mp/internal/agentipc"
-	"github.com/Pimeng/gooophira-mp/internal/agentoutbox"
-	"github.com/Pimeng/gooophira-mp/internal/agentproto"
-	"github.com/Pimeng/gooophira-mp/internal/agentwebhook"
-	"github.com/Pimeng/gooophira-mp/internal/webhookmodel"
+	"github.com/Pimeng/gooophira-mp/internal/agent/inbox"
+	"github.com/Pimeng/gooophira-mp/internal/agent/ipc"
+	"github.com/Pimeng/gooophira-mp/internal/agent/outbox"
+	"github.com/Pimeng/gooophira-mp/internal/agent/webhook_processor"
+	"github.com/Pimeng/gooophira-mp/internal/common/agentproto"
+	"github.com/Pimeng/gooophira-mp/internal/common/webhookmodel"
 )
 
 type failingWebhookDeliverer struct{ fail bool }

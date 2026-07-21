@@ -10,7 +10,7 @@ import (
 	"runtime/pprof"
 	"time"
 
-	"github.com/Pimeng/gooophira-mp/internal/benchmetrics"
+	"github.com/Pimeng/gooophira-mp/internal/common/benchmark/benchmetrics"
 )
 
 // ---------- 命令行 ----------

@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/Pimeng/gooophira-mp/internal/benchmetrics"
-	"github.com/Pimeng/gooophira-mp/internal/protocol"
+	"github.com/Pimeng/gooophira-mp/internal/common/benchmark/benchmetrics"
+	"github.com/Pimeng/gooophira-mp/internal/common/protocol"
 	"sync"
 	"sync/atomic"
 	"time"
