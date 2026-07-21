@@ -102,10 +102,10 @@ func (l *Ledger) Mark(eventID, targetID string, status ledgerStatus) error {
 	if err != nil {
 		return err
 	}
-	encoded := make([]byte, ledgerHeaderSize+len(data))
+	encoded := make([]byte, ledgerHeaderSize)
 	binary.BigEndian.PutUint32(encoded[:4], uint32(len(data)))
 	binary.BigEndian.PutUint32(encoded[4:8], crc32.ChecksumIEEE(data))
-	copy(encoded[8:], data)
+	encoded = append(encoded, data...)
 	if n, err := l.file.Write(encoded); err != nil || n != len(encoded) {
 		if err == nil {
 			err = io.ErrShortWrite
@@ -201,10 +201,10 @@ func (l *Ledger) rewriteLocked() (err error) {
 		if marshalErr != nil {
 			return marshalErr
 		}
-		record := make([]byte, ledgerHeaderSize+len(data))
+		record := make([]byte, ledgerHeaderSize)
 		binary.BigEndian.PutUint32(record[:4], uint32(len(data)))
 		binary.BigEndian.PutUint32(record[4:8], crc32.ChecksumIEEE(data))
-		copy(record[8:], data)
+		record = append(record, data...)
 		if _, err := temp.Write(record); err != nil {
 			return err
 		}
