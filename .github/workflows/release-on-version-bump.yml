@@ -1,13 +1,13 @@
 name: 版本号变更时自动发布
 
-# Go 项目的版本号唯一来源是 internal/version/VERSION（参见 internal/version/version.go，
+# Go 项目的版本号唯一来源是 internal/common/platform/version/VERSION（参见 internal/common/platform/version/version.go，
 # 通过 go:embed 内嵌进二进制）。push 到 main 且该文件版本相对「上一个提交」升高时：
 #   交叉编译各平台二进制 → 创建 GitHub Release 并上传产物 → 镜像该 Release 到 CNB。
 on:
   push:
     branches: [main]
     paths:
-      - internal/version/VERSION
+      - internal/common/platform/version/VERSION
 
 concurrency:
   group: release-on-version-bump-${{ github.ref }}
@@ -33,7 +33,7 @@ jobs:
       - name: 比对 VERSION 是否相对上一提交升高
         id: check
         run: |
-          current=$(tr -d ' \t\r\n' < internal/version/VERSION)
+          current=$(tr -d ' \t\r\n' < internal/common/platform/version/VERSION)
           echo "version=$current" >> "$GITHUB_OUTPUT"
 
           # 关键：与「当前提交的父提交」HEAD~1（即上一个提交）比对，而非 github.event.before。
@@ -41,7 +41,7 @@ jobs:
           # 因此版本号 bump 应作为该次 push 的最新提交（建议单独成一个提交）。
           previous=""
           if git rev-parse -q --verify HEAD~1 >/dev/null 2>&1; then
-            previous=$(git show HEAD~1:internal/version/VERSION 2>/dev/null | tr -d ' \t\r\n')
+            previous=$(git show HEAD~1:internal/common/platform/version/VERSION 2>/dev/null | tr -d ' \t\r\n')
           fi
           [ -z "$previous" ] && previous="0.0.0" # 首个提交无父提交
           echo "上一提交版本：$previous → 当前版本：$current"

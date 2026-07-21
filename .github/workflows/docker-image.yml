@@ -1,12 +1,12 @@
 name: 构建并推送容器镜像
 
-# 与「版本号变更时自动发布」同源触发：push 到 main 且 internal/version/VERSION 变更时，
+# 与「版本号变更时自动发布」同源触发：push 到 main 且 internal/common/platform/version/VERSION 变更时，
 # 构建 linux/amd64 + linux/arm64 多架构镜像推送到 GHCR。也支持手动触发。
 on:
   push:
     branches: [main]
     paths:
-      - internal/version/VERSION
+      - internal/common/platform/version/VERSION
       - Dockerfile
   workflow_dispatch: {}
 
@@ -28,7 +28,7 @@ jobs:
 
       - name: 读取版本号
         id: ver
-        run: echo "version=$(tr -d ' \t\r\n' < internal/version/VERSION)" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(tr -d ' \t\r\n' < internal/common/platform/version/VERSION)" >> "$GITHUB_OUTPUT"
 
       - name: 设置 QEMU（跨架构构建）
         uses: docker/setup-qemu-action@v3
