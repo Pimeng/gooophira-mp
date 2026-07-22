@@ -1,17 +1,18 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { useAdminSubscription } from "@/hooks/useAdminSubscription"
-import { createRoomsApi } from "@/lib/api/rooms"
-import type { AdminRoomsResponse } from "@/lib/api/types"
+import type { AdminUsersResponse } from "@/lib/api/types"
+import { createUsersApi } from "@/lib/api/users"
 import { useApiClient } from "@/providers/AppProviders"
 
-export function useAdminRooms() {
+export function useAdminUsers() {
   const client = useApiClient()
   const subscription = useAdminSubscription()
-  const query = useQuery<AdminRoomsResponse>({
-    queryKey: ["admin", "rooms"],
-    queryFn: () => createRoomsApi(client).getAdminRooms(),
+  const query = useQuery<AdminUsersResponse>({
+    queryKey: ["admin", "users"],
+    queryFn: () => createUsersApi(client).getAdminUsers(),
   })
+
   return {
     ...query,
     loading: query.isLoading || subscription.loading,

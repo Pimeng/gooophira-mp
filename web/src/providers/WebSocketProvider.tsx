@@ -27,6 +27,7 @@ export interface WebSocketProviderProps {
 
 function updateCache(queryClient: QueryClient, event: WsServerEvent): void {
   if (event.type === "admin_update") {
+    // The backend builds this list from all current rooms, so absence means removal.
     queryClient.setQueryData<AdminRoomsResponse>(adminRoomsKey, () => ({
       ok: true,
       rooms: event.data.changes.rooms,
