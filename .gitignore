@@ -20,7 +20,7 @@ node_modules/
 /phira-mp-agent
 /phira-mp-agent.exe
 *.exe
-/dist/
+dist/
 
 # 本地环境与 IDE
 /.env
