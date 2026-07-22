@@ -60,7 +60,6 @@ func (c *ServerConfig) EffectiveLang() string            { return strOr(c.Lang, 
 func (c *ServerConfig) EffectiveRealIPHeader() string    { return strOr(c.RealIPHeader, "") }
 func (c *ServerConfig) EffectiveHAProxyProtocol() bool   { return boolOr(c.HAProxyProtocol, false) }
 func (c *ServerConfig) EffectiveHTTPService() bool       { return boolOr(c.HTTPService, false) }
-func (c *ServerConfig) EffectiveGUI() bool               { return boolOr(c.GUI, false) }
 func (c *ServerConfig) EffectiveAllowTokenInQuery() bool { return boolOr(c.AllowTokenInQuery, false) }
 func (c *ServerConfig) EffectiveWebhook() *WebhookConfig { return c.Webhook }
 func (c *ServerConfig) EffectiveStatsDBPath() string     { return strOr(c.StatsDBPath, "stats.db") }

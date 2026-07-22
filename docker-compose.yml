@@ -21,7 +21,7 @@ services:
     restart: unless-stopped
     ports:
       - "${GAME_PORT:-12346}:12346"   # TCP 游戏服务
-      - "${HTTP_PORT:-12347}:12347"   # HTTP 管理 / GUI 控制台
+      - "${HTTP_PORT:-12347}:12347"   # HTTP API
     environment:
       # —— 服务监听 ——
       HOST: "::"

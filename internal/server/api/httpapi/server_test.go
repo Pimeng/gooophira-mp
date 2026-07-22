@@ -71,6 +71,24 @@ func TestHTTP_RoomList(t *testing.T) {
 	}
 }
 
+func TestHTTP_APIPrefix(t *testing.T) {
+	svc, state := newTestService(t, nil)
+	addRoom(state, "room1", 1, "alice", nil)
+	h := svc.handler()
+
+	root := httptest.NewRecorder()
+	h.ServeHTTP(root, httptest.NewRequest(http.MethodGet, "/room", nil))
+	if root.Code != http.StatusNotFound {
+		t.Fatalf("root route status = %d, want 404", root.Code)
+	}
+
+	api := httptest.NewRecorder()
+	h.ServeHTTP(api, httptest.NewRequest(http.MethodGet, "/api/room", nil))
+	if api.Code != http.StatusOK {
+		t.Fatalf("api route status = %d, want 200", api.Code)
+	}
+}
+
 func TestHTTP_RoomStateStrings(t *testing.T) {
 	svc, state := newTestService(t, nil)
 	addRoom(state, "r1", 1, "a", nil)

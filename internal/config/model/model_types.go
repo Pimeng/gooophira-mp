@@ -19,7 +19,6 @@ type ServerConfig struct {
 	Port                     *int
 	HTTPService              *bool
 	HTTPPort                 *int
-	GUI                      *bool
 	RoomMaxUsers             *int
 	RoomCreationEnabled      *bool
 	PlayingReconnectGrace    *int

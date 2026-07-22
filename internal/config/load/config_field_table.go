@@ -12,7 +12,6 @@ var configFields = []fieldSpec{
 	intField("PORT", true, parsePortValue, func(c *ServerConfig) **int { return &c.Port }),
 	boolField("HTTP_SERVICE", true, func(c *ServerConfig) **bool { return &c.HTTPService }),
 	intField("HTTP_PORT", true, parsePortValue, func(c *ServerConfig) **int { return &c.HTTPPort }),
-	boolField("GUI", true, func(c *ServerConfig) **bool { return &c.GUI }),
 	intField("ROOM_MAX_USERS", false, parseRoomMaxUsersValue, func(c *ServerConfig) **int { return &c.RoomMaxUsers }),
 	boolField("ROOM_CREATION_ENABLED", false, func(c *ServerConfig) **bool { return &c.RoomCreationEnabled }),
 	intField("PLAYING_RECONNECT_GRACE", false, parsePlayingGraceValue, func(c *ServerConfig) **int { return &c.PlayingReconnectGrace }),

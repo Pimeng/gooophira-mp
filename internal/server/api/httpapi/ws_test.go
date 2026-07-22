@@ -17,7 +17,7 @@ func dialWS(t *testing.T, svc *Service) (*websocket.Conn, context.Context) {
 		t.Fatalf("start: %v", err)
 	}
 	ctx := context.Background()
-	conn, _, err := websocket.Dial(ctx, "ws://"+addr.String()+"/ws", nil)
+	conn, _, err := websocket.Dial(ctx, "ws://"+addr.String()+"/api/ws", nil)
 	if err != nil {
 		t.Fatalf("dial ws: %v", err)
 	}

@@ -87,7 +87,7 @@ func New(state *server.ServerState, hub *server.Hub, statsProvider StatsProvider
 		s.pprofURL = pprofURL[0]
 	}
 	s.ws = newWSHub(s)
-	s.statsProc = procstats.Start() // 进程 CPU/内存采样（GUI 监控图表）
+	s.statsProc = procstats.Start()
 	state.WSService = s.ws
 	// 配置热重载时更新 HTTP 限流阈值/窗口。
 	state.OnConfigReload(func(c *config.ServerConfig) {
@@ -155,7 +155,20 @@ func (s *Service) Close() error {
 
 func (s *Service) handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", s.route)
+	mux.HandleFunc("/api", func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/api")
+		if path == "" {
+			path = "/"
+		}
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = path
+		s.route(w, r2)
+	})
+	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = strings.TrimPrefix(r.URL.Path, "/api")
+		s.route(w, r2)
+	})
 	return mux
 }
 
@@ -186,9 +199,6 @@ func (s *Service) route(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
-	case r.Method == http.MethodGet && (r.URL.Path == "/gui" || r.URL.Path == "/gui/"):
-		s.handleGUIPage(w)
-	case r.Method == http.MethodGet && s.handleGUIAsset(w, r.URL.Path):
 	case r.Method == http.MethodGet && r.URL.Path == "/room":
 		s.handleRoomList(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/room-creation/config":
