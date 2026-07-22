@@ -10,6 +10,7 @@
 /server_config.yml
 /config/
 /stats.db
+node_modules/
 
 # 编译产物
 /server
@@ -32,3 +33,5 @@
 
 # 原仓库
 tphira-mp-src/
+
+AI_FRONTEND_RULES.md
